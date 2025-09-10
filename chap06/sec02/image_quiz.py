@@ -56,3 +56,27 @@ def image_quiz(image_path):
 q=image_quiz("../data/images/busan_dive.jpg")
 
 print(q)
+
+txt=''
+no=1
+for g in glob('../data/images/*.jpg'):
+    try:
+        q=image_quiz(g)
+    except Exception as e:
+        print(e)
+        continue
+
+    divider=f'## 문제 {no}\n\n'
+    print(divider)
+    txt += divider
+    filename=os.path.basename(g)
+    txt += f'![image]({filename})\n\n'
+
+    # 문제 추가
+    print(q)
+    txt += q + '\n\n-------------------------------\n\n'
+
+    with open('../data/images/image_quiz.md','w',encoding='utf-8') as f:
+        f.write(txt)
+
+    no += 1 # 문제 번호 증가
