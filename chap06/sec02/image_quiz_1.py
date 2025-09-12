@@ -1,4 +1,5 @@
 from glob import glob
+import json
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
@@ -79,6 +80,7 @@ q=image_quiz("../data/images/busan_dive.jpg")
 print(q)
 
 txt=''
+eng_dict=[]
 no=1
 for g in glob('../data/images/*.jpg'):
 
@@ -97,7 +99,20 @@ for g in glob('../data/images/*.jpg'):
     print(q)
     txt += q + '\n\n-------------------------------\n\n'
 
-    with open('../data/images/image_quiz.md','w',encoding='utf-8') as f:
+    with open('../data/images/image_quiz_with_eng.md','w',encoding='utf-8') as f:
         f.write(txt)
+
+    # 영어 문제만 추출
+    eng=q.split('Listening: ')[1].split('정답:')[0].strip()
+
+    eng_dict.append({
+        'no': no,
+        'eng': eng,
+        'img': filename
+    })
+
+    # JSON 파일로 저장
+    with open('../data/images/image_quiz_eng.json','w',encoding='utf-8') as f:
+        json.dump(eng_dict,f,ensure_ascii=False, indent=4)
 
     no += 1 # 문제 번호 증가
