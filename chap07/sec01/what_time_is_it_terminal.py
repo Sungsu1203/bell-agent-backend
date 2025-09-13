@@ -1,7 +1,8 @@
-from gpt_functions_0 import get_current_time, tools
+from gpt_functions import get_current_time, tools
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
+import json # GPT가 JSON 형태의 문자열을 반환할 때 읽기 위한 라이브러리 임포트
 
 load_dotenv(r"D:\GPT_AGENT_2025_BOOK\.env")
 api_key=os.getenv('OPENAI_API_KEY')
@@ -33,20 +34,25 @@ while True:
     print(ai_message)
 
     tool_calls=ai_message.tool_calls
-    if tool_calls:
-        tool_name=tool_calls[0].function.name
-        tool_call_id=tool_calls[0].id
+    if tool_calls: # tool_calls가 있는 경우
+        for tool_call in tool_calls:
 
-        if tool_name=="get_current_time":
-            messages.append({
-                "role":"function",
-                "tool_call_id":tool_call_id,
-                "name":tool_name,
-                "content":get_current_time(),
-            })
+            tool_name=tool_call.function.name   # 실행해야 한다고 판단한 함수명 받기
+            tool_call_id=tool_call.id           # 함수 아이디 받기
+
+            arguments=json.loads(tool_call.function.arguments) # 문자열을 딕셔너리로 변환
+
+            if tool_name=="get_current_time":   # tool_name이 "get_current_time"인 경우
+                messages.append({
+                    "role":"function",
+                    "tool_call_id":tool_call_id,
+                    "name":tool_name,
+                    "content":get_current_time(timezone=arguments['timezone']),
+                })
+        messages.append({"role":"system","content":"이제 주어진 결과를 바탕으로 답변할 차례다."})
 
         ai_response=get_ai_response(messages,tools=tools)
         ai_message=ai_response.choices[0].message
 
     messages.append(ai_message)
-    print("AI\t: "+ ai_message.content)
+    print("AI\t: " + ai_message.content)
