@@ -9,6 +9,11 @@ import os
 absolute_path = os.path.abspath(__file__) # 현재 파일의 절대 경로 반환
 current_path = os.path.dirname(absolute_path) # 현재 .py 파일이 있는 폴더 경로
 
+from dotenv import load_dotenv
+load_dotenv(r"D:\GPT_AGENT_2025_BOOK\chap02\.env")
+api_key=os.getenv("OPENAI_API_KEY")
+
+
 # RAG를 위한 설정
 from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
