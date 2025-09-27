@@ -1,0 +1,428 @@
+{
+    "messages": [
+        [
+            "SystemMessage",
+            "\n        너희 AI들은 사용자의 요구에 맞는 책을(를) 쓰는 작가팀이다.\n        사용자가 사용하는 언어로 대화하라.\n\n        현재시각은 2025-09-26 21:49:49이다.\n        "
+        ],
+        [
+            "HumanMessage",
+            "- 2025 한국 AI 기본법 기업 KPI/ROI 가이드"
+        ],
+        [
+            "AIMessage",
+            "[Supervisor fast-path] → web_search_agent (force_queries 1개 감지)"
+        ],
+        [
+            "AIMessage",
+            "[WEB SEARCH AGENT] 검색 완료(8건). JSON 저장 및 Chroma 적재(또는 프리뷰) 완료. (예: D:\\GPT_AGENT_2025_BOOK\\chap14-1\\sec04/data/resources_2025_0926_215044.json)"
+        ],
+        [
+            "AIMessage",
+            "[VECTOR SEARCH AGENT] 다음 질문에 대한 검색 완료: ['2025 한국 AI 기본법 기업 KPI/ROI 가이드', '2025 한국 AI 기본법 주요 내용', 'AI 기본법 기업에 미치는 영향', '생성형 AI 도입 및 거버넌스 전략', 'AI 기본법 대응 성공 사례', 'AI 기본법 시행 도전 과제와 기회', 'AI 기본법 법적, 기술적, 윤리적 요구사항', 'AI 기본법 리스크 및 대응책']"
+        ],
+        [
+            "AIMessage",
+            "안녕하세요! AI팀의 커뮤니케이터입니다. 현재 저희 팀은 '2025 한국 AI 기본법' 시행에 대응하기 위한 생성형 AI 도입 및 거버넌스 로드맵을 주제로 보고서를 작성하고 있습니다. 이 보고서는 중견·대기업이 AI 기본법에 효과적으로 대응하고, 생성형 AI를 통해 법적 요구사항을 충족하면서도 비즈니스 혁신을 이룰 수 있도록 돕기 위한 것입니다.\n\n현재까지의 진행 상황을 간단히 말씀드리자면, 저희는 AI 기본법의 주요 내용과 기업에 미치는 영향을 분석하고, 이를 기반으로 전략적 목표를 설정했습니다. 또한, 법적, 기술적, 윤리적 요구사항을 검토하여 기업의 AI 도입 및 거버넌스 체계 구축을 위한 방법론을 제시하고 있습니다.\n\n사용자께서 추가적으로 궁금하신 점이나 의견이 있으시면 언제든지 말씀해 주세요. 여러분의 피드백은 저희 보고서의 완성도를 높이는 데 큰 도움이 됩니다. 감사합니다!"
+        ],
+        [
+            "HumanMessage",
+            "책 목차를 보여줘"
+        ],
+        [
+            "AIMessage",
+            "[Supervisor fast-path] → communicator (show_outline:outline.md)"
+        ],
+        [
+            "AIMessage",
+            "## 현재 목차 (outline.md)\n\n**실무 보고서 개요: 2025 한국 ‘AI 기본법’ 시행 대응을 위한 생성형 AI 도입·거버넌스 로드맵**\n\n1. **Executive Summary**\n   - 본 보고서는 2025년 시행되는 한국 ‘AI 기본법’에 대응하기 위한 중견·대기업의 생성형 AI 도입 및 거버넌스 전략을 제시합니다. 법적 요구사항과 비즈니스 기회를 동시에 충족시키기 위한 로드맵을 제공합니다.\n\n2. **Background & Objectives**\n   - AI 기본법의 주요 내용과 기업에 미치는 영향을 설명하고, 이를 기반으로 기업이 경쟁력을 유지하며 법적 요구사항을 충족할 수 있는 전략적 목표를 설정합니다.\n\n3. **Scope & Methodology**\n   - 본 보고서는 AI 기본법의 법적, 기술적, 윤리적 요구사항을 분석하고, 기업의 AI 도입 및 거버넌스 체계 구축을 위한 방법론을 제시합니다. 최신 산업 트렌드와 사례 연구를 포함합니다.\n\n4. **Key Findings (데이터/사례 중심)**\n   - AI 기본법이 기업에 미치는 영향과 대응 사례를 분석합니다. 주요 기업의 AI 도입 및 거버넌스 성공 사례를 통해 법적 요구사항 준수와 비즈니스 가치 창출을 동시에 달성한 사례를 제시합니다.\n\n5. **Analysis & Insights**\n   - AI 기본법 시행에 따른 주요 도전 과제와 기회를 분석합니다. 법적 요구사항을 충족하면서도 비즈니스 혁신을 촉진할 수 있는 전략적 인사이트를 제공합니다.\n\n6. **Recommendations (Action Items)**\n   - AI 기본법에 대응하기 위한 단계별 계획을 제시하고, 조직 내 역할 및 책임을 명확히 정의합니다. 법적 요구사항 준수를 위한 기술적, 윤리적, 법적 대응 방안을 제시합니다.\n\n7. **Risks & Mitigations**\n   - 법적 리스크: AI 기본법 준수 실패 시의 법적 제재\n   - 기술적 리스크: 데이터 보안, 시스템 안정성\n   - 윤리적 우려: 프라이버시, 공정성\n   - 각 리스크에 대한 대응책을 설명합니다.\n\n8. **Implementation Plan & Timeline**\n   - AI 기본법 시행에 대응하기 위한 단계별 실행 계획과 일정표를 제시합니다. 각 단계별 주요 활동과 책임자를 명확히 정의합니다.\n\n9. **Appendix (Data, Glossary, References)**\n   - 보고서 작성에 사용된 데이터, 용어 설명, 참고 문헌을 포함합니다.\n\n이 보고서는 중견·대기업이 AI 기본법 시행에 효과적으로 대응하고, 생성형 AI를 통해 법적 요구사항을 충족하면서도 비즈니스 혁신을 이룰 수 있도록 설계되었습니다. 추가적인 요구사항이나 수정이 필요하다면 언제든지 말씀해 주세요."
+        ],
+        [
+            "HumanMessage",
+            "책 목차를 새로 만들어줘"
+        ],
+        [
+            "AIMessage",
+            "[Supervisor fast-path] → content_strategist (target=outline.md)"
+        ],
+        [
+            "AIMessage",
+            "[Content Strategist] 목차 작성 완료 → outline.md / outline.md 저장"
+        ],
+        [
+            "AIMessage",
+            "안녕하세요! AI팀의 커뮤니케이터입니다. 현재 저희 팀은 '2025 한국 AI 기본법' 시행에 대응하기 위한 기업의 KPI/ROI 가이드를 작성하고 있습니다. 이 가이드는 기업들이 AI 기본법에 효과적으로 대응하고, 비즈니스 성과를 극대화할 수 있도록 돕기 위한 것입니다.\n\n현재까지의 진행 상황을 간단히 말씀드리자면, AI 기본법의 주요 내용과 기업에 미치는 영향을 분석하고, 이를 기반으로 기업의 KPI 및 ROI 설정 방법론을 개발하고 있습니다. 또한, AI 도입 전략 및 거버넌스 체계 구축을 위한 구체적인 방안을 제시하고 있습니다.\n\n사용자께서 추가적으로 궁금하신 점이나 의견이 있으시면 언제든지 말씀해 주세요. 여러분의 피드백은 저희 보고서의 완성도를 높이는 데 큰 도움이 됩니다. 감사합니다!"
+        ],
+        [
+            "HumanMessage",
+            "정확히 다음 쿼리로 검색하세요:\n- 2025 한국 AI 기본법 기업 KPI/ROI 가이드\n- LLM TCO on-prem vs SaaS 2025 cost breakdown"
+        ],
+        [
+            "AIMessage",
+            "[Supervisor fast-path] → web_search_agent (force_queries 2개 감지)"
+        ],
+        [
+            "AIMessage",
+            "[WEB SEARCH AGENT] 검색 완료(9건). JSON 저장 및 Chroma 적재(또는 프리뷰) 완료. (예: D:\\GPT_AGENT_2025_BOOK\\chap14-1\\sec04/data/resources_2025_0926_215840.json)"
+        ],
+        [
+            "AIMessage",
+            "[VECTOR SEARCH AGENT] 다음 질문에 대한 검색 완료: ['2025 한국 AI 기본법 기업 KPI/ROI 가이드', '2025 한국 AI 기본법 주요 내용', 'AI 기본법 기업에 미치는 영향', '생성형 AI 도입 및 거버넌스 전략', 'AI 기본법 대응 성공 사례', 'AI 기본법 시행 도전 과제와 기회', 'AI 기본법 법적, 기술적, 윤리적 요구사항', 'AI 기본법 리스크 및 대응책', 'LLM TCO on-prem vs SaaS 2025 cost breakdown']"
+        ],
+        [
+            "AIMessage",
+            "안녕하세요! AI팀의 커뮤니케이터입니다. 현재 저희 팀은 '2025 한국 AI 기본법' 시행에 대응하기 위한 기업의 KPI/ROI 가이드를 작성하고 있습니다. 이 가이드는 기업들이 AI 기본법에 효과적으로 대응하고, 비즈니스 성과를 극대화할 수 있도록 돕기 위한 것입니다.\n\n현재까지의 진행 상황을 간단히 말씀드리자면, AI 기본법의 주요 내용과 기업에 미치는 영향을 분석하고, 이를 기반으로 기업의 KPI 및 ROI 설정 방법론을 개발하고 있습니다. 또한, AI 도입 전략 및 거버넌스 체계 구축을 위한 구체적인 방안을 제시하고 있습니다.\n\n혹시 추가적으로 궁금하신 점이나 의견이 있으시면 언제든지 말씀해 주세요. 여러분의 피드백은 저희 보고서의 완성도를 높이는 데 큰 도움이 됩니다. 감사합니다!"
+        ]
+    ],
+    "task_history": [
+        {
+            "agent": "web_search_agent",
+            "done": true,
+            "description": "rag_update:auto",
+            "done_at": "2025-09-26 21:51:26"
+        },
+        {
+            "agent": "vector_search_agent",
+            "done": true,
+            "description": "RAG 인덱싱을 위한 벡터 검색/검증을 수행한다. queries=['2025 한국 AI 기본법 기업 KPI/ROI 가이드', '2025 한국 AI 기본법 주요 내용', 'AI 기본법 기업에 미치는 영향', '생성형 AI 도입 및 거버넌스 전략', 'AI 기본법 대응 성공 사례', 'AI 기본법 시행 도전 과제와 기회', 'AI 기본법 법적, 기술적, 윤리적 요구사항', 'AI 기본법 리스크 및 대응책'] json_paths=['D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-1\\\\sec04/data/resources_2025_0926_215044.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-1\\\\sec04/data/resources_2025_0926_215050.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-1\\\\sec04/data/resources_2025_0926_215054.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-1\\\\sec04/data/resources_2025_0926_215057.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-1\\\\sec04/data/resources_2025_0926_215103.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-1\\\\sec04/data/resources_2025_0926_215111.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-1\\\\sec04/data/resources_2025_0926_215118.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-1\\\\sec04/data/resources_2025_0926_215125.json']",
+            "done_at": "2025-09-26 21:51:36"
+        },
+        {
+            "agent": "chapter_writer",
+            "done": false,
+            "description": "write: 서문",
+            "done_at": ""
+        },
+        {
+            "agent": "communicator",
+            "done": true,
+            "description": "검색/인덱싱 완료 보고 및 다음 집필 대상 확인",
+            "done_at": "2025-09-26 21:51:41"
+        },
+        {
+            "agent": "communicator",
+            "done": true,
+            "description": "show_outline:outline.md",
+            "done_at": "2025-09-26 21:52:55"
+        },
+        {
+            "agent": "communicator",
+            "done": true,
+            "description": "목차를 보여준 뒤, 다음 집필 대상이나 수정 요청을 물어본다.",
+            "done_at": "2025-09-26 21:53:45"
+        },
+        {
+            "agent": "content_strategist",
+            "done": true,
+            "description": "create_outline:outline.md",
+            "done_at": "2025-09-26 21:53:42"
+        },
+        {
+            "agent": "web_search_agent",
+            "done": true,
+            "description": "rag_update:auto",
+            "done_at": "2025-09-26 21:59:19"
+        },
+        {
+            "agent": "vector_search_agent",
+            "done": true,
+            "description": "RAG 인덱싱을 위한 벡터 검색/검증을 수행한다. queries=['2025 한국 AI 기본법 기업 KPI/ROI 가이드', 'LLM TCO on-prem vs SaaS 2025 cost breakdown', '2025 한국 AI 기본법 주요 내용', 'AI 기본법 기업에 미치는 영향', '생성형 AI 도입 및 거버넌스 전략', 'AI 기본법 대응 성공 사례', 'AI 기본법 시행 도전 과제와 기회', 'AI 기본법 법적, 기술적, 윤리적 요구사항', 'AI 기본법 리스크 및 대응책'] json_paths=['D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-1\\\\sec04/data/resources_2025_0926_215840.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-1\\\\sec04/data/resources_2025_0926_215844.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-1\\\\sec04/data/resources_2025_0926_215855.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-1\\\\sec04/data/resources_2025_0926_215859.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-1\\\\sec04/data/resources_2025_0926_215903.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-1\\\\sec04/data/resources_2025_0926_215906.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-1\\\\sec04/data/resources_2025_0926_215910.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-1\\\\sec04/data/resources_2025_0926_215914.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-1\\\\sec04/data/resources_2025_0926_215918.json']",
+            "done_at": "2025-09-26 21:59:30"
+        },
+        {
+            "agent": "communicator",
+            "done": true,
+            "description": "검색/인덱싱 완료 보고 및 다음 집필 대상 확인",
+            "done_at": "2025-09-26 21:59:32"
+        }
+    ],
+    "references": {
+        "queries": [
+            "2025 한국 AI 기본법 기업 KPI/ROI 가이드",
+            "2025 한국 AI 기본법 주요 내용",
+            "AI 기본법 기업에 미치는 영향",
+            "생성형 AI 도입 및 거버넌스 전략",
+            "AI 기본법 대응 성공 사례",
+            "AI 기본법 시행 도전 과제와 기회",
+            "AI 기본법 법적, 기술적, 윤리적 요구사항",
+            "AI 기본법 리스크 및 대응책",
+            "LLM TCO on-prem vs SaaS 2025 cost breakdown"
+        ],
+        "docs": [
+            {
+                "source": "https://www.lexology.com/library/detail.aspx?g=b5c0170e-2bdb-4a3a-bba9-5cd5af697e61"
+            },
+            {
+                "source": "https://www.ibm.com/kr-ko/think/insights/ai-roi"
+            },
+            {
+                "source": "https://www.lawtimes.co.kr/LawFirm-NewsLetter/211806"
+            },
+            {
+                "source": "https://goldenplanet.co.kr/our_contents/blog?number=1133&pn=1"
+            },
+            {
+                "source": "https://skywork.ai/skypage/ko/%ED%95%9C%EA%B5%AD-%EC%A0%95%EB%B6%80%EC%9D%98-AI-%EA%B7%9C%EC%A0%9C-%EC%B4%88%EC%95%88%EC%9D%B4-%EC%8A%A4%ED%83%80%ED%8A%B8%EC%97%85%EC%97%90-%EB%AF%B8%EC%B9%98%EB%8A%94-%EC%9E%A0%EC%9E%AC%EC%A0%81-%EC%98%81%ED%96%A5-%EC%8B%AC%EC%B8%B5-%EB%B6%84%EC%84%9D/1950010043453489152"
+            },
+            {
+                "source": "https://journal.kiso.or.kr/?p=13119"
+            },
+            {
+                "source": "https://www.leeko.com/leenko/news/newsLetterView.do?lang=KR&newsletterNo=2192"
+            },
+            {
+                "source": "https://skywork.ai/skypage/ko/2025%EB%85%84-%ED%95%9C%EA%B5%AD-AI-%EA%B1%B0%EB%B2%84%EB%84%8C%EC%8A%A4-%EB%B0%B1%EC%84%9C-%EC%8B%AC%EC%B8%B5-%EB%B6%84%EC%84%9D:-%EB%B2%95%EB%A5%A0,-%EA%B8%B0%EC%88%A0,-%EC%9C%A4%EB%A6%AC-%EA%B8%B0%EC%A4%80%EA%B3%BC-%EC%82%B0%EC%97%85%EB%B3%84-%EC%98%81%ED%96%A5-%ED%8F%89%EA%B0%80/1948615087510384640"
+            },
+            {
+                "source": "https://www.cela.kr/4/?bmode=view&idx=148966233"
+            },
+            {
+                "source": "https://www.lawtimes.co.kr/LawFirm-NewsLetter/204461"
+            },
+            {
+                "source": "https://eiec.kdi.re.kr/policy/domesticView.do?ac=0000193204"
+            },
+            {
+                "source": "https://www.ibm.com/kr-ko/think/topics/ai-governance"
+            },
+            {
+                "source": "https://www.deloitte.com/kr/ko/Industries/technology/research/generative-ai-value-analysis-6-industries.html"
+            },
+            {
+                "source": "https://www.ey.com/ko_kr/insights/consulting/5-initiatives-for-successful-genai-adoption"
+            },
+            {
+                "source": "https://blog.cslee.co.kr/strategies-for-successful-generative-ai-services/"
+            },
+            {
+                "source": "https://www.deloitte.com/kr/ko/our-thinking/global-economic-review/ger-20241106.html"
+            },
+            {
+                "source": "https://www.klri.re.kr/kor/publication/2254/view.do"
+            },
+            {
+                "source": "https://sls.skku.edu/_res/sls/etc/3603_02.pdf"
+            },
+            {
+                "source": "https://www.ksa.or.kr/bbs/edu/1079/1382913/artclView.do"
+            },
+            {
+                "source": "https://brunch.co.kr/@kisojournal/127"
+            },
+            {
+                "source": "https://axinova.co.kr/news/view.php?idx=7553"
+            },
+            {
+                "source": "https://www.nars.go.kr/report/view.do?cmsCode=CM0018&brdSeq=46937"
+            },
+            {
+                "source": "https://www.lawtimes.co.kr/LawFirm-NewsLetter/209886"
+            },
+            {
+                "source": "https://www.alchera.ai/resource/blog/ai-basic-law"
+            },
+            {
+                "source": "https://www.lawtimes.co.kr/opinion/203510"
+            },
+            {
+                "source": "https://www.draju.com/ko/sub/newsletters.html?type=view&bsNo=5394&langNo="
+            },
+            {
+                "source": "https://www.lawtimes.co.kr/LawFirm-NewsLetter/203543"
+            },
+            {
+                "source": "https://www.pwc.com/kr/ko/events/event_250529.html"
+            },
+            {
+                "title": "AI 윤리와 국내 법제도 변화: 2025년 최신 동향 - 기피말고깊이",
+                "source": "https://notavoid.tistory.com/256"
+            },
+            {
+                "source": "https://skywork.ai/skypage/ko/%ED%95%9C%EA%B5%AD-%EC%A0%95%EB%B6%80%EC%9D%98-AI-%EA%B7%9C%EC%A0%9C-%EC%B4%88%EC%95%88%EC%9D%B4-%EC%8A%A4%ED%83%80%ED%8A%B8%EC%97%85%EC%97%90-%EB%AF%B8%EC%B9%98%EB%8A%94-%EC%9E%A0%EC%9E%AC%EC%A0%81-%EC%98%81%ED%96%A5-%EC%8B%AC%EC%B8%B5-%EB%B6%84%EC%84%9D/1950010043453489152",
+                "title": "한국 정부의 AI 규제 초안이 스타트업에 미치는 잠재적 영향 심층 분석"
+            },
+            {
+                "source": "https://smartfactoria.com/content/2025%EB%85%84-%EC%B5%9C%EC%8B%A0-%EC%9D%B8%EA%B3%B5%EC%A7%80%EB%8A%A5-%EA%B8%B0%EC%88%A0-%EC%A2%85%EB%A5%98%EC%99%80-%EB%B9%84%EC%A6%88%EB%8B%88%EC%8A%A4-%ED%98%81%EC%8B%A0-%EC%A0%84%EB%9E%B5-b2b-%EA%B8%B0%EC%97%85%EC%9D%B4-%EC%95%8C%EC%95%84%EC%95%BC-%ED%95%A0-7%EA%B0%80%EC%A7%80-%ED%95%B5%EC%8B%AC-%ED%8A%B8%EB%A0%8C%EB%93%9C-517",
+                "title": "2025년 최신 인공지능 기술 종류와 비즈니스 혁신 전략 : B2B 기업이 ..."
+            },
+            {
+                "source": "https://skywork.ai/skypage/ko/2025%EB%85%84-%ED%95%9C%EA%B5%AD-AI-%EA%B1%B0%EB%B2%84%EB%84%8C%EC%8A%A4-%EB%B0%B1%EC%84%9C-%EC%8B%AC%EC%B8%B5-%EB%B6%84%EC%84%9D:-%EB%B2%95%EB%A5%A0,-%EA%B8%B0%EC%88%A0,-%EC%9C%A4%EB%A6%AC-%EA%B8%B0%EC%A4%80%EA%B3%BC-%EC%82%B0%EC%97%85%EB%B3%84-%EC%98%81%ED%96%A5-%ED%8F%89%EA%B0%80/1948615087510384640",
+                "title": "2025년 한국 AI 거버넌스 백서 심층 분석: 법률, 기술, 윤리 기준과 ..."
+            },
+            {
+                "title": "한국 정부의 AI 규제 초안이 스타트업에 미치는 잠재적 영향 심층 분석",
+                "source": "https://skywork.ai/skypage/ko/%ED%95%9C%EA%B5%AD-%EC%A0%95%EB%B6%80%EC%9D%98-AI-%EA%B7%9C%EC%A0%9C-%EC%B4%88%EC%95%88%EC%9D%B4-%EC%8A%A4%ED%83%80%ED%8A%B8%EC%97%85%EC%97%90-%EB%AF%B8%EC%B9%98%EB%8A%94-%EC%9E%A0%EC%9E%AC%EC%A0%81-%EC%98%81%ED%96%A5-%EC%8B%AC%EC%B8%B5-%EB%B6%84%EC%84%9D/1950010043453489152"
+            },
+            {
+                "title": "「AI 기본법」주요 내용과 시행과제 - KISO저널",
+                "source": "https://journal.kiso.or.kr/?p=13119"
+            },
+            {
+                "title": "[법령] AI 기본법 제정(인공지능 기본법, 인공지능 발전과 신뢰 ... - CELA",
+                "source": "https://www.cela.kr/4/?bmode=view&idx=148966233"
+            },
+            {
+                "title": "AI 발전과 신뢰 기반 조성에 관한 기본법(AI 기본법) 제정('25.1), 금융 ...",
+                "source": "https://s-core.co.kr/insight/view/ai-%EB%B0%9C%EC%A0%84%EA%B3%BC-%EC%8B%A0%EB%A2%B0-%EA%B8%B0%EB%B0%98-%EC%A1%B0%EC%84%B1%EC%97%90-%EA%B4%80%ED%95%9C-%EA%B8%B0%EB%B3%B8%EB%B2%95ai-%EA%B8%B0%EB%B3%B8%EB%B2%95-%EC%A0%9C%EC%A0%9525/"
+            },
+            {
+                "source": "https://www.lawtimes.co.kr/LawFirm-NewsLetter/204816",
+                "title": "최근 국회 본회의 통과(2024. 12. 26.)된 인공지능기본법 주요 내용"
+            },
+            {
+                "source": "https://www.law.go.kr/lsInfoP.do?lsiSeq=268543",
+                "title": "법령 > 본문 > 인공지능 발전과 신뢰 기반 조성 등에 관한 기본법"
+            },
+            {
+                "source": "https://www.alchera.ai/resource/blog/ai-basic-law",
+                "title": "AI 기본법: 혁신적 법적 책임 강조"
+            },
+            {
+                "source": "https://seo.goover.ai/report/202412/go-public-report-ko-f6d09352-6283-4215-aee9-5c3fce5323a6-0-0.html",
+                "title": "AI 기본법: 산업에 미칠 영향 분석"
+            },
+            {
+                "source": "https://notavoid.tistory.com/256",
+                "title": "AI 윤리와 국내 법제도 변화: 2025년 최신 동향 - 기피말고깊이"
+            },
+            {
+                "source": "https://www.lawtimes.co.kr/LawFirm-NewsLetter/204461",
+                "title": "AI 기본법 통과의 의의 및 산업계에 미칠 영향 - 법률신문"
+            },
+            {
+                "title": "AI 기본법 시행, 산업계는 무엇을 준비해야 하는가",
+                "source": "https://www.lawtimes.co.kr/LawFirm-NewsLetter/209886"
+            },
+            {
+                "source": "https://www.koreadeep.com/blog/generative-ai-industry-trends",
+                "title": "2025 생성형 AI의 대전환: 기술은 일상이 되고, 전략은 산업을 재편한다"
+            },
+            {
+                "source": "https://www.cio.com/article/3631410/%EB%AC%B4%EB%B6%84%EB%B3%84%ED%95%9C-%EC%8B%A4%ED%97%98-%EC%8B%9C%EA%B8%B0%EB%8A%94-%EC%A7%80%EB%82%AC%EB%8B%A4%C2%B7%C2%B7%C2%B7-%EC%83%9D%EC%84%B1%ED%98%95-ai-%EC%8B%A4%EC%9A%A9%ED%99%94%EA%B0%80.html",
+                "title": "\"무분별한 실험 시기는 지났다\"··· 생성형 AI 실용화가 중심이 될 2025년"
+            },
+            {
+                "title": "AI SEOUL 2025. AI로 만드는 조화로운 사회(AI for a Harmonious…",
+                "source": "https://medium.com/mossland-blog/ai-seoul-2025-7d2ab393f306"
+            },
+            {
+                "title": "AI SEOUL 2025. AI로 만드는 조화로운 사회(AI for a Harmonious…",
+                "source": "https://medium.com/mossland-blog/ai-seoul-2025-7d2ab393f306"
+            },
+            {
+                "source": "https://smartfactoria.com/content/2025%EB%85%84-%EC%B5%9C%EC%8B%A0-%EC%9D%B8%EA%B3%B5%EC%A7%80%EB%8A%A5-%EA%B8%B0%EC%88%A0-%EC%A2%85%EB%A5%98%EC%99%80-%EB%B9%84%EC%A6%88%EB%8B%88%EC%8A%A4-%ED%98%81%EC%8B%A0-%EC%A0%84%EB%9E%B5-b2b-%EA%B8%B0%EC%97%85%EC%9D%B4-%EC%95%8C%EC%95%84%EC%95%BC-%ED%95%A0-7%EA%B0%80%EC%A7%80-%ED%95%B5%EC%8B%AC-%ED%8A%B8%EB%A0%8C%EB%93%9C-517",
+                "title": "2025년 최신 인공지능 기술 종류와 비즈니스 혁신 전략 : B2B 기업이 ..."
+            },
+            {
+                "title": "생성형 AI와 다양한 유형의 AI - Microsoft",
+                "source": "https://www.microsoft.com/ko-kr/ai/ai-101/generative-ai-vs-other-types-of-ai"
+            },
+            {
+                "source": "https://glasslego.tistory.com/93",
+                "title": "AI 거버넌스 플랫폼: 윤리·규제·보안 관리의 핵심 솔루션"
+            },
+            {
+                "source": "https://m.blog.naver.com/PostView.naver?blogId=mojjustice&logNo=223677957001",
+                "title": "AI기본법! 기술 발전과 규제의 조화가 필요합니다 - 네이버 블로그"
+            },
+            {
+                "title": "AI 시대를 맞이하는 한국, AI 기본법 완전 분석 - 골든플래닛",
+                "source": "https://goldenplanet.co.kr/our_contents/blog?number=1133&pn=1"
+            },
+            {
+                "source": "https://skywork.ai/skypage/ko/%ED%95%9C%EA%B5%AD%20%EC%A0%95%EB%B6%80%EC%9D%98%20AI%20%EC%9D%98%EB%A3%8C%EC%A7%84%EB%8B%A8%20%EB%B6%84%EC%95%BC%20%EC%A7%80%EC%9B%90%20%EC%A0%95%EC%B1%85%20%EC%8B%A4%ED%83%9C%20%EC%8B%AC%EC%B8%B5%20%EB%B6%84%EC%84%9D/1950022113218891776",
+                "title": "한국 정부의 AI 의료진단 분야 지원 정책 실태 심층 분석"
+            },
+            {
+                "source": "https://notavoid.tistory.com/256",
+                "title": "AI 윤리와 국내 법제도 변화: 2025년 최신 동향 - 기피말고깊이"
+            },
+            {
+                "source": "https://iceteasoftware.com/kr/ai-%EA%B8%B0%EB%B0%98-%EC%9D%98%EC%82%AC%EA%B2%B0%EC%A0%95-%EC%84%B1%EC%9E%A5/",
+                "title": "2025년 AI로 스마트한 의사결정, 빠른 비즈니스 성장 - Icetea Software"
+            },
+            {
+                "title": "2025년 AI로 스마트한 의사결정, 빠른 비즈니스 성장 - Icetea Software",
+                "source": "https://iceteasoftware.com/kr/ai-%EA%B8%B0%EB%B0%98-%EC%9D%98%EC%82%AC%EA%B2%B0%EC%A0%95-%EC%84%B1%EC%9E%A5/"
+            },
+            {
+                "title": "성공적인 생성형 AI 도입을 위한 5가지 이니셔티브 | EY - Korea",
+                "source": "https://www.ey.com/ko_kr/insights/consulting/5-initiatives-for-successful-genai-adoption"
+            },
+            {
+                "source": "https://brunch.co.kr/@kisojournal/127",
+                "title": "'AI 기본법' 주요 내용과 시행 과제"
+            },
+            {
+                "title": "AI 기본법: 혁신적 법적 책임 강조",
+                "source": "https://www.alchera.ai/resource/blog/ai-basic-law"
+            },
+            {
+                "title": "AI 기본법 시행령 등 하위법령 제정방향 공개 | Lee & Ko - 법무법인 광장",
+                "source": "https://www.leeko.com/leenko/news/newsLetterView.do?lang=KR&newsletterNo=2192"
+            },
+            {
+                "title": "AI 기본법: 혁신적 법적 책임 강조",
+                "source": "https://www.alchera.ai/resource/blog/ai-basic-law"
+            },
+            {
+                "title": "「AI 기본법」주요 내용과 시행과제 - KISO저널",
+                "source": "https://journal.kiso.or.kr/?p=13119"
+            },
+            {
+                "source": "https://www.samsungsds.com/kr/insights/ai-risks-and-responses.html",
+                "title": "AI 리스크에 대한 글로벌 대응 동향 및 시사점 | 인사이트리포트"
+            },
+            {
+                "source": "https://www.lawtimes.co.kr/LawFirm-NewsLetter/211806",
+                "title": "AI기본법 가이드라인 해설 시리즈 (2) : 인공지능사업자의 안전성 확보 ..."
+            },
+            {
+                "title": "I. AI 기본법 고시 및 가이드라인 공개 - 법무법인(유한) 태평양",
+                "source": "https://www.bkl.co.kr/law/insight/newsletter/detail?searchCondition=&searchKeyword=&searchDateFrom=&searchDateTo=&orderBy=orderByNew&pageIndex=1&whichOne=NEWSLETTER&menuType=law&lawNo=&expertNo=&newsletterNo=6226&memberNo=&fieldNo=&lang=ko&logFunction="
+            },
+            {
+                "source": "https://skywork.ai/skypage/ko/AI%2C%20%ED%95%9C%EA%B5%AD%20%EA%B8%88%EC%9C%B5%EC%9D%98%20%EB%A6%AC%EC%8A%A4%ED%81%AC%EB%A5%BC%20%ED%86%B5%EC%A0%9C%ED%95%98%EB%8B%A4%3A%20AI%20%EB%A6%AC%EC%8A%A4%ED%81%AC%20%EA%B4%80%EB%A6%AC%20%EB%AA%A8%EB%8D%B8%20%EB%8F%84%EC%9E%85%20%EC%84%B1%EA%B3%BC%20%EB%B6%84%EC%84%9D%20%EB%B0%8F%20%EB%AF%B8%EB%9E%98%20%EC%A0%84%EB%A7%9D/1950015485390962688",
+                "title": "AI 리스크 관리 모델 도입 성과 분석 및 미래 전망"
+            },
+            {
+                "title": "AI 리스크 관리 모델 도입 성과 분석 및 미래 전망",
+                "source": "https://skywork.ai/skypage/ko/AI%2C%20%ED%95%9C%EA%B5%AD%20%EA%B8%88%EC%9C%B5%EC%9D%98%20%EB%A6%AC%EC%8A%A4%ED%81%AC%EB%A5%BC%20%ED%86%B5%EC%A0%9C%ED%95%98%EB%8B%A4%3A%20AI%20%EB%A6%AC%EC%8A%A4%ED%81%AC%20%EA%B4%80%EB%A6%AC%20%EB%AA%A8%EB%8D%B8%20%EB%8F%84%EC%9E%85%20%EC%84%B1%EA%B3%BC%20%EB%B6%84%EC%84%9D%20%EB%B0%8F%20%EB%AF%B8%EB%9E%98%20%EC%A0%84%EB%A7%9D/1950015485390962688"
+            },
+            {
+                "source": "https://www.ptolemay.com/post/llm-total-cost-of-ownership"
+            },
+            {
+                "source": "https://www.newline.co/@zaoyang/on-prem-vs-cloud-llm-cost-breakdown--4a7b0926"
+            },
+            {
+                "source": "https://www.binadox.com/blog/llm-api-pricing-comparison-2025-complete-cost-analysis-guide/"
+            },
+            {
+                "source": "https://latitude-blog.ghost.io/blog/cloud-vs-on-prem-llms-long-term-cost-analysis/"
+            },
+            {
+                "source": "https://sumatosoft.com/blog/ai-development-costs"
+            },
+            {
+                "title": "On-Premises vs SaaS: Cost of AI Clause Extraction at Scale",
+                "source": "https://www.sirion.ai/library/contract-insights/on-premises-vs-saas-ai-clause-extraction-enterprise-cost/"
+            },
+            {
+                "title": "On-Premises vs SaaS: Cost of AI Clause Extraction at Scale",
+                "source": "https://www.sirion.ai/library/contract-insights/on-premises-vs-saas-ai-clause-extraction-enterprise-cost/"
+            },
+            {
+                "source": "https://www.ptolemay.com/post/llm-total-cost-of-ownership",
+                "title": "LLM Total Cost of Ownership 2025: Build vs Buy Math - Ptolemay"
+            },
+            {
+                "source": "https://www.newline.co/@zaoyang/on-prem-vs-cloud-llm-cost-breakdown--4a7b0926",
+                "title": "On-Prem vs Cloud: LLM Cost Breakdown - Newline.co"
+            },
+            {
+                "title": "Cloud vs On-Prem LLMs: Long-Term Cost Analysis - Ghost",
+                "source": "https://latitude-blog.ghost.io/blog/cloud-vs-on-prem-llms-long-term-cost-analysis/"
+            }
+        ]
+    }
+}

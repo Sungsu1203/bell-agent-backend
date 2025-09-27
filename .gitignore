@@ -8,3 +8,13 @@ __pycache__/
 
 # Jupyter Notebook 체크포인트
 .ipynb_checkpoints/"chap09/data/OneNYC_2050_Strategic_Plan.pdf" 
+
+# Chroma / 벡터DB 산출물
+chap14-1/sec04/data/chroma_store/
+chap14/sec04/data/chroma_store/
+**/chroma.sqlite3
+**/data_level*.bin
+**/header.bin
+**/length.bin
+**/link_lists.bin
+**/index_metadata.pickle
