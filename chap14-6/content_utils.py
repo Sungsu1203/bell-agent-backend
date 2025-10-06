@@ -6,17 +6,20 @@ import re
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from core.config import DOC_MODE
+from core.config import DocMode, DOC_MODE
 
 from core.paths import (
     get_content_dir, chapter_filepath, section_filepath, path_for_title,
-    get_outline_dir, outline_path,
+    get_outline_dir, outline_path, is_written, _coerce_mode         # _coerce_mode 재사용
 )
 from utils.outline import (
     read_outline, save_outline, parse_outline_headings, list_outline_headings,
-    is_written, next_unwritten_title,
+    next_unwritten_title,
 )
 from utils.text_utils import slugify, section_slugify
+
+ 
+# _write_text는 동일 파일에 있거나 적절히 import
 
 __all__ = [
     # re-export
@@ -268,7 +271,8 @@ def save_md_draft(
     title: str,
     content: str,
     *,
-    mode: str = "book",
+    # mode: str = "book",
+    mode: DocMode | str | None = None,
     root_dir: str,
     topic_slug: str | None = None,
     backup: bool = True,
@@ -277,7 +281,8 @@ def save_md_draft(
     메인 코드 기대 시그니처:
       (title, content, *, mode="book", root_dir, topic_slug=None, ...) -> str
     """
-    p = path_for_title(title, mode=mode, root_dir=root_dir, topic_slug=topic_slug)
+    m: DocMode = _coerce_mode(mode)
+    p = path_for_title(title, mode=m, root_dir=root_dir, topic_slug=topic_slug)
     out = _write_text(p, content, backup=backup)
     return str(out.resolve())
 
@@ -312,14 +317,16 @@ def save_section(
 def read_draft(
     title: str,
     *,
-    mode: Optional[str] = None,
+    # mode: Optional[str] = None,
+    mode: DocMode | str | None = None,
     root_dir: Optional[str | Path] = None,
     topic_slug: Optional[str] = None,
 ) -> Tuple[str, Path]:
     """
     초안 내용을 읽어서 (text, path)를 반환. 존재하지 않으면 ("" , 예상 경로) 반환.
     """
-    p = path_for_title(title, mode=mode, root_dir=root_dir, topic_slug=topic_slug)
+    m: DocMode = _coerce_mode(mode)
+    p = path_for_title(title, mode=m, root_dir=root_dir, topic_slug=topic_slug)
     if not p.exists():
         return "", p
     try:
@@ -329,21 +336,24 @@ def read_draft(
 
 def list_draft_paths(
     *,
-    mode: Optional[str] = None,
+    # mode: Optional[str] = None,
+    mode: DocMode | str | None = None,
     root_dir: Optional[str | Path] = None,
     topic_slug: Optional[str] = None,
 ) -> List[Path]:
     """
     현재 세션(토픽)의 모든 초안 경로 리스트.
     """
-    d = get_content_dir(mode, root_dir=root_dir, topic_slug=topic_slug)
+    m: DocMode = _coerce_mode(mode)
+    d = get_content_dir(m, root_dir=root_dir, topic_slug=topic_slug)
     return sorted(p for p in d.glob("*.md"))
 
 def rename_draft_title(
     old_title: str,
     new_title: str,
     *,
-    mode: Optional[str] = None,
+    # mode: Optional[str] = None,
+    mode: DocMode | str | None = None,
     root_dir: Optional[str | Path] = None,
     topic_slug: Optional[str] = None,
     overwrite: bool = False,
@@ -353,8 +363,9 @@ def rename_draft_title(
     초안 파일명을 (제목 기준) 변경.
     - overwrite=False일 때 대상이 이미 있으면 ValueError
     """
-    src = path_for_title(old_title, mode=mode, root_dir=root_dir, topic_slug=topic_slug)
-    dst = path_for_title(new_title, mode=mode, root_dir=root_dir, topic_slug=topic_slug)
+    m: DocMode = _coerce_mode(mode)
+    src = path_for_title(old_title, mode=m, root_dir=root_dir, topic_slug=topic_slug)
+    dst = path_for_title(new_title, mode=m, root_dir=root_dir, topic_slug=topic_slug)
     if not src.exists():
         raise FileNotFoundError(f"source not found: {src}")
     if dst.exists() and not overwrite:
@@ -367,7 +378,8 @@ def rename_draft_title(
 def move_draft_between_topics(
     title: str,
     *,
-    mode: Optional[str] = None,
+    # mode: Optional[str] = None,
+    mode: DocMode | str | None = None,
     root_dir: Optional[str | Path] = None,
     src_topic_slug: Optional[str] = None,
     dst_topic_slug: Optional[str] = None,
@@ -379,8 +391,9 @@ def move_draft_between_topics(
     """
     if src_topic_slug == dst_topic_slug:
         raise ValueError("src_topic_slug and dst_topic_slug are the same.")
-    src = path_for_title(title, mode=mode, root_dir=root_dir, topic_slug=src_topic_slug)
-    dst = path_for_title(title, mode=mode, root_dir=root_dir, topic_slug=dst_topic_slug)
+    m: DocMode = _coerce_mode(mode)
+    src = path_for_title(title, mode=m, root_dir=root_dir, topic_slug=src_topic_slug)
+    dst = path_for_title(title, mode=m, root_dir=root_dir, topic_slug=dst_topic_slug)
     if not src.exists():
         raise FileNotFoundError(f"source not found: {src}")
     if dst.exists() and not overwrite:

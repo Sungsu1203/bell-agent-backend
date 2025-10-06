@@ -11,6 +11,7 @@ from utils.text_utils import slugify as _slugify
 
 from datetime import datetime
 from core.paths import path_for_title, outline_path as outline_path, read_outline as read_outline
+from utils.outline import outline_path  # re-export된 함수 사용
 
 __all__ = [
     "outline_path",
@@ -19,6 +20,11 @@ __all__ = [
     "list_outline_headings",
 ]
 
+# from core.config import DOC_MODE, DocMode  # ← 추가
+
+# def _default_outline_name(mode: Optional[DocMode] = None) -> str:
+#     m: DocMode = mode or DOC_MODE
+#     return "outline_report.md" if m == "report" else "outline_book.md"
 
 def pick_outline_filename(user_text: Optional[str], doc_mode: DocMode = DOC_MODE) -> str:
     text = (user_text or "")
@@ -139,7 +145,9 @@ def save_outline(
     저장 경로: {root}/data/{topic_slug}/{filename} (토픽 있으면),
               아니면 {root}/{filename}
     """
-    out_path = outline_path(root_dir=root_dir, topic_slug=topic_slug, filename=filename, ensure_dir=True)
+    # out_path = outline_path(root_dir=root_dir, topic_slug=topic_slug, filename=filename, ensure_dir=True)
+    out_path = outline_path(root_dir=root_dir, topic_slug=topic_slug, filename=filename)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
     if backup and out_path.exists():
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
