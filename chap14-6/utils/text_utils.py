@@ -39,6 +39,17 @@ def slugify(title: str, *, allow_unicode: bool = True, default: str = "untitled"
     s = re.sub(r"-{2,}", "-", s).strip("-")
     return s or default
 
+def section_slugify(text: str) -> str:
+    """
+    헤딩/번호 접두 제거 후 slugify.
+    예) '1) 개요', '## 서론', '작성: 제목' → '개요','서론','제목'
+    """
+    s = (text or "")
+    s = re.sub(r"^#+\s*", "", s)              # Markdown 헤딩 기호 제거
+    s = re.sub(r"^\d+[\.\)]\s*", "", s)       # 앞번호 제거: 1. / 1)
+    s = re.sub(r"^(작성|write)\s*[:：]\s*", "", s, flags=re.I)
+    s = s.strip(" -•—·\t")
+    return slugify(s)
 
 def clean_snip(s: str, n: int = 120) -> str:
     s = (s or "").replace("\n", " ").replace("\r", " ")

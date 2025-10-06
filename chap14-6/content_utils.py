@@ -5,6 +5,8 @@ import os
 import re
 from pathlib import Path
 from typing import List, Optional, Tuple
+from utils.text_utils import slugify, section_slugify
+from utils.outline import save_outline, next_unwritten_title
 
 # =============================================================================
 # 기본 설정 / 공통 유틸
@@ -13,17 +15,17 @@ from typing import List, Optional, Tuple
 def _doc_mode() -> str:
     return (os.getenv("DOC_MODE", "book") or "book").strip('"').strip().lower()
 
-_KO_SAFE = re.compile(r"[^\w\-가-힣\s]", flags=re.UNICODE)
+# _KO_SAFE = re.compile(r"[^\w\-가-힣\s]", flags=re.UNICODE)
 
-def slugify(title: str) -> str:
-    s = (title or "").strip().lower()
-    s = _KO_SAFE.sub("", s)
-    s = re.sub(r"\s+", "-", s)
-    return s or "untitled"
+# def slugify(title: str) -> str:
+#     s = (title or "").strip().lower()
+#     s = _KO_SAFE.sub("", s)
+#     s = re.sub(r"\s+", "-", s)
+#     return s or "untitled"
 
-# report 전용 슬러그 별도 쓰고 싶을 때 사용 가능(동일 규칙)
-def section_slugify(text: str) -> str:
-    return slugify(text)
+# # report 전용 슬러그 별도 쓰고 싶을 때 사용 가능(동일 규칙)
+# def section_slugify(text: str) -> str:
+#     return slugify(text)
 
 # =============================================================================
 # 콘텐츠 경로 계산
@@ -167,22 +169,22 @@ def _write_text(path: Path, content: str, *, backup: bool = True) -> Path:
     path.write_text(content or "", encoding="utf-8")
     return path
 
-def save_outline(
-    content: str,
-    *,
-    filename: str = "outline.md",
-    root_dir: str,
-    topic_slug: str | None = None,
-    mode: str = "book",
-    backup: bool = True,
-) -> str:
-    """
-    메인 코드 기대 시그니처:
-      (content, *, filename="outline.md", root_dir, topic_slug=None, mode="book", backup=True) -> str
-    """
-    p = outline_path(filename, root_dir=root_dir, topic_slug=topic_slug, mode=mode)
-    out = _write_text(p, content or "", backup=backup)
-    return str(out.resolve())
+# def save_outline(
+#     content: str,
+#     *,
+#     filename: str = "outline.md",
+#     root_dir: str,
+#     topic_slug: str | None = None,
+#     mode: str = "book",
+#     backup: bool = True,
+# ) -> str:
+#     """
+#     메인 코드 기대 시그니처:
+#       (content, *, filename="outline.md", root_dir, topic_slug=None, mode="book", backup=True) -> str
+#     """
+#     p = outline_path(filename, root_dir=root_dir, topic_slug=topic_slug, mode=mode)
+#     out = _write_text(p, content or "", backup=backup)
+#     return str(out.resolve())
 
 # =============================================================================
 # 목차 파서 & 집필 타깃 선택
@@ -208,32 +210,32 @@ def is_written(
 ) -> bool:
     return path_for_title(title, mode=mode, root_dir=root_dir, topic_slug=topic_slug).exists()
 
-def next_unwritten_title(
-    outline_text: str,
-    *,
-    mode: str = "book",
-    root_dir: str,
-    topic_slug: str | None = None,
-) -> Optional[str]:
-    """
-    메인 코드 기대 시그니처:
-      (outline_text, *, mode="book", root_dir, topic_slug=None) -> str|None
-    규칙: 먼저 ## 이상에서 미집필, 없으면 # 레벨에서 미집필을 선택
-    """
-    headings = parse_outline_headings(outline_text)
-    # 1차: ## 이상
-    for level, title in headings:
-        if level >= 2:
-            p = path_for_title(title, mode=mode, root_dir=root_dir, topic_slug=topic_slug)
-            if not p.exists():
-                return title
-    # 2차: # 레벨
-    for level, title in headings:
-        if level == 1:
-            p = path_for_title(title, mode=mode, root_dir=root_dir, topic_slug=topic_slug)
-            if not p.exists():
-                return title
-    return None
+# def next_unwritten_title(
+#     outline_text: str,
+#     *,
+#     mode: str = "book",
+#     root_dir: str,
+#     topic_slug: str | None = None,
+# ) -> Optional[str]:
+#     """
+#     메인 코드 기대 시그니처:
+#       (outline_text, *, mode="book", root_dir, topic_slug=None) -> str|None
+#     규칙: 먼저 ## 이상에서 미집필, 없으면 # 레벨에서 미집필을 선택
+#     """
+#     headings = parse_outline_headings(outline_text)
+#     # 1차: ## 이상
+#     for level, title in headings:
+#         if level >= 2:
+#             p = path_for_title(title, mode=mode, root_dir=root_dir, topic_slug=topic_slug)
+#             if not p.exists():
+#                 return title
+#     # 2차: # 레벨
+#     for level, title in headings:
+#         if level == 1:
+#             p = path_for_title(title, mode=mode, root_dir=root_dir, topic_slug=topic_slug)
+#             if not p.exists():
+#                 return title
+#     return None
 
 # =============================================================================
 # 저장/백업 유틸
@@ -414,6 +416,17 @@ def merge_drafts(
             raise ValueError("how must be one of: append | prepend | replace")
 
     return _write_text(dst_path, new_txt, backup=False)
+
+__all__ = [
+    "slugify",
+    "section_slugify",
+    "save_outline",
+    "next_unwritten_title",
+    # 아래 content_utils 고유 함수/클래스가 있으면 함께 나열:
+    "save_md_draft",
+    "save_chapter",
+    # ...
+]
 
 # =============================================================================
 # 끝.
