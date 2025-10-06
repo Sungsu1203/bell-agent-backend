@@ -39,16 +39,16 @@ def section_writer(state: State):
         return {"messages": messages, "task_history": tasks}
 
     # 타깃 선택
-    def get_last_write_target(messages, tasks):
-        from rag_expression import extract_write_title
-        for m in reversed(messages):
-            if isinstance(m, HumanMessage):
-                t = extract_write_title(getattr(m, "content", "") or "")
-                if t: return t
-        for t in reversed(tasks):
-            title = extract_write_title(getattr(t, "description", "") or "")
-            if title: return title
-        return None
+    # def get_last_write_target(messages, tasks):
+    #     from rag_expression import extract_write_title
+    #     for m in reversed(messages):
+    #         if isinstance(m, HumanMessage):
+    #             t = extract_write_title(getattr(m, "content", "") or "")
+    #             if t: return t
+    #     for t in reversed(tasks):
+    #         title = extract_write_title(getattr(t, "description", "") or "")
+    #         if title: return title
+    #     return None
 
     target_title = get_last_write_target(messages, tasks) or next_unwritten_title(
         outline_text, mode="report", root_dir=current_path, topic_slug=state.get("topic_slug")

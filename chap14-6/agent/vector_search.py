@@ -6,7 +6,7 @@ from core.config import DOC_MODE, WRITER_AGENT
 from core.paths import current_path, now_str as _now_str, topic_dir as _topic_dir
 from core.state_types import State
 from core.models import Task, AgentName
-from utils.sanitize import sanitize_state, as_int
+from utils.sanitize import sanitize_state, as_int, sanitize_numeric_state_generic
 from utils.rag_utils import merge_refs, refs_preview_text
 from utils.query_filters import strip_web_filters as _strip_web_filters, looks_like_local_glob as _looks_like_local_glob, clean_seed as _clean_seed, ok_query as _ok_query
 

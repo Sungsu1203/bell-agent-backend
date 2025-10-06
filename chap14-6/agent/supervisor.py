@@ -9,7 +9,7 @@ from core.config import DOC_MODE, WRITER_AGENT
 from core.paths import now_str as _now_str, current_path
 from core.state_types import State
 from core.models import Task, AgentName
-from utils.sanitize import sanitize_state, as_int
+from utils.sanitize import sanitize_state, as_int, sanitize_numeric_state_generic
 from rag_expression import extract_write_title, is_outline_creation, is_outline_display
 from prompts import get_supervisor_prompt
 from content_utils import read_outline

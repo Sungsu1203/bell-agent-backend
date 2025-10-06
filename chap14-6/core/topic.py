@@ -5,14 +5,7 @@ from typing import Any
 from core.state_types import State
 from core.paths import topic_dir         # 프로젝트에서 제공 중인 함수로 가정
 from core.config import load_research_objectives_from_env  # 없으면 아래 주석 참고
-
-_slug_re_keep = re.compile(r"[^\w\-가-힣\s]")
-
-def _slugify(title: str) -> str:
-    s = (title or "").strip().lower()
-    s = _slug_re_keep.sub("", s)
-    s = re.sub(r"\s+", "-", s)
-    return s or "untitled"
+from utils.text_utils import slugify as _slugify
 
 def topic_slug_from(text: str) -> str:
     from datetime import datetime

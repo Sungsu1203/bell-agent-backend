@@ -6,7 +6,7 @@ from core.paths import now_str as _now_str, current_path
 from core.state_types import State
 from core.state_io import save_state
 from utils.sanitize import coerce_int
-from legacy.graph import build_graph
+from graph import build_graph
 
 def initial_state(iteration_count: int, agent_role: str | None = None) -> State:
     default_outline = "outline_report.md" if DOC_MODE == "report" else "outline.md"

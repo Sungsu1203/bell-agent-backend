@@ -7,6 +7,7 @@ from core.config import DOC_MODE, PROJECT_ROOT  # 전역 설정 (순환 import �
 from core.config import DocMode  # Literal["book","report"]
 from typing import List
 from pathlib import Path
+from utils.text_utils import slugify as _slugify
 
 from datetime import datetime
 
@@ -197,13 +198,6 @@ def list_outline_headings(outline_text: str) -> List[str]:
 # ─────────────────────────────────────────────────────────────
 # 파일명 & 미작성 타이틀 선택
 # ─────────────────────────────────────────────────────────────
-
-def _slugify(title: str) -> str:
-    s = (title or "").strip().lower()
-    s = re.sub(r"[^\w\-가-힣\s]", "", s)
-    s = re.sub(r"\s+", "-", s)
-    return s or "untitled"
-
 
 def _drafts_dir(
     *,

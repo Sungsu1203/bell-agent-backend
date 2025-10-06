@@ -49,7 +49,7 @@ from tools import (
 from langchain_core.documents import Document
 from datetime import datetime
 
-import os, re, shutil, time
+import re, shutil, time
 from pathlib import Path
 from string import Template
 
@@ -473,7 +473,7 @@ def content_strategist(state: State):
 
     content_strategist_chain = content_strategist_system_prompt | llm | StrOutputParser()
 
-    messages = state.get("messages", [])1
+    messages = state.get("messages", [])
     inputs = {
         "messages": messages,
         "outline": get_outline(current_path),
@@ -496,7 +496,7 @@ def content_strategist(state: State):
     messages.append(AIMessage(f"[Content Strategist] 목차 작성 완료 → {fname} / outline.md 저장"))
 
     task_history = state.get("task_history", [])
-    if task_history[-1].agent != "content_strategist":
+    if not task_history or task_history[-1].agent != "content_strategist":
         raise ValueError(f"Content Strategist가 아닌 agent가 목차 작성을 시도하고 있습니다.\n {task_history[-1]}")
 
     task_history[-1].done = True
@@ -898,6 +898,7 @@ def chapter_writer(state: State):
 
     out_path = save_md_draft(target_title, gathered, mode="book", current_path_=current_path)
     messages.append(AIMessage(f"[Chapter Writer] '{target_title}' 초안 작성 완료 → {out_path}"))
+    state["last_saved_path"] = out_path
 
     now = _now_str()
     pending.done = True
@@ -1205,7 +1206,7 @@ def tail_task_router(state: State):
     for t in reversed(state["task_history"]):
         if (not t.done) and t.agent in allowed:
             return t.agent
-    return WRITER_AGENT
+    return WRITER_AGENT if WRITER_AGENT in {"chapter_writer", "section_writer"} else "chapter_writer"
 
 
 graph_builder.add_conditional_edges(

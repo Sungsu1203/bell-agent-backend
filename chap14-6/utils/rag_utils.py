@@ -5,6 +5,9 @@ import re, hashlib
 from urllib.parse import urlparse
 from datetime import datetime
 
+from utils.refs import refs_preview_text
+__all__ = ["refs_preview_text"]
+
 def merge_refs(existing: dict | None, new_queries: list[str] | None, new_docs: list | None) -> dict:
     import hashlib as _hh
     refs = existing or {}
@@ -61,20 +64,20 @@ def score_doc(d: Document, year_now: int | None = None) -> float:
         score -= 2
     return score
 
-def refs_preview_text(state: Mapping[str, Any], max_q=5, max_docs=8, snippet_len=350) -> str:
-    # main.py의 _refs_preview_text → 이름만 바꿔 export
-    refs = (state.get("references") or {"queries": [], "docs": []})
-    qs = refs.get("queries", [])[:max_q]
-    docs = refs.get("docs", [])[:max_docs]
-    lines = []
-    for d in docs:
-        meta = getattr(d, "metadata", {}) or {}
-        src = meta.get("source") or meta.get("url") or "unknown"
-        snip = (getattr(d, "page_content", "") or "")[:snippet_len].replace("\n", " ")
-        lines.append(f"- [{src}] {snip}")
-    q_block = "\n".join([f"- {q}" for q in qs])
-    d_block = ("\n\nDocs:\n" + "\n".join(lines)) if lines else ""
-    return "Queries:\n" + q_block + d_block
+# def refs_preview_text(state: Mapping[str, Any], max_q=5, max_docs=8, snippet_len=350) -> str:
+#     # main.py의 _refs_preview_text → 이름만 바꿔 export
+#     refs = (state.get("references") or {"queries": [], "docs": []})
+#     qs = refs.get("queries", [])[:max_q]
+#     docs = refs.get("docs", [])[:max_docs]
+#     lines = []
+#     for d in docs:
+#         meta = getattr(d, "metadata", {}) or {}
+#         src = meta.get("source") or meta.get("url") or "unknown"
+#         snip = (getattr(d, "page_content", "") or "")[:snippet_len].replace("\n", " ")
+#         lines.append(f"- [{src}] {snip}")
+#     q_block = "\n".join([f"- {q}" for q in qs])
+#     d_block = ("\n\nDocs:\n" + "\n".join(lines)) if lines else ""
+#     return "Queries:\n" + q_block + d_block
 
 def vector_count(collection_name: str, persist_directory: str | None) -> int:
     """

@@ -1,28 +1,51 @@
-# blockagi/utils/refs.py
+# utils/refs.py
 from __future__ import annotations
 from typing import Mapping, Any
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse, unquote
 from langchain_core.documents import Document
-import re, hashlib
-
 import os
+import re
 
 __all__ = [
     "attach_auto_citations",
+    "merge_refs",
+    "refs_preview_text",
+    "facts_block",
     "_extract_meta",
     "_canonicalize_src_for_dedup",
     "_auto_footnote_label",
-    "refs_preview_text",
-    "facts_block"
 ]
 
+# ── 상수/공용 헬퍼 ──────────────────────────────────────────────
+FOOTNOTE_DEF_RE = re.compile(r"^\[\^\d+\]:", re.MULTILINE)
+
+KEYWORD_MAP: dict[str, str] = {
+    r"\bIEA\b": "iea.org",
+    r"\bOECD\b": "oecd.org",
+    r"\bKDI\b": "kdi.re.kr",
+    r"KIET|산업연구원": "kiet.re.kr",
+    r"KEEI|에너지경제연구원": "keei.re.kr",
+    r"국회미래연구원|NAFI": "nafi.re.kr",
+    r"KOTRA": "kotra.or.kr",
+}
+
+
+def _netloc(u: str) -> str:
+    try:
+        if "://" not in u:
+            u = "http://" + u
+        return urlparse(u).netloc.lower()
+    except Exception:
+        return ""
+
+
+# ── 내부 헬퍼들 ────────────────────────────────────────────────
 def _extract_meta(doc) -> dict:
     """
     refs 항목이 LangChain Document, dict, 혹은 {"metadata": {...}} 변종이어도
     {url|source, title...}를 최대한 찾아서 반환.
     """
-    # dict 계열
     if isinstance(doc, dict):
         if ("url" in doc) or ("source" in doc) or ("metadata" in doc):
             md = doc.get("metadata") if isinstance(doc.get("metadata"), dict) else None
@@ -31,13 +54,13 @@ def _extract_meta(doc) -> dict:
             return doc
         return doc
 
-    # 객체 계열 (예: LangChain Document)
     meta = getattr(doc, "metadata", {}) or {}
     if isinstance(meta, dict) and ("url" not in meta and "source" not in meta):
         inner = meta.get("metadata")
         if isinstance(inner, dict):
             meta = inner
     return meta if isinstance(meta, dict) else {}
+
 
 def _canonicalize_src_for_dedup(src: str | None) -> str:
     """
@@ -49,8 +72,7 @@ def _canonicalize_src_for_dedup(src: str | None) -> str:
     if not src:
         return ""
     s = str(src).strip()
-    # 버전 접미사 제거 시도 (__v_숫자_숫자)
-    s = re.sub(r"__v_\d+_\d+$", "", s)
+    s = re.sub(r"__v_\d+_\d+$", "", s)  # 버전 접미사 제거
 
     try:
         pu = urlparse(s)
@@ -63,6 +85,7 @@ def _canonicalize_src_for_dedup(src: str | None) -> str:
         return str(Path(s)).replace("\\", "/").lower()
     except Exception:
         return s.lower()
+
 
 def _auto_footnote_label(meta: dict, url: str) -> str:
     """
@@ -84,6 +107,53 @@ def _auto_footnote_label(meta: dict, url: str) -> str:
     return label[:80] + ("..." if len(label) > 80 else "")
 
 
+def _collect_reference_urls_from_refs(refs: list, max_refs: int = 20) -> list[str]:
+    urls: list[str] = []
+    for d in refs:
+        meta = _extract_meta(d)
+        src = (meta.get("source") or meta.get("url"))
+        if src and (src not in urls):
+            urls.append(src)
+        if len(urls) >= max_refs:
+            break
+    return urls
+
+
+def _collect_footnotes_from_refs(refs: list, max_n: int):
+    """
+    refs에서 고유 소스를 뽑아 각주 라인/인덱스/URL 매핑을 구성.
+    반환: (footnotes_lines, index_by_key, url_by_key)
+    """
+    footnotes_lines: list[str] = []
+    seen: set[str] = set()
+    index_by_key: dict[str, int] = {}
+    url_by_key: dict[str, str] = {}
+
+    for doc in refs:
+        meta = _extract_meta(doc)
+        url = (meta.get("url") or meta.get("source") or "").strip()
+        if not url:
+            continue
+
+        key = _canonicalize_src_for_dedup(meta.get("source") or url)
+        if not key or key in seen:
+            continue
+
+        seen.add(key)
+        idx = len(footnotes_lines) + 1
+        index_by_key[key] = idx
+        url_by_key[key] = url
+
+        label = _auto_footnote_label(meta, url)
+        footnotes_lines.append(f"[^{idx}]: {url}  ({label})")
+
+        if len(footnotes_lines) >= max_n:
+            break
+
+    return footnotes_lines, index_by_key, url_by_key
+
+
+# ── 공개 함수들 ────────────────────────────────────────────────
 def merge_refs(existing: dict | None, new_queries: list[str] | None, new_docs: list | None) -> dict:
     import hashlib as _hh
 
@@ -120,6 +190,7 @@ def merge_refs(existing: dict | None, new_queries: list[str] | None, new_docs: l
             seen_sig.add(sig)
     return {"queries": dedup_q, "docs": dedup_docs}
 
+
 def refs_preview_text(state: Mapping[str, Any], max_q: int = 5, max_docs: int = 8, snippet_len: int = 350) -> str:
     refs = state.get("references", {"queries": [], "docs": []})
     qs = refs.get("queries", [])[:max_q]
@@ -134,6 +205,7 @@ def refs_preview_text(state: Mapping[str, Any], max_q: int = 5, max_docs: int = 
     d_block = ("\n\nDocs:\n" + "\n".join(lines)) if lines else ""
     return "Queries:\n" + q_block + d_block
 
+
 def facts_block(state: Mapping[str, Any]) -> str:
     """
     state['facts_ctx']를 안전하게 문자열 블록으로 변환.
@@ -146,77 +218,112 @@ def facts_block(state: Mapping[str, Any]) -> str:
             return "\n\n[FACTS]\n" + s
     return ""
 
+
 def attach_auto_citations(gathered: str, state: Mapping[str, Any] | None = None) -> str:
     """
-    references.docs 메타데이터를 이용, 문서 하단에 각주 블록 삽입.
-    - AUTO_FOOTNOTE_MAX: 최대 각주 수(기본 12)
-    - AUTO_FOOTNOTE_INLINE=1: 간단 키워드 매칭으로 라인 끝에 [^n] 삽입(기본 off)
+    AUTO_FOOTNOTE_MODE:
+      - "quant"   : 정량 문장 감지 → 본문 인라인 [^n] + footer
+      - "domain"  : 본문에 도메인/키워드가 보이면 [^n] 인라인 + footer
+      - "footer"  : (기본) 인라인 없이 footer만 생성
     """
+    if not gathered:
+        return gathered
+
     state_map = dict(state or {})
     refs = (state_map.get("references") or {}).get("docs") or []
     if not refs:
         return gathered
 
-    text = gathered
-    max_n = int(os.getenv("AUTO_FOOTNOTE_MAX", "12"))
-
-    footnotes: list[str] = []
-    seen: set[str] = set()
-    index_by_key: dict[str, int] = {}
-    url_by_key: dict[str, str] = {}
-
-    for doc in refs:
-        meta = _extract_meta(doc)
-        url = (meta.get("url") or meta.get("source") or "").strip()
-        if not url:
-            continue
-
-        key = _canonicalize_src_for_dedup(meta.get("source") or url)
-        if not key or key in seen:
-            continue
-
-        seen.add(key)
-        idx = len(footnotes) + 1
-        index_by_key[key] = idx
-        url_by_key[key] = url
-
-        label = _auto_footnote_label(meta, url)
-        footnotes.append(f"[^{idx}]: {url}  ({label})")
-
-        if len(footnotes) >= max_n:
-            break
-
-    if not footnotes:
+    if FOOTNOTE_DEF_RE.search(gathered):
         return gathered
 
-    # (옵션) 본문 인라인 [^n] 추가
-    if os.getenv("AUTO_FOOTNOTE_INLINE", "0") == "1":
-        def _netloc(u: str) -> str:
-            try:
-                if "://" not in u:
-                    u = "http://" + u
-                return urlparse(u).netloc.lower()
-            except Exception:
-                return ""
+    mode = os.getenv("AUTO_FOOTNOTE_MODE", "footer").strip().lower()
+    max_n = int(os.getenv("AUTO_FOOTNOTE_MAX", "12"))
+
+    # ── quant 모드 ─────────────────────────────────────────────
+    if mode == "quant":
+        try:
+            from rag_expression import RE_QUANT_NUMBER, RE_QUANT_SENT_HINTS, split_sentences_ko_en
+        except Exception:
+            mode = "footer"
+        else:
+            sents = split_sentences_ko_en(gathered)
+            hit_idxs = [i for i, s in enumerate(sents) if RE_QUANT_NUMBER.search(s) and RE_QUANT_SENT_HINTS.search(s)]
+            if hit_idxs:
+                urls = _collect_reference_urls_from_refs(refs, max_refs=max_n)
+                used = min(len(hit_idxs), len(urls), max_n)
+                if used > 0:
+                    out_sents: list[str] = []
+                    assigned = 0
+                    for i, s in enumerate(sents):
+                        if i in hit_idxs and assigned < used:
+                            out_sents.append(s + f"[^{assigned+1}]")
+                            assigned += 1
+                        else:
+                            out_sents.append(s)
+                    body = " ".join(out_sents)
+                    footnotes_str = "\n".join(f"[^{i+1}]: {urls[i]}" for i in range(used))
+                    return body.rstrip() + "\n\n---\n\n### 참고 문헌 / 각주\n" + footnotes_str + "\n"
+
+    # ── domain 모드 ────────────────────────────────────────────
+    if mode == "domain":
+        text = gathered
+        footnotes_lines, index_by_key, url_by_key = _collect_footnotes_from_refs(refs, max_n=max_n)
+        if not footnotes_lines:
+            return gathered
 
         domain_by_key = {k: _netloc(u) for k, u in url_by_key.items()}
-
-        # 간단 키워드 → 대표 도메인 매핑 (필요시 확장)
-        keyword_map = {
-            r"\bIEA\b": "iea.org",
-            r"\bOECD\b": "oecd.org",
-            r"\bKDI\b": "kdi.re.kr",
-            r"KIET|산업연구원": "kiet.re.kr",
-            r"KEEI|에너지경제연구원": "keei.re.kr",
-            r"국회미래연구원|NAFI": "nafi.re.kr",
-            r"KOTRA": "kotra.or.kr",
-        }
+        domain_tokens = {d for d in domain_by_key.values() if d}
 
         lines = text.splitlines()
         for i, line in enumerate(lines):
-            for pat, dom in keyword_map.items():
+            appended = False
+
+            # (a) 라인에 실제 도메인 문자열이 등장하는 경우
+            low = line.lower()
+            for dom in domain_tokens:
+                if dom in low:
+                    for k, net in domain_by_key.items():
+                        if dom in net:
+                            idx = index_by_key[k]
+                            token = f"[^{idx}]"
+                            if token not in line:
+                                lines[i] = line.rstrip() + token
+                                appended = True
+                            break
+                if appended:
+                    break
+            if appended:
+                continue
+
+            # (b) 키워드 → 대표 도메인 매칭
+            for pat, dom in KEYWORD_MAP.items():
                 if re.search(pat, line, flags=re.I):
-                    # 해당 도메인을 가진 첫 각주 번호 부착
+                    for k, net in domain_by_key.items():
+                        if dom in net:
+                            idx = index_by_key[k]
+                            token = f"[^{idx}]"
+                            if token not in line:
+                                lines[i] = line.rstrip() + token
+                            break
+                    break
+
+        text = "\n".join(lines)
+        footer_block = "\n".join(footnotes_lines)
+        return text.rstrip() + "\n\n---\n\n### 참고 문헌 / 각주\n" + footer_block + "\n"
+
+    # ── footer(기본) 모드 ──────────────────────────────────────
+    text = gathered
+    footnotes_lines, index_by_key, url_by_key = _collect_footnotes_from_refs(refs, max_n=max_n)
+    if not footnotes_lines:
+        return gathered
+
+    if os.getenv("AUTO_FOOTNOTE_INLINE", "0") == "1":
+        domain_by_key = {k: _netloc(u) for k, u in url_by_key.items()}
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            for pat, dom in KEYWORD_MAP.items():
+                if re.search(pat, line, flags=re.I):
                     for k, net in domain_by_key.items():
                         if dom in net:
                             idx = index_by_key[k]
@@ -227,6 +334,5 @@ def attach_auto_citations(gathered: str, state: Mapping[str, Any] | None = None)
                     break
         text = "\n".join(lines)
 
-    # 하단 각주 블록 추가
-    text = text.rstrip() + "\n\n---\n\n### 참고 문헌 / 각주\n" + "\n".join(footnotes) + "\n"
-    return text
+    footer_block = "\n".join(footnotes_lines)
+    return text.rstrip() + "\n\n---\n\n### 참고 문헌 / 각주\n" + footer_block + "\n"

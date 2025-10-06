@@ -7,7 +7,7 @@ from core.config import WRITER_AGENT            # ← main.py의 전역 상수 �
 from core.paths import current_path, topic_dir as _topic_dir, now_str as _now_str
 #from utils.sanitize import sanitize_numeric_state_generic
 from core.models import Task, AgentName
-from utils.sanitize import sanitize_state
+from utils.sanitize import sanitize_state, sanitize_numeric_state_generic
 
 from utils.rag_utils import merge_refs, vector_count          # ← main.py의 merge_refs 대신 utils 경로
 from prompts import get_web_search_prompt

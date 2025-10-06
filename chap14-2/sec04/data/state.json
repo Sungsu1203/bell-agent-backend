@@ -1,0 +1,447 @@
+{
+    "messages": [
+        [
+            "SystemMessage",
+            "\n        너희 AI들은 사용자의 요구에 맞는 보고서을(를) 쓰는 작가팀이다.\n        사용자가 사용하는 언어로 대화하라.\n\n        현재시각은 2025-09-27 21:27:37이다.\n        "
+        ],
+        [
+            "HumanMessage",
+            "switch topic: 2025 한국 광고산업 시장 전망"
+        ],
+        [
+            "AIMessage",
+            "[Supervisor] 새 주제 세션 시작: '2025 한국 광고산업 시장 전망' (ns=2025---------20250927-2128)"
+        ],
+        [
+            "AIMessage",
+            "[Content Strategist] 목차 작성 완료 → D:\\GPT_AGENT_2025_BOOK\\chap14-2\\sec04\\outlines\\2025-한국-광고산업-시장-전망-20250927-2128\\outline.md"
+        ],
+        [
+            "AIMessage",
+            "현재 2025년 한국 광고산업 시장 전망에 대한 보고서를 작성 중입니다. 이 보고서는 2025년까지의 한국 광고산업의 주요 트렌드와 변화를 예측하고, 시장 참여자들이 직면할 주요 도전 과제와 기회를 식별하며, 광고 전략 수립을 위한 실무적인 권장 사항을 제공합니다. 디지털 혁신과 소비자 행동 변화에 대응하기 위한 전략적 방향을 제시하고 있습니다. 보고서의 각 섹션에 대한 구체적인 내용이 필요하시거나 추가적인 질문이 있으시면 말씀해 주세요."
+        ],
+        [
+            "HumanMessage",
+            "목차를 만들어줘"
+        ],
+        [
+            "AIMessage",
+            "[Supervisor fast-path] → content_strategist (target=outline.md)"
+        ],
+        [
+            "AIMessage",
+            "[Content Strategist] 목차 작성 완료 → D:\\GPT_AGENT_2025_BOOK\\chap14-2\\sec04\\outlines\\2025-한국-광고산업-시장-전망-20250927-2128\\outline.md"
+        ],
+        [
+            "AIMessage",
+            "현재 2025년 한국 광고산업 시장 전망에 대한 보고서를 작성 중입니다. 이 보고서는 2025년까지의 한국 광고산업의 주요 트렌드와 변화를 예측하고, 시장 참여자들이 직면할 주요 도전 과제와 기회를 식별하며, 광고 전략 수립을 위한 실무적인 권장 사항을 제공합니다. 디지털 혁신과 소비자 행동 변화에 대응하기 위한 전략적 방향을 제시하고 있습니다. 보고서의 각 섹션에 대한 구체적인 내용이 필요하시거나 추가적인 질문이 있으시면 말씀해 주세요."
+        ],
+        [
+            "HumanMessage",
+            "최신 자료로 RAG 업데이트"
+        ],
+        [
+            "AIMessage",
+            "[Supervisor fast-path] 기존 writer 태스크 정리 후 RAG 업데이트 시작."
+        ],
+        [
+            "AIMessage",
+            "[Supervisor fast-path] → web_search_agent (RAG 업데이트 착수)"
+        ],
+        [
+            "AIMessage",
+            "[WEB SEARCH AGENT] 검색 완료(7건). JSON 저장 및 Chroma 적재(또는 프리뷰) 완료. (예: D:\\GPT_AGENT_2025_BOOK\\chap14-2\\sec04\\data\\resources_2025_0927_212926.json)"
+        ],
+        [
+            "AIMessage",
+            "[VECTOR SEARCH AGENT] 다음 질문에 대한 검색 완료: ['2025년 한국 광고산업 주요 트렌드', '2025년 한국 광고산업 디지털 혁신', '2025년 한국 광고산업 소비자 행동 변화', '2025년 한국 광고산업 도전 과제', '2025년 한국 광고산업 기회', '2025년 한국 광고산업 광고 전략', '2025년 한국 광고산업 시장 전망']"
+        ],
+        [
+            "AIMessage",
+            "[Section Writer] '1. Executive Summary' 초안 작성 완료 → D:\\GPT_AGENT_2025_BOOK\\chap14-2\\sec04\\sections\\2025-한국-광고산업-시장-전망-20250927-2128\\1-executive-summary.md"
+        ],
+        [
+            "AIMessage",
+            "현재 2025년 한국 광고산업 시장 전망에 대한 보고서를 작성 중입니다. 이 보고서는 2025년까지의 한국 광고산업의 주요 트렌드와 변화를 예측하고, 시장 참여자들이 직면할 주요 도전 과제와 기회를 식별하며, 광고 전략 수립을 위한 실무적인 권장 사항을 제공합니다. 디지털 혁신과 소비자 행동 변화에 대응하기 위한 전략적 방향을 제시하고 있습니다. 보고서의 각 섹션에 대한 구체적인 내용이 필요하시거나 추가적인 질문이 있으시면 말씀해 주세요.\n\n최종 저장 경로: `D:\\GPT_AGENT_2025_BOOK\\chap14-2\\sec04\\sections\\2025-한국-광고산업-시장-전망-20250927-2128\\1-executive-summary.md`"
+        ],
+        [
+            "HumanMessage",
+            "write: Key Findings"
+        ],
+        [
+            "AIMessage",
+            "[Supervisor fast-path] → section_writer (mode=report, write: Key Findings)"
+        ],
+        [
+            "AIMessage",
+            "[Section Writer] 'Key Findings' 초안 작성 완료 → D:\\GPT_AGENT_2025_BOOK\\chap14-2\\sec04\\sections\\2025-한국-광고산업-시장-전망-20250927-2128\\key-findings.md"
+        ],
+        [
+            "AIMessage",
+            "현재 2025년 한국 광고산업 시장 전망에 대한 보고서를 작성 중입니다. 'Key Findings' 섹션에 대한 초안이 완료되었습니다. 이 섹션에서는 디지털 광고의 성장, 소셜 미디어의 영향력 증가, 그리고 개인화된 광고의 부상 등 주요 발견 사항을 다루고 있습니다. \n\n디지털 광고는 2025년까지 전체 광고 시장의 70% 이상을 차지할 것으로 예상되며, 소셜 미디어의 영향력은 인플루언서 마케팅과 사용자 생성 콘텐츠의 중요성을 더욱 부각시킬 것입니다. 또한, AI와 빅데이터를 활용한 개인화된 광고가 소비자 참여를 증대시킬 것으로 보입니다.\n\n보고서의 각 섹션에 대한 구체적인 내용이 필요하시거나 추가적인 질문이 있으시면 말씀해 주세요.\n\n최종 저장 경로: `D:\\GPT_AGENT_2025_BOOK\\chap14-2\\sec04\\sections\\2025-한국-광고산업-시장-전망-20250927-2128\\key-findings.md`"
+        ],
+        [
+            "HumanMessage",
+            "switch topic: 2025 유산균 건강기능식품 시장 전망"
+        ],
+        [
+            "AIMessage",
+            "[Supervisor] 새 주제 세션 시작: '2025 유산균 건강기능식품 시장 전망' (ns=2025---------20250927-2140)"
+        ],
+        [
+            "AIMessage",
+            "[Content Strategist] 목차 작성 완료 → D:\\GPT_AGENT_2025_BOOK\\chap14-2\\sec04\\outlines\\2025-유산균-건강기능식품-시장-전망-20250927-2140\\outline.md"
+        ],
+        [
+            "AIMessage",
+            "현재 2025 유산균 건강기능식품 시장 전망에 대한 보고서를 작성 중입니다. 이 보고서는 2025년까지 유산균 건강기능식품 시장의 주요 트렌드와 성장 전망을 제시하며, 소비자 행동 변화, 기술 혁신, 그리고 시장 참여자들이 직면할 주요 도전 과제와 기회를 분석합니다. 보고서의 각 섹션에 대한 구체적인 내용이 필요하시거나 추가적인 질문이 있으시면 말씀해 주세요.\n\n최종 저장 경로: `D:\\GPT_AGENT_2025_BOOK\\chap14-2\\sec04\\sections\\2025-한국-광고산업-시장-전망-20250927-2128\\key-findings.md`"
+        ],
+        [
+            "HumanMessage",
+            "보고서 목차를 만들어줘"
+        ],
+        [
+            "AIMessage",
+            "[Supervisor fast-path] → content_strategist (target=outline_report.md)"
+        ],
+        [
+            "AIMessage",
+            "[Content Strategist] 목차 작성 완료 → D:\\GPT_AGENT_2025_BOOK\\chap14-2\\sec04\\outlines\\2025-유산균-건강기능식품-시장-전망-20250927-2140\\outline.md"
+        ],
+        [
+            "AIMessage",
+            "현재 2025 유산균 건강기능식품 시장 전망에 대한 보고서를 작성 중입니다. 이 보고서는 2025년까지 유산균 건강기능식품 시장의 주요 트렌드와 성장 전망을 제시하며, 소비자 행동 변화, 기술 혁신, 그리고 시장 참여자들이 직면할 주요 도전 과제와 기회를 분석합니다. 보고서의 각 섹션에 대한 구체적인 내용이 필요하시거나 추가적인 질문이 있으시면 말씀해 주세요.\n\n최종 저장 경로: `D:\\GPT_AGENT_2025_BOOK\\chap14-2\\sec04\\sections\\2025-한국-광고산업-시장-전망-20250927-2128\\key-findings.md`"
+        ],
+        [
+            "HumanMessage",
+            "최신 자료로 RAG 업데이트"
+        ],
+        [
+            "AIMessage",
+            "[Supervisor fast-path] 기존 writer 태스크 정리 후 RAG 업데이트 시작."
+        ],
+        [
+            "AIMessage",
+            "[Supervisor fast-path] → web_search_agent (RAG 업데이트 착수)"
+        ],
+        [
+            "AIMessage",
+            "[WEB SEARCH AGENT] 검색 완료(7건). JSON 저장 및 Chroma 적재(또는 프리뷰) 완료. (예: D:\\GPT_AGENT_2025_BOOK\\chap14-2\\sec04\\data\\resources_2025_0927_214118.json)"
+        ],
+        [
+            "AIMessage",
+            "[VECTOR SEARCH AGENT] 다음 질문에 대한 검색 완료: ['2025 유산균 건강기능식품 시장 트렌드', '유산균 건강기능식품 소비자 행동 변화 2025', '유산균 건강기능식품 기술 혁신 2025', '2025 유산균 건강기능식품 시장 도전 과제와 기회', '아시아 태평양 유산균 건강기능식품 시장 성장 2025', '유산균 제품 효능 과학적 증거 2025', '유산균 건강기능식품 온라인 유통 채널 확장 2025']"
+        ],
+        [
+            "AIMessage",
+            "[Section Writer] 'Key Findings' 초안 작성 완료 → D:\\GPT_AGENT_2025_BOOK\\chap14-2\\sec04\\sections\\2025-유산균-건강기능식품-시장-전망-20250927-2140\\key-findings.md"
+        ],
+        [
+            "AIMessage",
+            "현재 2025 유산균 건강기능식품 시장 전망에 대한 보고서를 작성 중입니다. 이 보고서는 2025년까지 유산균 건강기능식품 시장의 주요 트렌드와 성장 전망을 제시하며, 소비자 행동 변화, 기술 혁신, 그리고 시장 참여자들이 직면할 주요 도전 과제와 기회를 분석합니다. 보고서의 각 섹션에 대한 구체적인 내용이 필요하시거나 추가적인 질문이 있으시면 말씀해 주세요.\n\n최종 저장 경로: `D:\\GPT_AGENT_2025_BOOK\\chap14-2\\sec04\\sections\\2025-유산균-건강기능식품-시장-전망-20250927-2140\\key-findings.md`"
+        ],
+        [
+            "HumanMessage",
+            "write: Executive Summary"
+        ],
+        [
+            "AIMessage",
+            "[Supervisor fast-path] → section_writer (mode=report, write: Executive Summary)"
+        ],
+        [
+            "AIMessage",
+            "[Section Writer] 'Executive Summary' 초안 작성 완료 → D:\\GPT_AGENT_2025_BOOK\\chap14-2\\sec04\\sections\\2025-유산균-건강기능식품-시장-전망-20250927-2140\\executive-summary.md"
+        ],
+        [
+            "AIMessage",
+            "현재 \"2025 유산균 건강기능식품 시장 전망\" 보고서를 작성 중입니다. 'Executive Summary' 섹션의 초안이 완료되었습니다. 이 섹션에서는 2025년까지 유산균 건강기능식품 시장의 주요 트렌드와 성장 전망을 제시하며, 유산균 제품의 수요 증가와 관련된 소비자 행동 변화, 기술 혁신, 그리고 시장 참여자들이 직면할 주요 도전 과제와 기회를 분석합니다.\n\n보고서의 각 섹션에 대한 구체적인 내용이 필요하시거나 추가적인 질문이 있으시면 말씀해 주세요.\n\n최종 저장 경로: `D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-2\\\\sec04\\\\sections\\\\2025-유산균-건강기능식품-시장-전망-20250927-2140\\\\executive-summary.md`"
+        ]
+    ],
+    "task_history": [
+        {
+            "agent": "content_strategist",
+            "done": true,
+            "description": "create_outline:outline.md",
+            "done_at": "2025-09-27 21:28:41"
+        },
+        {
+            "agent": "communicator",
+            "done": true,
+            "description": "AI팀의 진행상황을 사용자에게 보고하고 의견을 파악한다",
+            "done_at": "2025-09-27 21:28:43"
+        },
+        {
+            "agent": "content_strategist",
+            "done": true,
+            "description": "create_outline:outline.md",
+            "done_at": "2025-09-27 21:29:00"
+        },
+        {
+            "agent": "communicator",
+            "done": true,
+            "description": "AI팀의 진행상황을 사용자에게 보고하고 의견을 파악한다",
+            "done_at": "2025-09-27 21:29:02"
+        },
+        {
+            "agent": "web_search_agent",
+            "done": true,
+            "description": "rag_update:auto",
+            "done_at": "2025-09-27 21:30:06"
+        },
+        {
+            "agent": "vector_search_agent",
+            "done": true,
+            "description": "RAG 인덱싱을 위한 벡터 검색/검증을 수행한다. queries=['2025년 한국 광고산업 주요 트렌드', '2025년 한국 광고산업 디지털 혁신', '2025년 한국 광고산업 소비자 행동 변화', '2025년 한국 광고산업 도전 과제', '2025년 한국 광고산업 기회', '2025년 한국 광고산업 광고 전략', '2025년 한국 광고산업 시장 전망'] json_paths=['D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-2\\\\sec04\\\\data\\\\resources_2025_0927_212926.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-2\\\\sec04\\\\data\\\\resources_2025_0927_212932.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-2\\\\sec04\\\\data\\\\resources_2025_0927_212940.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-2\\\\sec04\\\\data\\\\resources_2025_0927_212947.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-2\\\\sec04\\\\data\\\\resources_2025_0927_212953.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-2\\\\sec04\\\\data\\\\resources_2025_0927_212958.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-2\\\\sec04\\\\data\\\\resources_2025_0927_213004.json']",
+            "done_at": "2025-09-27 21:30:29"
+        },
+        {
+            "agent": "section_writer",
+            "done": true,
+            "description": "write: 1. Executive Summary",
+            "done_at": "2025-09-27 21:30:54"
+        },
+        {
+            "agent": "communicator",
+            "done": true,
+            "description": "'1. Executive Summary' 초안 작성 완료를 보고하고, 다음 섹션/수정 범위 확인",
+            "done_at": "2025-09-27 21:30:56"
+        },
+        {
+            "agent": "section_writer",
+            "done": true,
+            "description": "write: Key Findings",
+            "done_at": "2025-09-27 21:37:08"
+        },
+        {
+            "agent": "communicator",
+            "done": true,
+            "description": "'Key Findings' 초안 작성 완료를 보고하고, 다음 섹션/수정 범위 확인",
+            "done_at": "2025-09-27 21:37:10"
+        },
+        {
+            "agent": "content_strategist",
+            "done": true,
+            "description": "create_outline:outline.md",
+            "done_at": "2025-09-27 21:40:29"
+        },
+        {
+            "agent": "communicator",
+            "done": true,
+            "description": "AI팀의 진행상황을 사용자에게 보고하고 의견을 파악한다",
+            "done_at": "2025-09-27 21:40:34"
+        },
+        {
+            "agent": "content_strategist",
+            "done": true,
+            "description": "create_outline:outline_report.md",
+            "done_at": "2025-09-27 21:40:47"
+        },
+        {
+            "agent": "communicator",
+            "done": true,
+            "description": "AI팀의 진행상황을 사용자에게 보고하고 의견을 파악한다",
+            "done_at": "2025-09-27 21:40:51"
+        },
+        {
+            "agent": "web_search_agent",
+            "done": true,
+            "description": "rag_update:auto",
+            "done_at": "2025-09-27 21:41:59"
+        },
+        {
+            "agent": "vector_search_agent",
+            "done": true,
+            "description": "RAG 인덱싱을 위한 벡터 검색/검증을 수행한다. queries=['2025 유산균 건강기능식품 시장 트렌드', '유산균 건강기능식품 소비자 행동 변화 2025', '유산균 건강기능식품 기술 혁신 2025', '2025 유산균 건강기능식품 시장 도전 과제와 기회', '아시아 태평양 유산균 건강기능식품 시장 성장 2025', '유산균 제품 효능 과학적 증거 2025', '유산균 건강기능식품 온라인 유통 채널 확장 2025'] json_paths=['D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-2\\\\sec04\\\\data\\\\resources_2025_0927_214118.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-2\\\\sec04\\\\data\\\\resources_2025_0927_214124.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-2\\\\sec04\\\\data\\\\resources_2025_0927_214130.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-2\\\\sec04\\\\data\\\\resources_2025_0927_214136.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-2\\\\sec04\\\\data\\\\resources_2025_0927_214143.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-2\\\\sec04\\\\data\\\\resources_2025_0927_214149.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-2\\\\sec04\\\\data\\\\resources_2025_0927_214157.json']",
+            "done_at": "2025-09-27 21:42:11"
+        },
+        {
+            "agent": "section_writer",
+            "done": true,
+            "description": "write: Key Findings",
+            "done_at": "2025-09-27 21:42:30"
+        },
+        {
+            "agent": "communicator",
+            "done": true,
+            "description": "'Key Findings' 초안 작성 완료를 보고하고, 다음 섹션/수정 범위 확인",
+            "done_at": "2025-09-27 21:42:32"
+        },
+        {
+            "agent": "section_writer",
+            "done": true,
+            "description": "write: Executive Summary",
+            "done_at": "2025-09-27 21:43:05"
+        },
+        {
+            "agent": "communicator",
+            "done": true,
+            "description": "'Executive Summary' 초안 작성 완료를 보고하고, 다음 섹션/수정 범위 확인",
+            "done_at": "2025-09-27 21:43:08"
+        }
+    ],
+    "references": {
+        "queries": [
+            "2025 유산균 건강기능식품 시장 트렌드",
+            "유산균 건강기능식품 소비자 행동 변화 2025",
+            "유산균 건강기능식품 기술 혁신 2025",
+            "2025 유산균 건강기능식품 시장 도전 과제와 기회",
+            "아시아 태평양 유산균 건강기능식품 시장 성장 2025",
+            "유산균 제품 효능 과학적 증거 2025",
+            "유산균 건강기능식품 온라인 유통 채널 확장 2025"
+        ],
+        "docs": [
+            {
+                "source": "http://www.vitamin-news1.com/news/articleView.html?idxno=5561"
+            },
+            {
+                "source": "https://blog.opensurvey.co.kr/trendreport/health-supplement-2025/"
+            },
+            {
+                "source": "https://www.foodpolis.kr/resources/user/web/img/brochure/healthRnd_2024.pdf"
+            },
+            {
+                "source": "https://www.kpanews.co.kr/article/show.asp?category=E&idx=253010"
+            },
+            {
+                "source": "http://www.hitnews.co.kr/news/articleView.html?idxno=49223"
+            },
+            {
+                "source": "https://www.foodicon.co.kr/news/articleView.html?idxno=28746"
+            },
+            {
+                "source": "https://kr.listeningmind.com/case-study/intent-report/2025_health_report/"
+            },
+            {
+                "source": "https://www.thinkfood.co.kr/news/articleView.html?idxno=102315"
+            },
+            {
+                "source": "https://www.nasmedia.co.kr/wp-content/uploads/2025/04/TrendIssue_Report_2025_%EC%A3%BC%EC%9A%94_%EC%97%85%EC%A2%85_%EC%8B%9C%EB%A6%AC%EC%A6%88_06%EA%B1%B4%EA%B0%95%EA%B8%B0%EB%8A%A5%EC%8B%9D%ED%92%88_F_0327.pdf"
+            },
+            {
+                "source": "https://seo.goover.ai/report/202504/go-public-report-ko-5c293986-efaa-471f-965f-de603e39b82a-0-0.html"
+            },
+            {
+                "source": "https://www.ntis.go.kr/ThSearchProjectList.do?searchWord=%EC%9C%A0%EC%82%B0%EA%B7%A0&searchSentence=&sort=SS01/DESC"
+            },
+            {
+                "source": "https://aatto.co.kr/healthcare/?bmode=view&idx=161632971"
+            },
+            {
+                "source": "https://www.accio.com/business/ko/%EA%B1%B4%EA%B0%95%EA%B8%B0%EB%8A%A5%EC%8B%9D%ED%92%88%ED%8A%B8%EB%A0%8C%EB%93%9C"
+            },
+            {
+                "source": "https://www.marqvision.com/kr/blog-kr/explore-health-supplement-market-trend-2025-risk-unsales-online-marketplaces"
+            },
+            {
+                "source": "https://repository.kisti.re.kr/bitstream/10580/17946/1/ASTI%20MARKET%20INSIGHT%20053%280712%29.pdf"
+            },
+            {
+                "source": "https://business.hwahae.co.kr/insight/mintel-plant-based-vms"
+            },
+            {
+                "source": "https://www.mordorintelligence.kr/industry-reports/probiotic-dietary-supplement-market"
+            },
+            {
+                "source": "https://myfair.co/exhibition/111431"
+            },
+            {
+                "source": "http://www.medisobizanews.com/news/articleView.html?idxno=129132"
+            },
+            {
+                "source": "https://www.gminsights.com/ko/industry-analysis/probiotics-market"
+            },
+            {
+                "source": "https://www.nfck.or.kr/blog/benefits-of-probiotics"
+            },
+            {
+                "source": "https://www.dsm-firmenich.com/ko-kr/businesses/health-nutrition-care/news/talking-nutrition/the-future-of-gut-health-5-breakthrough-trends-from-probiota-2025.html"
+            },
+            {
+                "source": "https://kormedi.com/2738639/"
+            },
+            {
+                "source": "https://m.esthermall.co.kr/board/view.php?&bdId=magazine4&sno=1044499"
+            },
+            {
+                "source": "https://trendblog.tistory.com/entry/%EC%9E%A5%EB%82%B4-%EB%AF%B8%EC%83%9D%EB%AC%BC%EA%B3%BC-%EB%A9%B4%EC%97%AD%EB%A0%A5%EC%9D%98-%EB%86%80%EB%9D%BC%EC%9A%B4-%EC%97%B0%EA%B2%B0%EA%B3%A0%EB%A6%AC-2025%EB%85%84-%EC%B5%9C%EC%8B%A0-%EA%B0%80%EC%9D%B4%EB%93%9C"
+            },
+            {
+                "source": "https://www.mordorintelligence.kr/industry-reports/united-states-probiotics-market-industry"
+            },
+            {
+                "source": "https://m.health.chosun.com/svc/news_view.html?contid=2025082802882"
+            },
+            {
+                "source": "https://m.dailypharm.com/newsView.html?ID=309679"
+            },
+            {
+                "source": "https://www.accio.com/business/ko/%EA%B1%B4%EA%B0%95%EA%B8%B0%EB%8A%A5%EC%8B%9D%ED%92%88%ED%8A%B8%EB%A0%8C%EB%93%9C",
+                "title": "2025년 건강 기능 식품 트렌드: 맞춤형 제품과 온라인 쇼핑의 부상"
+            },
+            {
+                "title": "2025 건강기능식품 시장 : 라이프스타일 그리고 성분·조합",
+                "source": "https://kr.listeningmind.com/case-study/intent-report/2025_health_report/"
+            },
+            {
+                "title": "2025 건강기능식품 시장 A to Z : 온라인 소비 트렌드 뒤에 숨겨진 리스크",
+                "source": "https://www.marqvision.com/kr/blog-kr/explore-health-supplement-market-trend-2025-risk-unsales-online-marketplaces"
+            },
+            {
+                "source": "https://www.foodicon.co.kr/news/articleView.html?idxno=28746",
+                "title": "2025 건강기능식품 트렌드] ① \"필요한 것, 믿을 수 있는 것만 선택한다\""
+            },
+            {
+                "title": "[PDF] 건기식 - 나스미디어",
+                "source": "https://www.nasmedia.co.kr/wp-content/uploads/2025/04/TrendIssue_Report_2025_%EC%A3%BC%EC%9A%94_%EC%97%85%EC%A2%85_%EC%8B%9C%EB%A6%AC%EC%A6%88_06%EA%B1%B4%EA%B0%95%EA%B8%B0%EB%8A%A5%EC%8B%9D%ED%92%88_F_0327.pdf"
+            },
+            {
+                "title": "2025년 건강 기능 식품 트렌드: 맞춤형 제품과 온라인 쇼핑의 부상",
+                "source": "https://www.accio.com/business/ko/%EA%B1%B4%EA%B0%95%EA%B8%B0%EB%8A%A5%EC%8B%9D%ED%92%88%ED%8A%B8%EB%A0%8C%EB%93%9C"
+            },
+            {
+                "title": "[PDF] 건기식 - 나스미디어",
+                "source": "https://www.nasmedia.co.kr/wp-content/uploads/2025/04/TrendIssue_Report_2025_%EC%A3%BC%EC%9A%94_%EC%97%85%EC%A2%85_%EC%8B%9C%EB%A6%AC%EC%A6%88_06%EA%B1%B4%EA%B0%95%EA%B8%B0%EB%8A%A5%EC%8B%9D%ED%92%88_F_0327.pdf"
+            },
+            {
+                "title": "[PDF] 건기식 - 나스미디어",
+                "source": "https://www.nasmedia.co.kr/wp-content/uploads/2025/04/TrendIssue_Report_2025_%EC%A3%BC%EC%9A%94_%EC%97%85%EC%A2%85_%EC%8B%9C%EB%A6%AC%EC%A6%88_06%EA%B1%B4%EA%B0%95%EA%B8%B0%EB%8A%A5%EC%8B%9D%ED%92%88_F_0327.pdf"
+            },
+            {
+                "source": "http://www.hitnews.co.kr/news/articleView.html?idxno=49223",
+                "title": "건강기능식품 대세로 떠오르는 '프로바이오틱스', 유산균과 차이점은"
+            },
+            {
+                "source": "https://www.ntis.go.kr/ThSearchProjectList.do?searchWord=%EC%9C%A0%EC%82%B0%EA%B7%A0&searchSentence=&sort=SS01/DESC",
+                "title": "NTIS > 과제 검색"
+            },
+            {
+                "title": "[PDF] 건기식 - 나스미디어",
+                "source": "https://www.nasmedia.co.kr/wp-content/uploads/2025/04/TrendIssue_Report_2025_%EC%A3%BC%EC%9A%94_%EC%97%85%EC%A2%85_%EC%8B%9C%EB%A6%AC%EC%A6%88_06%EA%B1%B4%EA%B0%95%EA%B8%B0%EB%8A%A5%EC%8B%9D%ED%92%88_F_0327.pdf"
+            },
+            {
+                "title": "일본의 2025년 건강식품 시장 트렌드 - 비타민뉴스",
+                "source": "http://www.vitamin-news1.com/news/articleView.html?idxno=5561"
+            },
+            {
+                "source": "https://www.nfck.or.kr/blog/benefits-of-probiotics",
+                "title": "유산균 효능 완전 정리! 장 건강부터 면역력까지 - 국민체력센터"
+            },
+            {
+                "title": "유산균 효능 완전 정리! 장 건강부터 면역력까지 - 국민체력센터",
+                "source": "https://www.nfck.or.kr/blog/benefits-of-probiotics"
+            },
+            {
+                "title": "[PDF] 개별인정 건강기능식품 연구개발 및 제품화",
+                "source": "https://www.foodpolis.kr/resources/user/web/img/brochure/healthRnd_2024.pdf"
+            },
+            {
+                "title": "유산균 효능 완전 정리! 장 건강부터 면역력까지 - 국민체력센터",
+                "source": "https://www.nfck.or.kr/blog/benefits-of-probiotics"
+            },
+            {
+                "source": "https://www.nasmedia.co.kr/wp-content/uploads/2025/04/TrendIssue_Report_2025_%EC%A3%BC%EC%9A%94_%EC%97%85%EC%A2%85_%EC%8B%9C%EB%A6%AC%EC%A6%88_06%EA%B1%B4%EA%B0%95%EA%B8%B0%EB%8A%A5%EC%8B%9D%ED%92%88_F_0327.pdf",
+                "title": "[PDF] 건기식 - 나스미디어"
+            }
+        ]
+    }
+}

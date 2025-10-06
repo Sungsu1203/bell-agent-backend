@@ -1,0 +1,14 @@
+[
+  {
+    "title": "a.txt",
+    "url": "file:///D:/tmp/rag_main/a.txt",
+    "source": "file:///D:/tmp/rag_main/a.txt__v_1759328247_34",
+    "content": "LOCAL_SMOKE_TOKEN_123 from a.txt\n"
+  },
+  {
+    "title": "b.md",
+    "url": "file:///D:/tmp/rag_main/sub/b.md",
+    "source": "file:///D:/tmp/rag_main/sub/b.md__v_1759328247_34",
+    "content": "LOCAL_SMOKE_TOKEN_ABC  from b.md\n"
+  }
+]

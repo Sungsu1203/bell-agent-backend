@@ -1,0 +1,14 @@
+[
+  {
+    "title": "a.txt",
+    "url": "file:///D:/tmp/rag_smoke/a.txt",
+    "source": "file:///D:/tmp/rag_smoke/a.txt__v_force_001",
+    "content": "hello v2"
+  },
+  {
+    "title": "b.md",
+    "url": "file:///D:/tmp/rag_smoke/sub/b.md",
+    "source": "file:///D:/tmp/rag_smoke/sub/b.md__v_force_001",
+    "content": "# note v1\nline"
+  }
+]
