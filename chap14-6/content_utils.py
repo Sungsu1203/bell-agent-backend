@@ -5,15 +5,38 @@ import os
 import re
 from pathlib import Path
 from typing import List, Optional, Tuple
+
+from core.config import DOC_MODE
+
+from core.paths import (
+    get_content_dir, chapter_filepath, section_filepath, path_for_title,
+    get_outline_dir, outline_path,
+)
+from utils.outline import (
+    read_outline, save_outline, parse_outline_headings, list_outline_headings,
+    is_written, next_unwritten_title,
+)
 from utils.text_utils import slugify, section_slugify
-from utils.outline import save_outline, next_unwritten_title
+
+__all__ = [
+    # re-export
+    "slugify", "section_slugify",
+    "get_content_dir", "chapter_filepath", "section_filepath", "path_for_title",
+    "get_outline_dir", "outline_path",
+    "read_outline", "save_outline", "parse_outline_headings", "list_outline_headings",
+    "is_written", "next_unwritten_title",
+    # content_utils 고유 구현(초안 저장/조회 등)도 함께 노출
+    "save_md_draft", "save_chapter", "save_section", "read_draft",
+    "list_draft_paths", "rename_draft_title", "move_draft_between_topics",
+    "merge_drafts",
+]
 
 # =============================================================================
 # 기본 설정 / 공통 유틸
 # =============================================================================
 
-def _doc_mode() -> str:
-    return (os.getenv("DOC_MODE", "book") or "book").strip('"').strip().lower()
+# def _doc_mode() -> str:
+#     return (os.getenv("DOC_MODE", "book") or "book").strip('"').strip().lower()
 
 # _KO_SAFE = re.compile(r"[^\w\-가-힣\s]", flags=re.UNICODE)
 
@@ -31,131 +54,131 @@ def _doc_mode() -> str:
 # 콘텐츠 경로 계산
 # =============================================================================
 
-def _base_dir_for_mode(mode: Optional[str] = None) -> str:
-    m = (mode or _doc_mode())
-    return "sections" if m == "report" else "chapters"
+# def _base_dir_for_mode(mode: Optional[str] = None) -> str:
+#     m = (mode or _doc_mode())
+#     return "sections" if m == "report" else "chapters"
 
-def get_content_dir(
-    mode: Optional[str] = None,
-    *,
-    root_dir: Optional[str | Path] = None,
-    topic_slug: Optional[str] = None,
-    base_dir: Optional[str] = None,
-) -> Path:
-    root = Path(root_dir) if root_dir else Path.cwd()
-    base = base_dir or _base_dir_for_mode(mode)
-    p = root / base
-    if topic_slug:
-        p = p / topic_slug
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+# def get_content_dir(
+#     mode: Optional[str] = None,
+#     *,
+#     root_dir: Optional[str | Path] = None,
+#     topic_slug: Optional[str] = None,
+#     base_dir: Optional[str] = None,
+# ) -> Path:
+#     root = Path(root_dir) if root_dir else Path.cwd()
+#     base = base_dir or _base_dir_for_mode(mode)
+#     p = root / base
+#     if topic_slug:
+#         p = p / topic_slug
+#     p.mkdir(parents=True, exist_ok=True)
+#     return p
 
-def chapter_filepath(
-    title: str,
-    *,
-    root_dir: Optional[str | Path] = None,
-    topic_slug: Optional[str] = None,
-) -> Path:
-    outdir = get_content_dir("book", root_dir=root_dir, topic_slug=topic_slug)
-    return outdir / f"{slugify(title)}.md"
+# def chapter_filepath(
+#     title: str,
+#     *,
+#     root_dir: Optional[str | Path] = None,
+#     topic_slug: Optional[str] = None,
+# ) -> Path:
+#     outdir = get_content_dir("book", root_dir=root_dir, topic_slug=topic_slug)
+#     return outdir / f"{slugify(title)}.md"
 
-def section_filepath(
-    title: str,
-    *,
-    root_dir: Optional[str | Path] = None,
-    topic_slug: Optional[str] = None,
-) -> Path:
-    outdir = get_content_dir("report", root_dir=root_dir, topic_slug=topic_slug)
-    return outdir / f"{section_slugify(title)}.md"
+# def section_filepath(
+#     title: str,
+#     *,
+#     root_dir: Optional[str | Path] = None,
+#     topic_slug: Optional[str] = None,
+# ) -> Path:
+#     outdir = get_content_dir("report", root_dir=root_dir, topic_slug=topic_slug)
+#     return outdir / f"{section_slugify(title)}.md"
 
-def path_for_title(
-    title: str,
-    *,
-    mode: Optional[str] = None,
-    root_dir: Optional[str | Path] = None,
-    topic_slug: Optional[str] = None,
-    base_dir: Optional[str] = None,
-) -> Path:
-    m = (mode or _doc_mode())
-    outdir = get_content_dir(m, root_dir=root_dir, topic_slug=topic_slug, base_dir=base_dir)
-    return outdir / f"{slugify(title)}.md"
+# def path_for_title(
+#     title: str,
+#     *,
+#     mode: Optional[str] = None,
+#     root_dir: Optional[str | Path] = None,
+#     topic_slug: Optional[str] = None,
+#     base_dir: Optional[str] = None,
+# ) -> Path:
+#     m = (mode or _doc_mode())
+#     outdir = get_content_dir(m, root_dir=root_dir, topic_slug=topic_slug, base_dir=base_dir)
+#     return outdir / f"{slugify(title)}.md"
 
 # =============================================================================
 # 목차(Outline) 유틸
 # =============================================================================
 
-def _default_outline_name(mode: Optional[str] = None) -> str:
-    m = (mode or _doc_mode())
-    return "outline_report.md" if m == "report" else "outline_book.md"
+# def _default_outline_name(mode: Optional[str] = None) -> str:
+#     m = (mode or _doc_mode())
+#     return "outline_report.md" if m == "report" else "outline_book.md"
 
-def get_outline_dir(
-    *,
-    root_dir: Optional[str | Path] = None,
-    topic_slug: Optional[str] = None,
-) -> Path:
-    root = Path(root_dir) if root_dir else Path.cwd()
-    d = root / "outlines"
-    if topic_slug:
-        d = d / topic_slug
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+# def get_outline_dir(
+#     *,
+#     root_dir: Optional[str | Path] = None,
+#     topic_slug: Optional[str] = None,
+# ) -> Path:
+#     root = Path(root_dir) if root_dir else Path.cwd()
+#     d = root / "outlines"
+#     if topic_slug:
+#         d = d / topic_slug
+#     d.mkdir(parents=True, exist_ok=True)
+#     return d
 
-def outline_path(
-    filename: Optional[str] = None,
-    *,
-    root_dir: Optional[str | Path] = None,
-    topic_slug: Optional[str] = None,
-    mode: Optional[str] = None,
-) -> Path:
-    fname = (filename or _default_outline_name(mode))
-    return get_outline_dir(root_dir=root_dir, topic_slug=topic_slug) / fname
+# def outline_path(
+#     filename: Optional[str] = None,
+#     *,
+#     root_dir: Optional[str | Path] = None,
+#     topic_slug: Optional[str] = None,
+#     mode: Optional[str] = None,
+# ) -> Path:
+#     fname = (filename or _default_outline_name(mode))
+#     return get_outline_dir(root_dir=root_dir, topic_slug=topic_slug) / fname
 
-def read_outline(
-    filename: str,
-    *,
-    root_dir: str,
-    topic_slug: str | None,
-    mode: str = "book",
-    allow_fallbacks: bool = True,
-) -> Tuple[str, Optional[Path]]:
-    """
-    메인 코드 기대 시그니처:
-      (filename, *, root_dir, topic_slug, mode="book", allow_fallbacks=True) -> (text, Path|None)
-    우선순위:
-      topic/outlines/<filename?> → topic/outline_<mode>.md → topic/outline.md
-      → root/outlines/<same 순서>
-    """
-    tried: List[Path] = []
-    m = mode or _doc_mode()
-    candidates: List[Path] = []
+# def read_outline(
+#     filename: str,
+#     *,
+#     root_dir: str,
+#     topic_slug: str | None,
+#     mode: str = "book",
+#     allow_fallbacks: bool = True,
+# ) -> Tuple[str, Optional[Path]]:
+#     """
+#     메인 코드 기대 시그니처:
+#       (filename, *, root_dir, topic_slug, mode="book", allow_fallbacks=True) -> (text, Path|None)
+#     우선순위:
+#       topic/outlines/<filename?> → topic/outline_<mode>.md → topic/outline.md
+#       → root/outlines/<same 순서>
+#     """
+#     tried: List[Path] = []
+#     m = mode or _doc_mode()
+#     candidates: List[Path] = []
 
-    # 1) topic 우선
-    if filename:
-        candidates.append(outline_path(filename, root_dir=root_dir, topic_slug=topic_slug, mode=m))
-    if allow_fallbacks:
-        candidates.extend([
-            outline_path(_default_outline_name(m), root_dir=root_dir, topic_slug=topic_slug, mode=m),
-            outline_path("outline.md", root_dir=root_dir, topic_slug=topic_slug, mode=m),
-        ])
+#     # 1) topic 우선
+#     if filename:
+#         candidates.append(outline_path(filename, root_dir=root_dir, topic_slug=topic_slug, mode=m))
+#     if allow_fallbacks:
+#         candidates.extend([
+#             outline_path(_default_outline_name(m), root_dir=root_dir, topic_slug=topic_slug, mode=m),
+#             outline_path("outline.md", root_dir=root_dir, topic_slug=topic_slug, mode=m),
+#         ])
 
-    # 2) root 폴백
-    if filename:
-        candidates.append(outline_path(filename, root_dir=root_dir, topic_slug=None, mode=m))
-    if allow_fallbacks:
-        candidates.extend([
-            outline_path(_default_outline_name(m), root_dir=root_dir, topic_slug=None, mode=m),
-            outline_path("outline.md", root_dir=root_dir, topic_slug=None, mode=m),
-        ])
+#     # 2) root 폴백
+#     if filename:
+#         candidates.append(outline_path(filename, root_dir=root_dir, topic_slug=None, mode=m))
+#     if allow_fallbacks:
+#         candidates.extend([
+#             outline_path(_default_outline_name(m), root_dir=root_dir, topic_slug=None, mode=m),
+#             outline_path("outline.md", root_dir=root_dir, topic_slug=None, mode=m),
+#         ])
 
-    for p in candidates:
-        tried.append(p)
-        if p.exists():
-            try:
-                return p.read_text(encoding="utf-8"), p
-            except Exception:
-                pass
+#     for p in candidates:
+#         tried.append(p)
+#         if p.exists():
+#             try:
+#                 return p.read_text(encoding="utf-8"), p
+#             except Exception:
+#                 pass
 
-    return "", None
+#     return "", None
 
 def _write_text(path: Path, content: str, *, backup: bool = True) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -190,25 +213,25 @@ def _write_text(path: Path, content: str, *, backup: bool = True) -> Path:
 # 목차 파서 & 집필 타깃 선택
 # =============================================================================
 
-_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.M)
+# _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.M)
 
-def parse_outline_headings(outline_text: str) -> List[Tuple[int, str]]:
-    items: List[Tuple[int, str]] = []
-    for m in _HEADING_RE.finditer(outline_text or ""):
-        level = len(m.group(1))
-        title = (m.group(2) or "").strip()
-        if title:
-            items.append((level, title))
-    return items
+# def parse_outline_headings(outline_text: str) -> List[Tuple[int, str]]:
+#     items: List[Tuple[int, str]] = []
+#     for m in _HEADING_RE.finditer(outline_text or ""):
+#         level = len(m.group(1))
+#         title = (m.group(2) or "").strip()
+#         if title:
+#             items.append((level, title))
+#     return items
 
-def is_written(
-    title: str,
-    *,
-    mode: Optional[str] = None,
-    root_dir: Optional[str | Path] = None,
-    topic_slug: Optional[str] = None,
-) -> bool:
-    return path_for_title(title, mode=mode, root_dir=root_dir, topic_slug=topic_slug).exists()
+# def is_written(
+#     title: str,
+#     *,
+#     mode: Optional[str] = None,
+#     root_dir: Optional[str | Path] = None,
+#     topic_slug: Optional[str] = None,
+# ) -> bool:
+#     return path_for_title(title, mode=mode, root_dir=root_dir, topic_slug=topic_slug).exists()
 
 # def next_unwritten_title(
 #     outline_text: str,

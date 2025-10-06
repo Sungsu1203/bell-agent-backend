@@ -1,15 +1,24 @@
 # utils/outline.py
 from __future__ import annotations
 import re
-from typing import Optional, Mapping, Any
+from typing import Optional, Mapping, Any, Tuple
 from content_utils import read_outline
 from core.config import DOC_MODE, PROJECT_ROOT  # 전역 설정 (순환 import 없음이 전제)
 from core.config import DocMode  # Literal["book","report"]
-from typing import List
+from typing import List, Tuple
 from pathlib import Path
 from utils.text_utils import slugify as _slugify
 
 from datetime import datetime
+from core.paths import path_for_title, outline_path as outline_path, read_outline as read_outline
+
+__all__ = [
+    "outline_path",
+    "read_outline",
+    "parse_outline_headings",
+    "list_outline_headings",
+]
+
 
 def pick_outline_filename(user_text: Optional[str], doc_mode: DocMode = DOC_MODE) -> str:
     text = (user_text or "")
@@ -45,27 +54,27 @@ def outline_default_filename(mode: DocMode) -> str:
     return "outline_report.md" if mode == "report" else "outline.md"
 
 
-def outline_path(
-    *,
-    root_dir: str,
-    topic_slug: Optional[str],
-    filename: str,
-    ensure_dir: bool = False,
-) -> Path:
-    """
-    outline 저장/조회 기본 경로:
-      {root_dir}/data/{topic_slug}/{filename}
-    topic_slug가 없으면 프로젝트 루트 바로 아래 {root_dir}/{filename}
-    """
-    if topic_slug:
-        p = Path(root_dir) / "data" / topic_slug
-    else:
-        p = Path(root_dir)
+# def outline_path(
+#     *,
+#     root_dir: str,
+#     topic_slug: Optional[str],
+#     filename: str,
+#     ensure_dir: bool = False,
+# ) -> Path:
+#     """
+#     outline 저장/조회 기본 경로:
+#       {root_dir}/data/{topic_slug}/{filename}
+#     topic_slug가 없으면 프로젝트 루트 바로 아래 {root_dir}/{filename}
+#     """
+#     if topic_slug:
+#         p = Path(root_dir) / "data" / topic_slug
+#     else:
+#         p = Path(root_dir)
 
-    if ensure_dir:
-        p.mkdir(parents=True, exist_ok=True)
+#     if ensure_dir:
+#         p.mkdir(parents=True, exist_ok=True)
 
-    return p / filename
+#     return p / filename
 
 
 # ─────────────────────────────────────────────────────────────
@@ -238,3 +247,23 @@ def next_unwritten_title(
         if not (drafts_dir / fn).exists():
             return t
     return None
+
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.M)
+
+def parse_outline_headings(outline_text: str) -> List[Tuple[int, str]]:
+    items: List[Tuple[int, str]] = []
+    for m in _HEADING_RE.finditer(outline_text or ""):
+        level = len(m.group(1))
+        title = (m.group(2) or "").strip()
+        if title:
+            items.append((level, title))
+    return items
+
+# def is_written(
+#     title: str,
+#     *,
+#     mode: Optional[str] = None,
+#     root_dir: Optional[str | Path] = None,
+#     topic_slug: Optional[str] = None,
+# ) -> bool:
+#     return path_for_title(title, mode=mode, root_dir=root_dir, topic_slug=topic_slug).exists()
