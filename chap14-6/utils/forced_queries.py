@@ -1,7 +1,9 @@
-# utils_forced_queries.py
+# utils/forced_queries.py
 # (예: 별도 파일 또는 기존 유틸에 추가)
 import json, re
 from typing import List
+
+__all__ = ["extract_forced_queries_from_messages"]
 
 BULLET = r"^[\-\*\u2022\u2013]\s*"  # -, *, •, – 지원
 

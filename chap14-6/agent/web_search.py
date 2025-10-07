@@ -15,6 +15,7 @@ from prompts import get_web_search_prompt
 from utils.tasks import has_pending, get_last_write_target, iter_tool_calls
 from utils.outline import pick_outline_filename, get_topic_outline_text
 from core.config import DOC_MODE, PROJECT_ROOT  # (또는 여러분이 쓰는 설정 모듈)
+from utils.forced_queries import extract_forced_queries_from_messages
 
 from settings_gatekeep import gatekeep_enabled, get_allowed_domains
 from settings_gatekeep import url_allowed as _allowed
@@ -30,7 +31,6 @@ from tools.web_rag import (
 
 )
 
-from utils_forced_queries import extract_forced_queries_from_messages
 from utils.query_filters import strip_web_filters, looks_like_local_glob, clean_seed as _clean_seed, ok_query
 from tools.local_rag import ingest_local_files
 

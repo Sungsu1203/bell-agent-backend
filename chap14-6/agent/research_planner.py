@@ -11,6 +11,7 @@ from prompts import get_research_planner_prompt
 from utils.tasks import has_pending
 from utils.refs import refs_preview_text as _refs_preview_text
 from utils.query_filters import strip_web_filters as _strip_web_filters, looks_like_local_glob
+from utils.forced_queries import extract_forced_queries_from_messages
 import os, re
 
 from core.llm import get_llm
