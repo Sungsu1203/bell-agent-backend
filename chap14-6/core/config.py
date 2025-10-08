@@ -20,9 +20,13 @@ DOC_MODE: Final[DocMode] = _doc_mode()
 PROJECT_ROOT: Final[str] = str(Path(__file__).resolve().parents[1])
 
 # ── Writer 기본 선택 ───────────────────────────────────────────
-def preferred_writer_agent() -> AgentName:  # ← 반환 타입을 AgentName으로
-    # literal 값이라 사실 cast 없어도 대부분의 타입체커에서 통과합니다.
-    return cast(AgentName, "section_writer" if DOC_MODE == "report" else "chapter_writer")
+# def preferred_writer_agent() -> AgentName:  # ← 반환 타입을 AgentName으로
+#     # literal 값이라 사실 cast 없어도 대부분의 타입체커에서 통과합니다.
+#     return cast(AgentName, "section_writer" if DOC_MODE == "report" else "chapter_writer")
+
+def preferred_writer_agent() -> AgentName:
+    return "section_writer" if DOC_MODE == "report" else "chapter_writer"
+
 
 WRITER_AGENT: Final[AgentName] = preferred_writer_agent()  # ← 상수 타입도 AgentName
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
-from langchain_core.messages import HumanMessage, AIMessage
+# from langchain_core.messages import HumanMessage, AIMessage
+from utils.tasks import HumanMessage, AIMessage
 from langchain_core.output_parsers.string import StrOutputParser
 from core.config import DOC_MODE
 from core.paths import current_path, now_str as _now_str

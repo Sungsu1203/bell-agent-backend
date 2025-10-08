@@ -1,35 +1,44 @@
 # tools/local_rag.py
 from __future__ import annotations
+
 import os, re, json, glob, hashlib
 from pathlib import Path
 from datetime import datetime
-from langchain_core.documents import Document
-
 from typing import Any, List, Tuple
-
 from urllib.parse import unquote
 
-# 선택 의존성: 있으면 사용, 없으면 경고만
+from langchain_core.documents import Document
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Optional dependencies: 클래스/함수 핸들을 Any로 보관(없으면 None)
+# ──────────────────────────────────────────────────────────────────────────────
 try:
-    from pypdf import PdfReader
+    from bs4 import BeautifulSoup as _BeautifulSoup
+    BeautifulSoup: Any = _BeautifulSoup
+except Exception:
+    BeautifulSoup = None
+
+try:
+    from pypdf import PdfReader as _PdfReader
+    PdfReader: Any = _PdfReader
 except Exception:
     PdfReader = None
 
 try:
-    import docx  # python-docx
+    import docx as _docx  # python-docx
+    docx: Any = _docx
 except Exception:
     docx = None
 
-# try:
-#     from pptx import Presentation  # python-pptx
-# except Exception:
-#     Presentation = None
-
 try:
-    from bs4 import BeautifulSoup  # beautifulsoup4
+    from pptx.enum.shapes import MSO_SHAPE_TYPE as _MSO_SHAPE_TYPE
+    MSO_SHAPE_TYPE: Any = _MSO_SHAPE_TYPE
 except Exception:
-    BeautifulSoup = None
+    MSO_SHAPE_TYPE = None
 
+# ──────────────────────────────────────────────────────────────────────────────
+# 내부 유틸
+# ──────────────────────────────────────────────────────────────────────────────
 def _file_version(path: str) -> str:
     """
     파일 변경을 반영하는 버전 식별자.
@@ -41,7 +50,7 @@ def _file_version(path: str) -> str:
     if forced:
         return str(forced)
 
-    mode = os.getenv("LOCAL_RAG_VERSION_MODE", "mtime").lower()
+    mode = (os.getenv("LOCAL_RAG_VERSION_MODE", "mtime") or "mtime").lower()
     try:
         if mode == "sha1":
             h = hashlib.sha1()
@@ -59,18 +68,21 @@ def _file_version(path: str) -> str:
 def _read_txt(path: str) -> str:
     return Path(path).read_text(encoding="utf-8", errors="ignore")
 
+
 def _read_md(path: str) -> str:
     return Path(path).read_text(encoding="utf-8", errors="ignore")
 
+
 def _read_html(path: str) -> str:
     raw = Path(path).read_text(encoding="utf-8", errors="ignore")
-    if BeautifulSoup:
+    if BeautifulSoup is not None:
         try:
             return BeautifulSoup(raw, "lxml").get_text(" ", strip=True)
         except Exception:
             return BeautifulSoup(raw, "html.parser").get_text(" ", strip=True)
     txt = re.sub(r"<[^>]+>", " ", raw)
     return re.sub(r"\s+", " ", txt).strip()
+
 
 def _read_docx(path: str) -> str:
     if not docx:
@@ -79,16 +91,12 @@ def _read_docx(path: str) -> str:
     return "\n".join(p.text for p in d.paragraphs)
 
 
-# 그룹 도형 판별용
-try:
-    from pptx.enum.shapes import MSO_SHAPE_TYPE
-except Exception:
-    MSO_SHAPE_TYPE = None  # 라이브러리 미설치 시에도 코드가 동작하도록
-
 def _shape_texts(shape: Any) -> List[str]:
+    """
+    텍스트 프레임 → 표 셀 → 차트 제목 → 대체텍스트 → 그룹 재귀 순으로
+    도형 하나에서 나올 수 있는 텍스트를 수집.
+    """
     texts: List[str] = []
-
-# 텍스트 프레임 → 표 셀 → 차트 제목 → 대체텍스트 → 그룹 재귀 순서로, 도형 하나에서 나올 수 있는 텍스트를 빠짐없이 수집
 
     # 1) 일반 도형의 텍스트 프레임
     tf = getattr(shape, "text_frame", None)
@@ -116,11 +124,13 @@ def _shape_texts(shape: Any) -> List[str]:
 
     # 4) 그룹 도형 내부 재귀
     shape_type = getattr(shape, "shape_type", None)
-    if (MSO_SHAPE_TYPE and shape_type == MSO_SHAPE_TYPE.GROUP) or hasattr(shape, "shapes"):
+    if ((MSO_SHAPE_TYPE is not None and shape_type == MSO_SHAPE_TYPE.GROUP)
+            or hasattr(shape, "shapes")):
         for inner in getattr(shape, "shapes", []):
             texts.extend(_shape_texts(inner))
 
     return texts
+
 
 def _read_pptx(path: str) -> str:
     # 함수 내부 임포트로 OptionalCall 경고 방지
@@ -130,8 +140,8 @@ def _read_pptx(path: str) -> str:
         raise RuntimeError("python-pptx 미설치") from e
 
     prs = Presentation(path)
-
     parts: List[str] = []
+
     for slide in prs.slides:
         # 슬라이드의 모든 도형에서 텍스트 수집
         for shape in slide.shapes:
@@ -173,19 +183,17 @@ def _read_pdf_pages(path: str) -> List[str]:
     return pages
 
 
-# ── 추가: 해시 & 파일 URI ───────────────────────────────────────────────
-# def _sha1(text: str) -> str:
-#     return hashlib.sha1((text or "").encode("utf-8", "ignore")).hexdigest()[:12]
-
 def _file_uri(path: str) -> str:
     return Path(path).resolve().as_uri()  # file:/// 형태 보장
-# ────────────────────────────────────────────────────────────────────────
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 변환: 로컬 파일 → web.json 아이템 배열
+# ──────────────────────────────────────────────────────────────────────────────
 def _to_webjson_items(path: str) -> List[dict]:
-    ext   = Path(path).suffix.lower()
+    ext = Path(path).suffix.lower()
     title = Path(path).name
-    # 클릭용 URL (사람이 눌러 열어볼 주소)
-    url_click = _file_uri(path)
+    url_click = _file_uri(path)  # 사람이 눌러 열어볼 주소
     ver = _file_version(path)
 
     # 용량 가드
@@ -199,41 +207,44 @@ def _to_webjson_items(path: str) -> List[dict]:
     except Exception:
         pass
 
+    # PDF: 페이지 단위로 쪼개기
     if ext == ".pdf":
         pages = _read_pdf_pages(path)
-        items = []
+        items: List[dict] = []
         for i, txt in enumerate(pages, start=1):
             if not (txt or "").strip():
                 continue
-            # 디듀프 키(Chroma 중복 판정용)는 접미사 버전 사용
-            source_key = f"{url_click}__p_{i}__v_{ver}"   # ❗쿼리/프래그먼트 없이 접미사
-            # 클릭용 URL은 그대로(원하면 보기 편하게 #page 유지)
+            # 디듀프 키(Chroma 중복 판정용)는 접미사 버전 사용 (쿼리/프래그먼트 제거)
+            source_key = f"{url_click}__p_{i}__v_{ver}"
+            # 클릭용 URL은 보기 좋은 #page 유지
             url_for_click = f"{url_click}#page={i}"
             max_chars = int(os.getenv("LOCAL_RAG_MAX_TEXT_CHARS", "200000"))
-            ct = txt or ""
+            ct = (txt or "")
             if len(ct) > max_chars:
                 ct = ct[:max_chars]
 
-            items.append({
-                "title": f"{title} (p.{i})",
-                "url": url_for_click,
-                "source": source_key,
-                "content": ct
-            })
+            items.append(
+                {
+                    "title": f"{title} (p.{i})",
+                    "url": url_for_click,
+                    "source": source_key,
+                    "content": ct,
+                }
+            )
         if not items:
             items = [{"title": title, "url": url_click, "source": f"{url_click}__v_{ver}", "content": ""}]
         return items
 
     # PDF 외 파일
-    if ext in [".txt"]:
+    if ext in (".txt",):
         text = _read_txt(path)
-    elif ext in [".md", ".markdown"]:
+    elif ext in (".md", ".markdown"):
         text = _read_md(path)
-    elif ext in [".html", ".htm"]:
+    elif ext in (".html", ".htm"):
         text = _read_html(path)
-    elif ext in [".docx"]:
+    elif ext in (".docx",):
         text = _read_docx(path)
-    elif ext in [".pptx"]:
+    elif ext in (".pptx",):
         text = _read_pptx(path)
     else:
         return []
@@ -243,18 +254,24 @@ def _to_webjson_items(path: str) -> List[dict]:
     if len(content) > max_chars:
         content = content[:max_chars]
 
-    return [{
-        "title": title,
-        "url": url_click,                 # 클릭용
-        "source": f"{url_click}__v_{ver}",# 디듀프 키(접미사 버전)
-        "content": content
-    }]
+    return [
+        {
+            "title": title,
+            "url": url_click,  # 클릭용
+            "source": f"{url_click}__v_{ver}",  # 디듀프 키(접미사 버전)
+            "content": content,
+        }
+    ]
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 엔트리: globs → web.json 생성
+# ──────────────────────────────────────────────────────────────────────────────
 def build_webjson_from_local(globs: List[str], out_dir: str) -> str:
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     files: List[str] = []
     for g in globs:
-        g = os.path.expandvars(os.path.expanduser(g))  # ← 추가
+        g = os.path.expandvars(os.path.expanduser(g))
         files.extend(glob.glob(g, recursive=True))
     files = sorted({f for f in files if os.path.isfile(f)})
 
@@ -268,14 +285,12 @@ def build_webjson_from_local(globs: List[str], out_dir: str) -> str:
     # 빈 content 제거
     items = [it for it in items if (it.get("content") or "").strip()]
 
-    # 디버그 요약 (web_rag와 조응되는 JSON 스키마 기준)
+    # 디버그 요약
     uniq_sources = {it.get("source") for it in items}
     print(f"[LOCAL RAG] files={len(files)} items={len(items)} unique_sources={len(uniq_sources)}")
     if items:
-        # 사람이 읽기 편하도록 퍼센트 인코딩 해제 + 접미사 제거
         def _pretty_src(src: str) -> str:
             s = unquote(src or "")
-            # 페이지/버전 접미사는 로그에서만 제거 (저장값은 그대로)
             if "__v_" in s:
                 s = s.split("__v_")[0]
             if "__p_" in s:
@@ -283,9 +298,9 @@ def build_webjson_from_local(globs: List[str], out_dir: str) -> str:
             return s
 
         sample = items[:3]
-        sample_titles  = [it.get("title", "") for it in sample]
+        sample_titles = [it.get("title", "") for it in sample]
         sample_sources = [_pretty_src(it.get("source", "")) for it in sample]
-        sample_urls    = [unquote(it.get("url", "")) for it in sample]
+        sample_urls = [unquote(it.get("url", "")) for it in sample]
 
         print(f"[LOCAL RAG] sample titles : {sample_titles}")
         print(f"[LOCAL RAG] sample sources: {sample_sources}")
@@ -297,6 +312,10 @@ def build_webjson_from_local(globs: List[str], out_dir: str) -> str:
         json.dump(items, fp, ensure_ascii=False, indent=2)
     return out_path
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 파이프: web.json → Chroma 적재 + 미리보기
+# ──────────────────────────────────────────────────────────────────────────────
 def ingest_local_files(
     globs: List[str],
     namespace: str,
@@ -316,7 +335,7 @@ def ingest_local_files(
     json_path = build_webjson_from_local(globs, res_dir)
 
     chunk_total = 0
-    if add_web_pages_json_to_chroma:
+    if add_web_pages_json_to_chroma is not None:
         try:
             _orig, chunk_count = add_web_pages_json_to_chroma(
                 json_path, namespace=namespace, persist_directory=persist_directory
@@ -326,7 +345,7 @@ def ingest_local_files(
             print(f"[WARN] add_web_pages_json_to_chroma(local) 실패: {e}")
 
     docs_preview: List[Document] = []
-    if web_page_json_to_documents:
+    if web_page_json_to_documents is not None:
         try:
             docs_preview = web_page_json_to_documents(json_path)[:8]
         except Exception as e:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os, json, time, io, hashlib
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, DefaultDict
 from datetime import datetime
 
 import requests, certifi, chardet
@@ -12,6 +12,8 @@ from langchain_core.tools import tool
 from langchain_core.documents import Document
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from collections import defaultdict as _dd
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HTTPS 세션 (검증 ON)
@@ -533,7 +535,9 @@ def clear_vector_store(namespace: Optional[str] = None, persist_directory: Optio
     """
     import shutil, stat
 
-    ns = (namespace or os.getenv("CHROMA_NAMESPACE", "default")).strip()
+    # ns = (namespace or os.getenv("CHROMA_NAMESPACE", "default")).strip()
+    env_ns = os.getenv("CHROMA_NAMESPACE")
+    ns = (namespace or (env_ns if env_ns is not None else "default")).strip()
     pd = _resolve_persist_dir(ns, persist_directory)
 
     # (안전장치) 명시적 인자가 없는 전역 초기화는 기본적으로 막는다.
@@ -775,7 +779,8 @@ def documents_to_chroma(
     # 3) 결정적 ID 생성(업서트 친화)
     from collections import defaultdict as _dd
     ids: List[str] = []
-    counter = _dd(int)
+    # counter = _dd(int)
+    counter: DefaultDict[str, int] = _dd(int)
     for s in splits:
         src = (getattr(s, "metadata", {}) or {}).get("source", "")
         if src:

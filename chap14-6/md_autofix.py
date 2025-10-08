@@ -97,7 +97,8 @@ def process_markdown(text: str, sublevel: int = 3) -> str:
                 fence_marker = s.strip()[:3]
             else:
                 # 같은 펜스면 닫기
-                if s.strip().startswith(fence_marker):
+                # if s.strip().startswith(fence_marker):
+                if fence_marker and s.startswith(fence_marker):
                     in_fence = False
                     fence_marker = None
             out.append(s)

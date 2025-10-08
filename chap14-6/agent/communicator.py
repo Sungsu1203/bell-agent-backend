@@ -1,7 +1,7 @@
 from __future__ import annotations
 import re, os
 from typing import Any
-from langchain_core.messages import HumanMessage, AIMessage
+from utils.tasks import HumanMessage, AIMessage
 
 from core.config import DOC_MODE
 from core.paths import now_str as _now_str, current_path

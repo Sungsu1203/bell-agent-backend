@@ -1,28 +1,58 @@
 # utils/tasks.py
 from __future__ import annotations
-from typing import Optional, Protocol, Iterable, Any, Sequence
+from typing import Optional, Protocol, Iterable, Any, Sequence, TYPE_CHECKING
 
+# # ── 메시지 클래스: 여기서만 임포트/재노출 ─────────────────────────────
+# try:
+#     from langchain_core.messages import (
+#         HumanMessage as _HumanMessage,
+#         AIMessage as _AIMessage,
+#         SystemMessage as _SystemMessage,
+#     )
+#     HumanMessage = _HumanMessage
+#     AIMessage = _AIMessage
+#     SystemMessage = _SystemMessage
+# except Exception:
+#     # LangChain 미설치 시 얇은 폴백 (테스트/타입용)
+#     class _BaseMsg:
+#         def __init__(self, content: str) -> None:
+#             self.content = content
+#     class HumanMessage(_BaseMsg): ...
+#     class AIMessage(_BaseMsg): ...
+#     class SystemMessage(_BaseMsg): ...
+
+
+if TYPE_CHECKING:
+    # 타입체커에게는 항상 원본 클래스를 보여준다 (아이덴티티 동일)
+    from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+else:
+    try:
+        # 런타임에도 되면 그대로 사용
+        from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+    except Exception:
+        # 런타임 폴백 (LangChain 없을 때만)
+        class _BaseMsg:
+            def __init__(self, content: str) -> None:
+                self.content = content
+        class HumanMessage(_BaseMsg): ...
+        class AIMessage(_BaseMsg): ...
+        class SystemMessage(_BaseMsg): ...
+
+# ── Task-like 프로토콜 & 도우미 ─────────────────────────────────────
 class _TaskLike(Protocol):
     agent: str
     done: bool
-    description: Optional[str]
+    description: Any  # Optional[str]일 수 있으니 Any로 완화
 
 def has_pending(tasks: Iterable[_TaskLike], agent: str, prefix: Optional[str] = None) -> bool:
-    # reversed()를 쓰려면 list로 한 번 감싸서 역순 순회
     for t in reversed(list(tasks)):
         if (not t.done) and t.agent == agent:
             if prefix is None:
                 return True
-            if (t.description or "").lower().startswith(prefix.lower()):
+            desc = (t.description or "") if isinstance(t.description, (str, type(None))) else str(t.description)
+            if desc.lower().startswith(prefix.lower()):
                 return True
     return False
-
-# LangChain이 없는 환경에서도 안전하게 동작하도록 '선택적' 임포트
-try:
-    from langchain_core.messages import HumanMessage  # type: ignore
-except Exception:  # 런타임/타입체커 모두 통과용 폴백
-    class HumanMessage:  # type: ignore
-        pass
 
 from rag_expression import extract_write_title
 
@@ -30,11 +60,6 @@ def get_last_write_target(
     messages: Sequence[Any],
     tasks: Sequence[Any],
 ) -> Optional[str]:
-    """
-    최근 HumanMessage/Task에서 `write:` 대상 제목을 추출.
-    - messages: LangChain 스타일 메시지 시퀀스(섞여 있어도 됨)
-    - tasks: Task(pydantic/dict 유사) 시퀀스
-    """
     # 1) 최근 사용자 메시지에서 추출
     for m in reversed(messages or []):
         if isinstance(m, HumanMessage):
@@ -42,7 +67,6 @@ def get_last_write_target(
             t = extract_write_title(content)
             if t:
                 return t
-
     # 2) 최근 태스크 설명에서 추출
     for t in reversed(tasks or []):
         desc = getattr(t, "description", None)
@@ -51,7 +75,6 @@ def get_last_write_target(
         title = extract_write_title((desc or ""))
         if title:
             return title
-
     return None
 
 def iter_tool_calls(msg, name: str):
@@ -66,4 +89,7 @@ def iter_tool_calls(msg, name: str):
         if n == name.lower():
             yield args
 
-__all__ = ["has_pending","get_last_write_target"]
+__all__ = [
+    "HumanMessage", "AIMessage", "SystemMessage",
+    "has_pending", "get_last_write_target", "iter_tool_calls"
+]

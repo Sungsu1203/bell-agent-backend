@@ -1,17 +1,18 @@
 from __future__ import annotations
 from langchain_core.output_parsers.string import StrOutputParser
-from langchain_core.messages import AIMessage
+from utils.tasks import AIMessage
 
 from core.paths import now_str as _now_str
 from core.state_types import State
 from core.models import Task, AgentName
-from utils.sanitize import sanitize_state, as_int
+from utils.sanitize import sanitize_state, as_int # , normalize_legacy_keys
 from utils.rag_utils import refs_preview_text
 from prompts import get_research_planner_prompt
 from utils.tasks import has_pending
 from utils.refs import refs_preview_text as _refs_preview_text
 from utils.query_filters import strip_web_filters as _strip_web_filters, looks_like_local_glob
 from utils.forced_queries import extract_forced_queries_from_messages
+from typing import Any, Dict, MutableMapping, overload, TYPE_CHECKING, Union, cast
 import os, re
 
 from core.llm import get_llm
@@ -20,22 +21,48 @@ llm=get_llm()
 def research_planner(state: State):
     print("\n\n============ RESEARCH PLANNER ============")
     # state = sanitize_numeric_state(state)
+    #normalize_legacy_keys(cast(MutableMapping[str, Any], state))
     state = sanitize_state(state)
 
-    # 키 이름 일괄 보정 (공백 키 → snake_case)
-    if "iteration count" in state and "iteration_count" not in state:
-        state["iteration_count"] = state["iteration count"]
-    if "research round" in state and "research_round" not in state:
-        state["research_round"] = state["research round"]
-    if "task history" in state and "task_history" not in state:
-        state["task_history"] = state["task history"]
+    # def normalize_legacy_keys(state: MutableMapping[str, Any]) -> None:
+    #     # 레거시 → 표준
+    #     v = state.get("iteration count")
+    #     if v is not None and "iteration_count" not in state:
+    #         state["iteration_count"] = v
 
-    # 기본값 보정
-    state.setdefault("iteration_count", 0)
-    state.setdefault("research_round", 0)
-    state.setdefault("messages", [])
-    state.setdefault("task_history", [])
-    state.setdefault("research_objectives", [])
+    #     v = state.get("research round")
+    #     if v is not None and "research_round" not in state:
+    #         state["research_round"] = v
+
+    #     v = state.get("task history")
+    #     if v is not None and "task_history" not in state:
+    #         state["task_history"] = v
+
+    #     # 기본값
+    #     state.setdefault("iteration_count", 0)
+    #     state.setdefault("research_round", 0)
+    #     state.setdefault("messages", [])
+    #     state.setdefault("task_history", [])
+    #     state.setdefault("research_objectives", [])
+
+    # state: State  (TypedDict)
+    # normalize_legacy_keys(cast(MutableMapping[str, Any], state))
+
+
+    # # 키 이름 일괄 보정 (공백 키 → snake_case)
+    # if "iteration count" in state and "iteration_count" not in state:
+    #     state["iteration_count"] = state["iteration count"]
+    # if "research round" in state and "research_round" not in state:
+    #     state["research_round"] = state["research round"]
+    # if "task history" in state and "task_history" not in state:
+    #     state["task_history"] = state["task history"]
+
+    # # 기본값 보정
+    # state.setdefault("iteration_count", 0)
+    # state.setdefault("research_round", 0)
+    # state.setdefault("messages", [])
+    # state.setdefault("task_history", [])
+    # state.setdefault("research_objectives", [])
 
     # max_iter = state["iteration_count"]
     # rnd = state["research_round"]

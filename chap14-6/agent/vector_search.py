@@ -1,12 +1,13 @@
 from __future__ import annotations
-from typing import Any
-from langchain_core.messages import HumanMessage, AIMessage
+
+from typing import TypedDict, List, Any, Mapping, cast, MutableMapping, Iterable 
+from utils.tasks import HumanMessage, AIMessage
 from core.llm import get_llm
 from core.config import DOC_MODE, WRITER_AGENT
 from core.paths import current_path, now_str as _now_str, topic_dir as _topic_dir
 from core.state_types import State
 from core.models import Task, AgentName
-from utils.sanitize import sanitize_state, as_int, sanitize_numeric_state_generic
+from utils.sanitize import sanitize_state, as_int
 from utils.rag_utils import merge_refs, refs_preview_text
 from utils.query_filters import strip_web_filters as _strip_web_filters, looks_like_local_glob as _looks_like_local_glob, clean_seed as _clean_seed, ok_query as _ok_query
 
@@ -28,6 +29,25 @@ from utils.text_utils import plain_snip as _plain_snip
 import os,re
 llm=get_llm()
 
+# types_refs.py (예: vector_search.py 상단에 넣어도 됨)
+
+class Refs(TypedDict):
+    queries: List[str]
+    docs: List[Any]           # <- 간단/안전: Document 대신 Any
+
+def _to_refs(raw: Mapping[str, Any] | None) -> Refs:
+    """merge_refs(dict)->dict 결과나 임의 매핑을 안전하게 Refs로 정규화."""
+    if not isinstance(raw, Mapping):
+        return {"queries": [], "docs": []}
+    return {
+        "queries": list(cast(List[str], raw.get("queries") or [])),
+        "docs":    list(cast(List[Any], raw.get("docs") or [])),
+    }
+
+_DEFAULT_REFS: Refs = {"queries": [], "docs": []}
+
+def get_refs(state: Mapping[str, Any]) -> Refs:
+    return _to_refs(cast(Mapping[str, Any] | None, state.get("references")))
 
 def vector_search_agent(state: State):
     print("\n\n============ VECTOR SEARCH AGENT ============")
@@ -48,12 +68,19 @@ def vector_search_agent(state: State):
     vector_search_system_prompt = get_vector_search_prompt()
 
     mission = (pending.description or "")
-    references = state.get("references", {"queries": [], "docs": []}) or {"queries": [], "docs": []}
+    # references = state.get("references", {"queries": [], "docs": []}) or {"queries": [], "docs": []}
+    references: Refs = get_refs(state)
     outline_text = get_topic_outline_text(state)
-    ns = state.get("chroma_ns") or os.getenv("CHROMA_NAMESPACE") or "default"
+    # ns = state.get("chroma_ns") or os.getenv("CHROMA_NAMESPACE") or "default"
+    ns_raw = state.get("chroma_ns") or os.getenv("CHROMA_NAMESPACE") or "default"
+    ns: str = str(ns_raw).strip() or "default"
 
     slug = state.get("topic_slug")  # Optional[str]
-    persist_dir = _topic_dir(slug) if slug else (os.getenv("CHROMA_DIR") or _default_chroma_dir(ns))
+    # persist_dir = _topic_dir(slug) if slug else (os.getenv("CHROMA_DIR") or _default_chroma_dir(ns))
+    persist_dir: str = (
+        str(_topic_dir(slug))
+        if slug else (os.getenv("CHROMA_DIR") or _default_chroma_dir(ns))
+    )
 
     # 💡 세션 디렉터리 확정 후 '1회만' 초기화 (환경변수로 on/off)
     if os.getenv("CLEAR_CHROMA_ON_START", "0") == "1" and not state.get("_vs_cleared_once"):
@@ -98,8 +125,16 @@ def vector_search_agent(state: State):
                     web_page_json_to_documents=web_page_json_to_documents,
                 )
                 if l_docs:
-                    references = merge_refs(references, [], l_docs)
-                    state["references"] = references
+                    # references = merge_refs(references, [], l_docs)  # dict 구조 동일
+                    # state["references"] = cast(Refs, references)     # <- 타입 고정
+                    # references = cast(Refs, merge_refs(references, [], l_docs))
+                    # references = cast(Refs, merge_refs(cast(Mapping[str, Any], references), [], l_docs))
+                    # cast(MutableMapping[str, Any], state)["references"] = references
+                    # # references = merge_refs(references, [], l_docs)
+                    # state["references"] = references
+                    merged_dict = merge_refs(cast(dict[str, Any], references), [], l_docs)
+                    references = _to_refs(merged_dict)
+                    cast(MutableMapping[str, Any], state)["references"] = references
                 state["local_ingested_once"] = True
     except Exception as e:
         print(f"[WARN] on-demand local ingest 실패: {e}")
@@ -110,9 +145,12 @@ def vector_search_agent(state: State):
     # state["round_new_urls"] = new_url_count
 
     # ✅ ran_queries를 set()으로 변경 (중복 체크 O(1))
+    # ran_queries: set[str] = set()
+    # accum_queries: list[str] = []
+    # accum_docs: list = []
     ran_queries: set[str] = set()
     accum_queries: list[str] = []
-    accum_docs: list = []
+    accum_docs: list[Any] = []  # <- Any로 넉넉하게
 
     def _skip_reason(q: str, key: str) -> str:
         if not (q or "").strip():
@@ -174,7 +212,8 @@ def vector_search_agent(state: State):
                         "top_k": TOP_K
                     }
                 })
-                retrieved_docs = retrieve.invoke({
+                # retrieved_docs = retrieve.invoke({
+                retrieved_docs: list[Any] = retrieve.invoke({
                     "query": user_q_clean,
                     "namespace": ns,
                     "persist_directory": persist_dir,
@@ -188,8 +227,11 @@ def vector_search_agent(state: State):
             accum_docs.extend(retrieved_docs)
             ran_queries.add(user_key)  # ✅ set에 추가
 
-        state["references"] = merge_refs(references, accum_queries, accum_docs)
-        references = state["references"]
+        # state["references"] = merge_refs(references, accum_queries, accum_docs)
+        # references = state["references"]
+        merged_dict = merge_refs(cast(dict[str, Any], references), accum_queries, accum_docs)
+        references = _to_refs(merged_dict)
+        cast(MutableMapping[str, Any], state)["references"] = references
 
         print(f"[DEBUG] ns={ns} persist_dir={persist_dir} TOP_K={TOP_K} ALLOW_LOCAL_SUMMARY={os.getenv('ALLOW_LOCAL_SUMMARY')}")
         print(f"[DEBUG] retrieved_docs={len(retrieved_docs)} for user_q_clean={user_q_clean!r}")
@@ -219,8 +261,12 @@ def vector_search_agent(state: State):
                     messages.append(AIMessage(reply_text))
 
                     state["qa_direct_reply"] = True
-                    for k in ("new_url_count", "new_url_count_round", "round_new_urls"):
-                        state[k] = int(state.get(k, 0) or 0)
+                    # for k in ("new_url_count", "new_url_count_round", "round_new_urls"):
+                    #     state[k] = int(state.get(k, 0) or 0)
+                    # 각 키를 리터럴로 직접 대입 + as_int로 안전 변환
+                    state["new_url_count"] = as_int(state, "new_url_count", 0)
+                    state["new_url_count_round"] = as_int(state, "new_url_count_round", 0)
+                    state["round_new_urls"] = as_int(state, "round_new_urls", 0)
 
                     if not has_pending(tasks, "communicator"):
                         tasks.append(Task(agent="communicator", done=False,
@@ -234,8 +280,12 @@ def vector_search_agent(state: State):
             else:
                 messages.append(AIMessage("요청과 직접 매칭되는 로컬 문서를 찾지 못했어요. 파일 경로/패턴(LOCAL_RAG_GLOBS)을 확인해 주세요."))
                 state["qa_direct_reply"] = True
-                for k in ("new_url_count", "new_url_count_round", "round_new_urls"):
-                    state[k] = int(state.get(k, 0) or 0)
+                # for k in ("new_url_count", "new_url_count_round", "round_new_urls"):
+                #     state[k] = int(state.get(k, 0) or 0)
+                state["new_url_count"] = as_int(state, "new_url_count", 0)
+                state["new_url_count_round"] = as_int(state, "new_url_count_round", 0)
+                state["round_new_urls"] = as_int(state, "round_new_urls", 0)
+
                 if not has_pending(tasks, "communicator"):
                     tasks.append(Task(agent="communicator", done=False, description="안내 전달 및 다음 요청 확인", done_at=""))
                 pending.done = True
@@ -348,8 +398,11 @@ def vector_search_agent(state: State):
         accum_docs.extend(retrieved_docs)
         ran_queries.add(key)  # ✅ set에 추가
 
-    state["references"] = merge_refs(references, accum_queries, accum_docs)
-    references = state["references"]
+    # state["references"] = merge_refs(references, accum_queries, accum_docs)
+    # references = state["references"]
+    merged_dict = merge_refs(cast(dict[str, Any], references), accum_queries, accum_docs)
+    references = _to_refs(merged_dict)
+    cast(MutableMapping[str, Any], state)["references"] = references
 
     # (선택) 숫자 포함 스니펫을 facts_ctx로 구성하여 후속 Writer에 힌트 제공
     try:
@@ -389,7 +442,9 @@ def vector_search_agent(state: State):
     research_loop_active = (role == "research analyst") and bool(state.get("research_objectives")) and (rounds_done < max_iter)
 
     writer_agent = WRITER_AGENT
-    if not research_loop_active:
+    AUTO_WRITE_DURING_RESEARCH = os.getenv("AUTO_WRITE_DURING_RESEARCH", "0") == "1"
+
+    def _schedule_writer() -> bool:
         fallback_default = "Executive Summary" if DOC_MODE == "report" else "서문"
         requested_title = get_last_write_target(messages, tasks)
         auto_title = next_unwritten_title(
@@ -400,11 +455,19 @@ def vector_search_agent(state: State):
         AUTO_WRITE = os.getenv("AUTO_WRITE_AFTER_RAG", "1") == "1"
         if AUTO_WRITE and not has_pending(tasks, writer_agent, prefix="write"):
             tasks.append(Task(agent=writer_agent, done=False, description=f"write: {target_title}", done_at=""))
-        else:
-            if not has_pending(tasks, "communicator"):
-                tasks.append(Task(agent="communicator", done=False, description="검색/인덱싱 완료 보고 및 다음 집필 대상 확인", done_at=""))
+            return True
+        return False
+
+    # not 연구 모드이거나, 연구 모드여도 AUTO_WRITE_DURING_RESEARCH=1이면 writer 예약 시도
+    if (not research_loop_active) or AUTO_WRITE_DURING_RESEARCH:
+        did = _schedule_writer()
+        # writer 예약 실패 시 안내 태스크(communicator)만 보조로 추가
+        if (not did) and not has_pending(tasks, "communicator"):
+            tasks.append(Task(agent="communicator", done=False, description="검색/인덱싱 완료 보고 및 다음 집필 대상 확인", done_at=""))
     else:
+        # 연구 루프 진행 중이며 writer 자동 예약도 비활성화면 안내 메시지만
         messages.append(AIMessage("[VECTOR SEARCH AGENT] 연구 라운드 진행 중 → 합성 단계(Research Synthesizer)로 이동"))
+
 
     _qs = references.get("queries", [])
     _qs_view = _qs[:8] + (["..."] if len(_qs) > 8 else [])

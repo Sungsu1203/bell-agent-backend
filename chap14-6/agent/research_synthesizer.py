@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Mapping, Any, Optional
-from langchain_core.messages import AIMessage
+from utils.tasks import AIMessage
 from langchain_core.output_parsers.string import StrOutputParser
 
 from core.config import DOC_MODE, WRITER_AGENT

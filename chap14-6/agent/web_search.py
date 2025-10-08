@@ -7,7 +7,7 @@ from core.config import WRITER_AGENT            # ← main.py의 전역 상수 �
 from core.paths import current_path, topic_dir as _topic_dir, now_str as _now_str
 #from utils.sanitize import sanitize_numeric_state_generic
 from core.models import Task, AgentName
-from utils.sanitize import sanitize_state, sanitize_numeric_state_generic
+from utils.sanitize import sanitize_state
 
 from utils.rag_utils import merge_refs, vector_count          # ← main.py의 merge_refs 대신 utils 경로
 from prompts import get_web_search_prompt
@@ -44,7 +44,7 @@ def web_search_agent(state: State):
     # Imports (내부 임포트 고정)
     import os, re, time, json, glob, shutil
     from pathlib import Path
-    from langchain_core.messages import HumanMessage, AIMessage
+    from utils.tasks import HumanMessage, AIMessage
     from langchain_core.documents import Document
     # ────────────────────────────────────────────────────────────────────────────
     print("\n\n============ WEB SEARCH AGENT ============")
@@ -61,7 +61,8 @@ def web_search_agent(state: State):
     web_search_system_prompt = get_web_search_prompt()
 
     messages = state.get("messages", [])
-    references = state.get("references", {"queries": [], "docs": []})
+    references: dict[str, list] = {"queries": [], "docs": []}
+    # references = state.get("references", {"queries": [], "docs": []})
     _existing_qs = set(q.strip().lower() for q in (references.get("queries") or []) if q and q.strip())
 
     outline_text = get_topic_outline_text(state)
@@ -98,26 +99,70 @@ def web_search_agent(state: State):
     except Exception as e:
         print(f"[DEBUG] after init, doc_count check failed: {e}")
 
+#     # --- (2) 소스 게이트 설정(허용 도메인) -----------------------------------
+#     _DEFAULT_ALLOWED = [
+#     "me.go.kr","molit.go.kr","motie.go.kr","korea.kr","mss.go.kr","moef.go.kr",
+#     "kofpi.or.kr","kepco.co.kr","kesis.kr","kama.or.kr","kotra.or.kr","kei.re.kr","iea.org",
+#     "oecd.org","kdi.re.kr","kiep.go.kr"
+# ]
+
+#     # 1) 환경변수 캐시(폴백 소스)
+#     _env_allowed_raw = os.getenv("ALLOWED_DOMAINS", "")
+#     _env_allowed_set = {d.strip().lower() for d in _env_allowed_raw.split(",") if d.strip()} if _env_allowed_raw.strip() else set(_DEFAULT_ALLOWED)
+#     _env_gate = os.getenv("GATE_KEEP_SOURCES", "0") == "1"
+
+#     # 2) settings_gatekeep 가 있으면 우선 사용, 실패/미정의 시 환경변수로 폴백
+#     try:
+#         GATE_KEEP_SOURCES = bool(gatekeep_enabled())
+#         _maybe = get_allowed_domains() or []
+#         _maybe: list[str] = []
+#         ALLOWED_DOMAINS = {d.strip().lower() for d in _maybe} or _env_allowed_set
+#     except Exception:
+#         GATE_KEEP_SOURCES = _env_gate
+#         ALLOWED_DOMAINS = _env_allowed_set
+
     # --- (2) 소스 게이트 설정(허용 도메인) -----------------------------------
-    _DEFAULT_ALLOWED = [
-    "me.go.kr","molit.go.kr","motie.go.kr","korea.kr","mss.go.kr","moef.go.kr",
-    "kofpi.or.kr","kepco.co.kr","kesis.kr","kama.or.kr","kotra.or.kr","kei.re.kr","iea.org",
-    "oecd.org","kdi.re.kr","kiep.go.kr"
-]
+    from typing import Iterable, Set
 
-    # 1) 환경변수 캐시(폴백 소스)
-    _env_allowed_raw = os.getenv("ALLOWED_DOMAINS", "")
-    _env_allowed_set = {d.strip().lower() for d in _env_allowed_raw.split(",") if d.strip()} if _env_allowed_raw.strip() else set(_DEFAULT_ALLOWED)
-    _env_gate = os.getenv("GATE_KEEP_SOURCES", "0") == "1"
+    # 0) 기본 허용 도메인 (상수)
+    _DEFAULT_ALLOWED: Set[str] = {
+        "me.go.kr","molit.go.kr","motie.go.kr","korea.kr","mss.go.kr","moef.go.kr",
+        "kofpi.or.kr","kepco.co.kr","kesis.kr","kama.or.kr","kotra.or.kr","kei.re.kr",
+        "iea.org","oecd.org","kdi.re.kr","kiep.go.kr",
+    }
 
-    # 2) settings_gatekeep 가 있으면 우선 사용, 실패/미정의 시 환경변수로 폴백
+    def _normalize_domains(domains: Iterable[str] | None) -> Set[str]:
+        """문자열 이터러블을 소문자/트림/공백제거하여 set으로 변환."""
+        if not domains:
+            return set()
+        return {d.strip().lower() for d in domains if isinstance(d, str) and d.strip()}
+
+    # 1) 환경변수 기반 폴백값 구성
+    _env_allowed_raw = os.getenv("ALLOWED_DOMAINS")  # e.g. "a.com,b.org"
+    if _env_allowed_raw and _env_allowed_raw.strip():
+        ENV_ALLOWED_DOMAINS: Set[str] = _normalize_domains(_env_allowed_raw.split(","))
+    else:
+        ENV_ALLOWED_DOMAINS = set(_DEFAULT_ALLOWED)
+
+    ENV_GATE: bool = os.getenv("GATE_KEEP_SOURCES", "0").strip().lower() in {"1", "true", "yes"}
+
+    # 2) 실행값(선 초기화) — settings_gatekeep 가 없거나 실패해도 안전
+    GATE_KEEP_SOURCES: bool = ENV_GATE
+    ALLOWED_DOMAINS: Set[str] = set(ENV_ALLOWED_DOMAINS)
+
+    # 3) settings_gatekeep 가 제공되면 그것을 우선 적용 (실패 시 조용히 폴백 유지)
     try:
+        # gatekeep_enabled/get_allowed_domains 는 외부에서 제공된다고 가정
         GATE_KEEP_SOURCES = bool(gatekeep_enabled())
-        _maybe = get_allowed_domains() or []
-        ALLOWED_DOMAINS = {d.strip().lower() for d in _maybe} or _env_allowed_set
+
+        _maybe_domains = get_allowed_domains()  # Iterable[str] | None 가정
+        parsed = _normalize_domains(_maybe_domains)
+        if parsed:
+            ALLOWED_DOMAINS = parsed
     except Exception:
-        GATE_KEEP_SOURCES = _env_gate
-        ALLOWED_DOMAINS = _env_allowed_set
+        # 실패해도 ENV_* 기반 초기값이 이미 들어가 있으니 폴백 그대로 사용
+        pass
+
 
     # def _allowed(src: str) -> bool:
     #     if not GATE_KEEP_SOURCES:
@@ -417,7 +462,8 @@ def web_search_agent(state: State):
             f"{topic} supply chain risks 2025",
             f"{topic} policy & regulation Korea 2025",
         ]
-        extra = []
+        # extra = []
+        extra: list[str] = []
         if outline_text:
             for line in outline_text.splitlines():
                 line = _clean_seed(line.strip())

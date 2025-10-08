@@ -1,19 +1,19 @@
 from __future__ import annotations
 import os, re
-from typing import Any, Mapping, Literal
-from langchain_core.messages import HumanMessage, AIMessage
+from typing import Any, Mapping, Literal, MutableMapping, cast
+from utils.tasks import HumanMessage, AIMessage
 from langgraph.graph import StateGraph
 from core.models import Task, AgentName
 
 from core.config import DOC_MODE, WRITER_AGENT
 from core.paths import now_str as _now_str, current_path
 from core.state_types import State
-from core.models import Task, AgentName
-from utils.sanitize import sanitize_state, as_int, sanitize_numeric_state_generic
+
+from utils.sanitize import sanitize_state, as_int, coerce_int
 from rag_expression import extract_write_title, is_outline_creation, is_outline_display
 from prompts import get_supervisor_prompt
 from content_utils import read_outline
-from utils_forced_queries import extract_forced_queries_from_messages
+from utils.forced_queries import extract_forced_queries_from_messages
 from content_utils import save_outline, next_unwritten_title
 from utils.tasks import has_pending
 from utils.outline import get_topic_outline_text, pick_outline_filename as _pick_outline_filename
@@ -23,6 +23,36 @@ from core.topic import start_new_topic, sanitize_title as _sanitize_title
 from core.llm import get_llm
 llm=get_llm()
 
+def _env_str(name: str, default: str = "") -> str:
+    v = os.getenv(name)
+    return v.strip() if isinstance(v, str) else default
+
+def _ensure_agent_env(state: MutableMapping[str, Any]) -> None:
+    # 1) agent_role: None/빈문자 방어 + strip
+    raw_role = state.get("agent_role")
+    if isinstance(raw_role, str) and raw_role.strip():
+        state["agent_role"] = raw_role.strip()
+    else:
+        state["agent_role"] = _env_str("BLOCKAGI_AGENT_ROLE", "")
+
+    # 2) iteration_count: 존재하면 캐스팅, 없으면 env 사용 (모두 안전 캐스팅)
+    if "iteration_count" in state:
+        state["iteration_count"] = coerce_int(state.get("iteration_count"), default=0)
+    else:
+        state["iteration_count"] = coerce_int(os.getenv("ITERATION_COUNT"), default=0)
+
+def _seed_objectives(state: MutableMapping[str, Any]) -> None:
+    """환경변수 BLOCKAGI_OBJECTIVE_1..9 를 research_objectives 에 주입 (비어있을 때만)."""
+    if state.get("research_objectives"):
+        return
+    objs: list[str] = []
+    for i in range(1, 10):
+        v = os.getenv(f"BLOCKAGI_OBJECTIVE_{i}", "")
+        if isinstance(v, str) and v.strip():
+            objs.append(v.strip())
+    state["research_objectives"] = objs
+
+
 def supervisor(state: State):
     ### BEGIN: copy main.py's supervisor body, replacing helpers with imported ones
     #  - now_str -> _now_str
@@ -31,9 +61,12 @@ def supervisor(state: State):
     #  - read_outline/save_outline/next_unwritten_title from content_utils
     #  - etc.
     ### END
-    ...
+
     print("\n\n============ SUPERVISOR ============")
     state = sanitize_state(state)
+
+    _ensure_agent_env(cast(MutableMapping[str, Any], state))
+    _seed_objectives(cast(MutableMapping[str, Any], state))
 
     # 안전 초기화
     tasks = state.get("task_history", [])
@@ -72,8 +105,8 @@ def supervisor(state: State):
 
     # [ANCHOR] seed research config from env on NEW SESSION
     # - 새 프로젝트/보고서 시작 직후(state가 초기화된 직후)에 연구 루프용 설정을 주입
-    state.setdefault("agent_role", (state.get("agent_role") or os.getenv("BLOCKAGI_AGENT_ROLE", "")).strip())
-    state.setdefault("iteration_count", int(state.get("iteration_count") or os.getenv("ITERATION_COUNT", "0")))
+    # state.setdefault("agent_role", (state.get("agent_role") or os.getenv("BLOCKAGI_AGENT_ROLE", "")).strip())
+    # state.setdefault("iteration_count", int(state.get("iteration_count") or os.getenv("ITERATION_COUNT", "0")))
 
     if not state.get("research_objectives"):
         objs = []
@@ -134,21 +167,27 @@ def supervisor(state: State):
     if m_new:
         maybe_title = (m_new.group("title") or "").strip() or "untitled report"
         maybe_title = _sanitize_title(maybe_title)
-        state = start_new_topic(state, maybe_title, outline_fname=_pick_outline_filename(last_text))
-        # msg = f"[Supervisor] 새 주제 세션 시작: '{state['topic_title']}' (ns={state['chroma_ns']})"
-        # ★ f-string에서도 .get 사용 (기본값까지)
-        # [ANCHOR] seed research config from env on NEW SESSION
-        # - 새 프로젝트/보고서 시작 직후(state가 초기화된 직후)에 연구 루프용 설정을 주입
-        state.setdefault("agent_role", (state.get("agent_role") or os.getenv("BLOCKAGI_AGENT_ROLE", "")).strip())
-        state.setdefault("iteration_count", int(state.get("iteration_count") or os.getenv("ITERATION_COUNT", "0")))
+        # state = start_new_topic(state, maybe_title, outline_fname=_pick_outline_filename(last_text))
+        # # msg = f"[Supervisor] 새 주제 세션 시작: '{state['topic_title']}' (ns={state['chroma_ns']})"
+        # # ★ f-string에서도 .get 사용 (기본값까지)
+        # # [ANCHOR] seed research config from env on NEW SESSION
+        # # - 새 프로젝트/보고서 시작 직후(state가 초기화된 직후)에 연구 루프용 설정을 주입
+        # state.setdefault("agent_role", (state.get("agent_role") or os.getenv("BLOCKAGI_AGENT_ROLE", "")).strip())
+        # state.setdefault("iteration_count", int(state.get("iteration_count") or os.getenv("ITERATION_COUNT", "0")))
 
-        if not state.get("research_objectives"):
-            objs = []
-            for i in range(1, 10):  # BLOCKAGI_OBJECTIVE_1..9 까지 흡수
-                v = os.getenv(f"BLOCKAGI_OBJECTIVE_{i}", "")
-                if v and v.strip():
-                    objs.append(v.strip())
-            state["research_objectives"] = objs
+        # if not state.get("research_objectives"):
+        #     objs = []
+        #     for i in range(1, 10):  # BLOCKAGI_OBJECTIVE_1..9 까지 흡수
+        #         v = os.getenv(f"BLOCKAGI_OBJECTIVE_{i}", "")
+        #         if v and v.strip():
+        #             objs.append(v.strip())
+        #     state["research_objectives"] = objs
+
+        state = start_new_topic(state, maybe_title, outline_fname=_pick_outline_filename(last_text))
+
+        # 새 세션 환경 주입은 유틸로 통일
+        _ensure_agent_env(cast(MutableMapping[str, Any], state))
+        _seed_objectives(cast(MutableMapping[str, Any], state))
 
         msg = (
             f"[Supervisor] 새 주제 세션 시작: "
@@ -204,11 +243,18 @@ def supervisor(state: State):
         return {"messages": messages, "task_history": tasks}
     
     # [ANCHOR] research-mode preemption (insert BEFORE communicator fast-path)
-    def _is_research_mode(st) -> bool:
-        role = (st.get("agent_role") or "").strip().lower() or os.getenv("BLOCKAGI_AGENT_ROLE","").strip().lower()
+    # def _is_research_mode(st) -> bool:
+    #     role = (st.get("agent_role") or "").strip().lower() or os.getenv("BLOCKAGI_AGENT_ROLE","").strip().lower()
+    #     has_objs = bool(st.get("research_objectives"))
+    #     max_iter = int(st.get("iteration_count") or os.getenv("ITERATION_COUNT","0"))
+    #     return (role == "research analyst") and has_objs and (max_iter > 0)
+    
+    def _is_research_mode(st: Mapping[str, Any]) -> bool:
+        role_src = (st.get("agent_role") or _env_str("BLOCKAGI_AGENT_ROLE", "")).strip().lower()
         has_objs = bool(st.get("research_objectives"))
-        max_iter = int(st.get("iteration_count") or os.getenv("ITERATION_COUNT","0"))
-        return (role == "research analyst") and has_objs and (max_iter > 0)
+        # coerce_int는 Any -> int 안전 변환
+        max_iter = coerce_int(st.get("iteration_count", os.getenv("ITERATION_COUNT")), default=0)
+        return (role_src == "research analyst") and has_objs and (max_iter > 0)
 
     if _is_research_mode(state):
         # 연구 파이프라인이 아직 안 올라가 있으면 planner를 먼저 올림
@@ -364,7 +410,6 @@ def supervisor(state: State):
 def supervisor_router(state: State):
     ### BEGIN: copy main.py's supervisor_router body
     ### END
-    ...
     state = sanitize_state(state)
     # state = sanitize_numeric_state(state)
     tasks = state.get("task_history", [])

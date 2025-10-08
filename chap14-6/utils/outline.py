@@ -2,15 +2,15 @@
 from __future__ import annotations
 import re
 from typing import Optional, Mapping, Any, Tuple
-from content_utils import read_outline
+# from content_utils import read_outline
 from core.config import DOC_MODE, PROJECT_ROOT  # 전역 설정 (순환 import 없음이 전제)
 from core.config import DocMode  # Literal["book","report"]
 from typing import List, Tuple
 from pathlib import Path
-from utils.text_utils import slugify as _slugify
+from utils.text_utils import slugify, slugify as _slugify
 
 from datetime import datetime
-from core.paths import path_for_title, outline_path as outline_path, read_outline as read_outline
+from core.paths import path_for_title, outline_path as outline_path, read_outline as read_outline, get_content_dir, is_written, _coerce_mode
 from utils.outline import outline_path  # re-export된 함수 사용
 
 __all__ = [
@@ -195,22 +195,29 @@ def normalize_outline_headings(s: str) -> str:
     return "\n".join(out)
 
 
-_h2_pat = re.compile(r"(?m)^\s*##\s+(.*)$")
+# _h2_pat = re.compile(r"(?m)^\s*##\s+(.*)$")
+
+# def list_outline_headings(outline_text: str) -> List[str]:
+#     """
+#     목차의 H2 라인을 모두 뽑아 제목 리스트로 반환.
+#     '## 1. 제목' 처럼 번호가 있으면 번호는 제거해서 반환.
+#     """
+#     titles: List[str] = []
+#     for m in _h2_pat.finditer(outline_text or ""):
+#         raw = (m.group(1) or "").strip()
+#         # '1. 제목' → '제목'
+#         raw = re.sub(r"^\d+\.\s*", "", raw).strip()
+#         if raw:
+#             titles.append(raw)
+#     return titles
 
 def list_outline_headings(outline_text: str) -> List[str]:
-    """
-    목차의 H2 라인을 모두 뽑아 제목 리스트로 반환.
-    '## 1. 제목' 처럼 번호가 있으면 번호는 제거해서 반환.
-    """
-    titles: List[str] = []
-    for m in _h2_pat.finditer(outline_text or ""):
-        raw = (m.group(1) or "").strip()
-        # '1. 제목' → '제목'
-        raw = re.sub(r"^\d+\.\s*", "", raw).strip()
-        if raw:
-            titles.append(raw)
-    return titles
-
+    # 모든 레벨 헤딩을 가져오되, 앞번호(예: "1.", "1)")는 제거
+    return [
+        re.sub(r"^\d+[.)]\s*", "", title).strip()
+        for _lvl, title in parse_outline_headings(outline_text)
+        if title
+    ]
 
 # ─────────────────────────────────────────────────────────────
 # 파일명 & 미작성 타이틀 선택

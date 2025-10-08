@@ -3,7 +3,7 @@ import os, re
 
 # ⬇️ 실제 함수가 있는 모듈 경로로 변경하세요!
 # 예) from utils.auto_footnote import attach_auto_citations
-from main import attach_auto_citations  # <-- 수정
+from utils.refs import attach_auto_citations  # <-- 수정
 
 # 인라인 표기 테스트를 위해 on
 os.environ["AUTO_FOOTNOTE_MAX"] = "12"
