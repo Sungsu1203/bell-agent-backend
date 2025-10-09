@@ -1,0 +1,14 @@
+[
+  {
+    "title": "energy_policy.txt",
+    "url": "file:///C:/Users/Bellcom/AppData/Local/Temp/pytest-of-Bellcom/pytest-2/test_no_writer_when_auto_write0/demo_data/energy_policy.txt",
+    "source": "file:///C:/Users/Bellcom/AppData/Local/Temp/pytest-of-Bellcom/pytest-2/test_no_writer_when_auto_write0/demo_data/energy_policy.txt__v_1759983526_129",
+    "content": "태양광 보조금은 2024년 기준 kW당 75만원까지 지원됩니다. 설치 건수는 2023년에 12,345건이었습니다."
+  },
+  {
+    "title": "memo.md",
+    "url": "file:///C:/Users/Bellcom/AppData/Local/Temp/pytest-of-Bellcom/pytest-2/test_no_writer_when_auto_write0/demo_data/memo.md",
+    "source": "file:///C:/Users/Bellcom/AppData/Local/Temp/pytest-of-Bellcom/pytest-2/test_no_writer_when_auto_write0/demo_data/memo.md__v_1759983526_88",
+    "content": "# 재생에너지 메모\n- 보조금 단가 변동성 큼\n- 2030 목표: 보급률 21%"
+  }
+]

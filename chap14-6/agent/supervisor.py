@@ -1,27 +1,35 @@
 from __future__ import annotations
 import os, re
 from typing import Any, Mapping, Literal, MutableMapping, cast
-from utils.tasks import HumanMessage, AIMessage
+from utils.tasks import HumanMessage, AIMessage, has_pending
 from langgraph.graph import StateGraph
 from core.models import Task, AgentName
+
+# ✅ rag_expression 공통 유틸 사용
+from rag_expression import (
+    is_outline_display,
+    is_outline_creation,
+    extract_write_title,
+    extract_new_topic_title,
+    coerce_message_content_to_str,
+    extract_rename_chapter,
+)
 
 from core.config import DOC_MODE, WRITER_AGENT
 from core.paths import now_str as _now_str, current_path
 from core.state_types import State
 
 from utils.sanitize import sanitize_state, as_int, coerce_int
-from rag_expression import extract_write_title, is_outline_creation, is_outline_display
+
 from prompts import get_supervisor_prompt
 from content_utils import read_outline
 from utils.forced_queries import extract_forced_queries_from_messages
 from content_utils import save_outline, next_unwritten_title
-from utils.tasks import has_pending
 from utils.outline import get_topic_outline_text, pick_outline_filename as _pick_outline_filename
 from core.topic import start_new_topic, sanitize_title as _sanitize_title
 
 
 from core.llm import get_llm
-llm=get_llm()
 
 def _env_str(name: str, default: str = "") -> str:
     v = os.getenv(name)
@@ -54,15 +62,10 @@ def _seed_objectives(state: MutableMapping[str, Any]) -> None:
 
 
 def supervisor(state: State):
-    ### BEGIN: copy main.py's supervisor body, replacing helpers with imported ones
-    #  - now_str -> _now_str
-    #  - DOC_MODE/WRITER_AGENT from core.config
-    #  - sanitize_numeric_state_generic/as_int from utils.sanitize
-    #  - read_outline/save_outline/next_unwritten_title from content_utils
-    #  - etc.
-    ### END
 
     print("\n\n============ SUPERVISOR ============")
+    llm=get_llm()
+
     state = sanitize_state(state)
 
     _ensure_agent_env(cast(MutableMapping[str, Any], state))
@@ -84,24 +87,10 @@ def supervisor(state: State):
         return {"messages": messages, "task_history": tasks}
 
     # 마지막 사용자 메시지
-    def _ensure_text(c) -> str:
-        if isinstance(c, str):
-            return c
-        if isinstance(c, list):
-            # OpenAI-style: [{"type":"text","text":"..."}] 등 처리
-            parts = []
-            for item in c:
-                if isinstance(item, dict):
-                    # text 필드 우선, 없으면 data/url 등 필요한 것 추출 가능
-                    t = item.get("text") or item.get("content") or ""
-                    if isinstance(t, str):
-                        parts.append(t)
-            return " ".join(parts)
-        return ""
 
+    # 마지막 사용자 메시지 (멀티모달까지 안전 변환)
     last_human = next((m for m in reversed(messages) if isinstance(m, HumanMessage)), None)
-    raw_content = getattr(last_human, "content", "") if last_human else ""
-    last_text: str = _ensure_text(raw_content).strip()
+    last_text: str = coerce_message_content_to_str(getattr(last_human, "content", "") if last_human else "").strip()
 
     # [ANCHOR] seed research config from env on NEW SESSION
     # - 새 프로젝트/보고서 시작 직후(state가 초기화된 직후)에 연구 루프용 설정을 주입
@@ -158,53 +147,33 @@ def supervisor(state: State):
             tasks.append(Task(agent="vector_search_agent", done=False, description="사용자 질의 기반 RAG 검색을 수행한다.", done_at=""))
         return {"messages": messages, "task_history": tasks}
 
-    # 새 토픽
-    m_new = re.search(
-        r"(?:새\s*(?:보고서|프로젝트)\s*(?:작성)?|주제\s*(?:변경|바꿔)|new\s*(?:report|project)|switch\s*(?:topic|report))\s*[:：]?\s*(?P<title>.*)$",
-        last_text,
-        re.I,
-    )
-    if m_new:
-        maybe_title = (m_new.group("title") or "").strip() or "untitled report"
-        maybe_title = _sanitize_title(maybe_title)
-        # state = start_new_topic(state, maybe_title, outline_fname=_pick_outline_filename(last_text))
-        # # msg = f"[Supervisor] 새 주제 세션 시작: '{state['topic_title']}' (ns={state['chroma_ns']})"
-        # # ★ f-string에서도 .get 사용 (기본값까지)
-        # # [ANCHOR] seed research config from env on NEW SESSION
-        # # - 새 프로젝트/보고서 시작 직후(state가 초기화된 직후)에 연구 루프용 설정을 주입
-        # state.setdefault("agent_role", (state.get("agent_role") or os.getenv("BLOCKAGI_AGENT_ROLE", "")).strip())
-        # state.setdefault("iteration_count", int(state.get("iteration_count") or os.getenv("ITERATION_COUNT", "0")))
-
-        # if not state.get("research_objectives"):
-        #     objs = []
-        #     for i in range(1, 10):  # BLOCKAGI_OBJECTIVE_1..9 까지 흡수
-        #         v = os.getenv(f"BLOCKAGI_OBJECTIVE_{i}", "")
-        #         if v and v.strip():
-        #             objs.append(v.strip())
-        #     state["research_objectives"] = objs
+    # 새 토픽 (rag_expression 헬퍼 사용)
+    new_title = extract_new_topic_title(last_text)
+    if new_title:
+        maybe_title = _sanitize_title(new_title or "untitled report")
 
         state = start_new_topic(state, maybe_title, outline_fname=_pick_outline_filename(last_text))
 
-        # 새 세션 환경 주입은 유틸로 통일
+        # 새 세션 환경 주입 통일
         _ensure_agent_env(cast(MutableMapping[str, Any], state))
         _seed_objectives(cast(MutableMapping[str, Any], state))
 
-        msg = (
-            f"[Supervisor] 새 주제 세션 시작: "
-            f"'{state.get('topic_title', '')}' "
-            f"(ns={state.get('chroma_ns', '')})"
-        )
+        msg = f"[Supervisor] 새 주제 세션 시작: '{state.get('topic_title','')}' (ns={state.get('chroma_ns','')})"
         messages.append(AIMessage(msg))
         print(msg)
-        # ★ description에도 .get 사용
-        tasks.append(Task(
-            agent="content_strategist",
-            done=False,
-            description=f"create_outline:{state.get('outline_fname', 'outline.md')}",
-            done_at=""
-        ))
 
-        # ★ 반환 값 구성도 .get 사용
+        # 1) 목차 생성 예약 (중복 방지)
+        fname = state.get("outline_fname", "outline.md")
+        if not has_pending(tasks, "content_strategist"):
+            tasks.append(Task(agent="content_strategist", done=False, description=f"create_outline:{fname}", done_at=""))
+
+        # 2) RAG-first 보장: 레퍼런스 비어있다면 web_search_agent 펜딩도 함께 예약
+        refs = state.get("references") or {}
+        refs_empty = not (refs.get("docs") or [])
+        if refs_empty and not has_pending(tasks, "web_search_agent"):
+            tasks.append(Task(agent="web_search_agent", done=False, description="rag_update:auto", done_at=""))
+            messages.append(AIMessage("[Supervisor fast-path] → web_search_agent (RAG 업데이트 착수)"))
+
         return {
             "messages": messages,
             "task_history": tasks,
@@ -213,7 +182,6 @@ def supervisor(state: State):
             "chroma_ns": state.get("chroma_ns"),
             "outline_fname": state.get("outline_fname"),
             "references": state.get("references"),
-            "last_saved_path": state.get("last_saved_path"),
         }
 
     # 연구 라운드 모드 부트스트랩
@@ -285,14 +253,15 @@ def supervisor(state: State):
             "topic_slug": state.get("topic_slug"),
             "chroma_ns": state.get("chroma_ns"),
             "outline_fname": state.get("outline_fname"),
-            "references": state.get("references"),
-            "last_saved_path": state.get("last_saved_path"),
+            "references": state.get("references")
+            # "last_saved_path": state.get("last_saved_path"),
         }
 
     # fast-path: 목차 생성/표시
     if is_outline_creation(last_text):
         fname = _pick_outline_filename(last_text)
-        tasks.append(Task(agent="content_strategist", done=False, description=f"create_outline:{fname}", done_at=""))
+        if not has_pending(tasks, "content_strategist"):   # ✅ 중복 예약 방지
+            tasks.append(Task(agent="content_strategist", done=False, description=f"create_outline:{fname}", done_at=""))
         msg = f"[Supervisor fast-path] → content_strategist (target={fname})"
         messages.append(AIMessage(msg))
         print(msg)
@@ -300,7 +269,8 @@ def supervisor(state: State):
 
     if is_outline_display(last_text):
         fname = _pick_outline_filename(last_text)
-        tasks.append(Task(agent="communicator", done=False, description=f"show_outline:{fname}", done_at=""))
+        if not has_pending(tasks, "communicator"):
+            tasks.append(Task(agent="communicator", done=False, description=f"show_outline:{fname}", done_at=""))
         msg = f"[Supervisor fast-path] → communicator (show_outline:{fname})"
         messages.append(AIMessage(msg))
         print(msg)
@@ -346,11 +316,29 @@ def supervisor(state: State):
         messages.append(AIMessage(msg))
         print(msg)
         return {"messages": messages, "task_history": tasks}
+    
+    # fast-path: "N장 제목을 '...'로 변경"
+    _rename = extract_rename_chapter(last_text)
+    if _rename:
+        idx, new_title = _rename
+        fname = _pick_outline_filename(last_text)
+        if not has_pending(tasks, "content_strategist"):
+            tasks.append(Task(
+                agent="content_strategist",
+                done=False,
+                description=f"rename_heading:{idx}:{new_title}:{fname}",
+                done_at=""
+            ))
+        messages.append(AIMessage(
+            f"[Supervisor fast-path] → content_strategist (rename_heading:{idx}→{new_title})"
+        ))
+        return {"messages": messages, "task_history": tasks}
 
     # 기존 미완료 태스크가 있으면 새로 만들지 않음
     pending_undone = next((t for t in reversed(tasks) if not t.done), None)
     if pending_undone:
         print(f"[Supervisor short-circuit] pending='{pending_undone.agent}' 유지 → 새 태스크 생성 생략")
+        print("tasks tail =", [(getattr(t,'agent',None), getattr(t,'done',None), getattr(t,'description',None)) for t in tasks][-3:])
         return {
             "messages": messages,
             "task_history": tasks,
@@ -358,8 +346,8 @@ def supervisor(state: State):
             "topic_slug": state.get("topic_slug"),
             "chroma_ns": state.get("chroma_ns"),
             "outline_fname": state.get("outline_fname"),
-            "references": state.get("references"),
-            "last_saved_path": state.get("last_saved_path"),
+            "references": state.get("references")
+            # "last_saved_path": state.get("last_saved_path"),
         }
 
     # 일반 경로
@@ -403,31 +391,87 @@ def supervisor(state: State):
         "topic_slug": state.get("topic_slug"),
         "chroma_ns": state.get("chroma_ns"),
         "outline_fname": state.get("outline_fname"),
-        "references": state.get("references"),
-        "last_saved_path": state.get("last_saved_path"),
+        "references": state.get("references")
+        # "last_saved_path": state.get("last_saved_path"),
     }
 
-def supervisor_router(state: State):
-    ### BEGIN: copy main.py's supervisor_router body
-    ### END
+def supervisor_router(state: State) -> str:
     state = sanitize_state(state)
-    # state = sanitize_numeric_state(state)
-    tasks = state.get("task_history", [])
-    if tasks:
-        return tasks[-1].agent
+    tasks = state.get("task_history", []) or []
+    refs = state.get("references") or {}
+    refs_docs = list(refs.get("docs") or [])
+    refs_empty = (len(refs_docs) == 0)
 
+    def _has(agent: str, prefix: str | None = None) -> bool:
+        try:
+            return has_pending(tasks, agent, prefix=prefix)
+        except Exception:
+            return any((not getattr(t, "done", False)) and getattr(t, "agent", "") == agent for t in tasks)
+
+    preferred = "section_writer" if DOC_MODE == "report" else "chapter_writer"
+    alt = "chapter_writer" if preferred == "section_writer" else "section_writer"
+
+    # ─────────────────────────────────────────
+    # 0) 사용자 의도 기반 "단축 분기" (펜딩 검사보다 '먼저')
     last_human = next((m for m in reversed(state.get("messages", [])) if isinstance(m, HumanMessage)), None)
-    last_text = (last_human.content if (last_human and isinstance(last_human.content, str)) else "") or ""
+    last_text = coerce_message_content_to_str(getattr(last_human, "content", ""))
 
-    # '목차 보여줘' 류의 단순 요청은 planner 우선 라우트보다 앞서 처리
-    if is_outline_display(last_text) or re.search(r"(목차|outline).*(보여줘|보여|display|show)", last_text, re.I):
-        return "communicator"
+    # 0-0) 새 주제 전환 → RAG 먼저(web_search_agent) if refs 비어있음, 아니면 communicator
+    new_topic = extract_new_topic_title(last_text)
+    if new_topic:
+        ret = "web_search_agent" if refs_empty else "communicator"
+        print(f"[supervisor_router] picked={ret}  (new_topic='{new_topic}', refs_empty={refs_empty}, "
+              f"cs={_has('content_strategist')}, wr_pref={_has(preferred,'write:')}, wr_alt={_has(alt,'write:')}, "
+              f"plan={_has('research_planner')}, synth={_has('research_synthesizer')}, "
+              f"vec={_has('vector_search_agent')}, web={_has('web_search_agent')}, comm={_has('communicator')})")
+        return ret
 
-    if (
-        (state.get("agent_role") or "").strip().lower() == "research analyst"
-        and (state.get("research_objectives") or [])
-        and not is_outline_display(last_text)
-        and not is_outline_creation(last_text)
-    ):
-        return "research_planner"
-    return "communicator"
+    # 0-1) 목차 '표시' 의도 → communicator
+    if is_outline_display(last_text):
+        ret = "communicator"
+        print(f"[supervisor_router] picked={ret}  (show_outline, cs={_has('content_strategist')}, comm=True)")
+        return ret
+
+    # 0-2) 목차 '생성' 의도 → content_strategist
+    if is_outline_creation(last_text):
+        ret = "content_strategist"
+        print(f"[supervisor_router] picked={ret}  (create_outline, cs=True)")
+        return ret
+
+    # 0-3) 강제 집필(write:) → DOC_MODE별 writer (refs 비면 RAG부터)
+    write_title = extract_write_title(last_text)
+    if write_title:
+        if refs_empty:
+            ret = "web_search_agent"
+            print(f"[supervisor_router] picked={ret}  (fastpath write, title='{write_title}', refs_empty=True → RAG first)")
+            return ret
+        ret = preferred
+        print(f"[supervisor_router] picked={ret}  (fastpath write, title='{write_title}', refs_empty=False)")
+        return ret
+
+    # ─────────────────────────────────────────
+    # 1) 펜딩 우선순위 (writer > 연구플로우 > 수집/검색 > 커뮤니케이션)
+    if _has("content_strategist"):
+        ret = "content_strategist"
+    elif _has(preferred, prefix="write:"):
+        ret = preferred
+    elif _has(alt, prefix="write:"):
+        ret = alt
+    elif _has("research_planner"):
+        ret = "research_planner"
+    elif _has("research_synthesizer"):
+        ret = "research_synthesizer"
+    elif _has("vector_search_agent"):
+        ret = "vector_search_agent"
+    elif _has("web_search_agent"):
+        ret = "web_search_agent"
+    elif _has("communicator"):
+        ret = "communicator"
+    else:
+        # 기본값: QA형이면 벡터검색, 아니면 communicator
+        ret = "vector_search_agent" if any(k in last_text for k in ("요약","정리","무엇","왜","비교","?")) else "communicator"
+
+    print(f"[supervisor_router] picked={ret}  (cs={_has('content_strategist')}, wr_pref={_has(preferred,'write:')}, "
+          f"wr_alt={_has(alt,'write:')}, plan={_has('research_planner')}, synth={_has('research_synthesizer')}, "
+          f"vec={_has('vector_search_agent')}, web={_has('web_search_agent')}, comm={_has('communicator')})")
+    return ret

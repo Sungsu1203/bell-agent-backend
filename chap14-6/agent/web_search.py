@@ -35,7 +35,6 @@ from utils.query_filters import strip_web_filters, looks_like_local_glob, clean_
 from tools.local_rag import ingest_local_files
 
 from core.llm import get_llm
-llm=get_llm()
 
 # (main.py 안에서 쓰던 나머지 import 들은 함수 안 'late import' 그대로 둬도 됩니다)
 
@@ -48,6 +47,7 @@ def web_search_agent(state: State):
     from langchain_core.documents import Document
     # ────────────────────────────────────────────────────────────────────────────
     print("\n\n============ WEB SEARCH AGENT ============")
+    llm=get_llm()
     state = sanitize_state(state)
 
     # --- (1) 태스크 확보 ------------------------------------------------------

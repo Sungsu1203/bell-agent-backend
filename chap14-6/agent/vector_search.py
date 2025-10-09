@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os,re
 from typing import TypedDict, List, Any, Mapping, cast, MutableMapping, Iterable 
 from utils.tasks import HumanMessage, AIMessage
 from core.llm import get_llm
@@ -24,10 +25,7 @@ from tools.web_rag import (
 )
 from tools.local_rag import ingest_local_files
 from utils.text_utils import plain_snip as _plain_snip
-
-
-import os,re
-llm=get_llm()
+from utils.writer_scheduler import schedule_writer_if_needed
 
 # types_refs.py (예: vector_search.py 상단에 넣어도 됨)
 
@@ -51,6 +49,8 @@ def get_refs(state: Mapping[str, Any]) -> Refs:
 
 def vector_search_agent(state: State):
     print("\n\n============ VECTOR SEARCH AGENT ============")
+    llm=get_llm()
+    
     state = sanitize_state(state)
 
     tasks = state.get("task_history", []) or []
@@ -443,24 +443,30 @@ def vector_search_agent(state: State):
 
     writer_agent = WRITER_AGENT
     AUTO_WRITE_DURING_RESEARCH = os.getenv("AUTO_WRITE_DURING_RESEARCH", "0") == "1"
+    
+    print("[DEBUG writer_guard]", {
+        "DOC_MODE": DOC_MODE,
+        "WRITER_AGENT": writer_agent,
+        "AUTO_WRITE_AFTER_RAG": os.getenv("AUTO_WRITE_AFTER_RAG"),
+        "AUTO_WRITE_DURING_RESEARCH": os.getenv("AUTO_WRITE_DURING_RESEARCH"),
+        "research_loop_active": research_loop_active,
+        "has_writer_pending": has_pending(tasks, writer_agent, prefix="write"),
+        "agent_role": state.get("agent_role"),
+        "iteration_count": state.get("iteration_count"),
+        "research_round": state.get("research_round"),
+    })
 
-    def _schedule_writer() -> bool:
-        fallback_default = "Executive Summary" if DOC_MODE == "report" else "서문"
-        requested_title = get_last_write_target(messages, tasks)
-        auto_title = next_unwritten_title(
-            outline_text, mode=DOC_MODE, root_dir=current_path, topic_slug=state.get("topic_slug")
-        )
-        target_title = requested_title or auto_title or fallback_default
-
-        AUTO_WRITE = os.getenv("AUTO_WRITE_AFTER_RAG", "1") == "1"
-        if AUTO_WRITE and not has_pending(tasks, writer_agent, prefix="write"):
-            tasks.append(Task(agent=writer_agent, done=False, description=f"write: {target_title}", done_at=""))
-            return True
-        return False
+    print("[DEBUG tasklist ids]", id(tasks), id(state.get("task_history")))
 
     # not 연구 모드이거나, 연구 모드여도 AUTO_WRITE_DURING_RESEARCH=1이면 writer 예약 시도
     if (not research_loop_active) or AUTO_WRITE_DURING_RESEARCH:
-        did = _schedule_writer()
+        did = schedule_writer_if_needed(
+            cast(MutableMapping[str, Any], state),
+            tasks=tasks,
+            messages=messages,
+            outline_text=outline_text,
+            debug=True,  # 필요 시
+        )
         # writer 예약 실패 시 안내 태스크(communicator)만 보조로 추가
         if (not did) and not has_pending(tasks, "communicator"):
             tasks.append(Task(agent="communicator", done=False, description="검색/인덱싱 완료 보고 및 다음 집필 대상 확인", done_at=""))

@@ -71,4 +71,9 @@ if __name__ == "__main__":
             raise TypeError(f"graph.invoke returned unexpected type: {type(result).__name__}")
         state = result  # type: ignore
         print("\n------------------------------------ MESSAGE COUNT\t", len(state.get("messages", [])))
+        print("TASKS tail =",
+            [(getattr(t, "agent", None), getattr(t, "done", None), getattr(t, "description", None))
+            for t in state.get("task_history", [])][-3:])
+        
+        print("DEBUG last_saved_path before save:", state.get("last_saved_path"))
         save_state(current_path, state)

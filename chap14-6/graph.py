@@ -39,7 +39,11 @@ def build_graph():
     })
     g.add_edge("content_strategist", "communicator")
     g.add_conditional_edges("research_planner", after_planner_router, {
-        "communicator": "communicator", "web_search_agent": "web_search_agent"
+        "communicator": "communicator", 
+        "web_search_agent": "web_search_agent",
+        "vector_search_agent": "vector_search_agent",   # SKIP_WEB_SEARCH=1 이면 vector_search_agent로 바로 우회
+        "section_writer": "section_writer",             # writer 펜딩이 있으면 writer를 최우선으로 실행 (라우터가 그렇게 리턴)
+        "chapter_writer": "chapter_writer",
     })
     g.add_edge("web_search_agent", "vector_search_agent")
     g.add_conditional_edges("vector_search_agent", after_vector_router, {

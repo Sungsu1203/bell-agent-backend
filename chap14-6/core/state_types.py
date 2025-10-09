@@ -11,7 +11,8 @@ class State(TypedDict, total=False):
     messages: Required[list[Any]]
     task_history: list
     references: dict
-    last_saved_path: str
+    # last_saved_path: str
+    last_saved_path: NotRequired[str]
     topic_title: str
     topic_slug: str
     chroma_ns: str

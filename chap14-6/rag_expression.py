@@ -78,9 +78,18 @@ RE_SHOW_OUTLINE: Pattern[str] = re.compile(
 )
 
 # 새 주제/새 보고서 전환
-RE_NEW_TOPIC: Pattern[str] = re.compile(
-    r"(?:새\s*(?:보고서|프로젝트)|주제\s*(?:변경|바꿔)|new\s*(?:report|project)|switch\s*(?:topic|report))\s*[:：]?\s*(?P<title>.*)$",
+RE_NEW_TOPIC = re.compile(
+    r"(?:새\s*(?:보고서|책|프로젝트)\s*(?:작성|집필|write)?|"
+    r"주제\s*(?:변경|바꿔)|"
+    r"new\s*(?:report|project|book)|"
+    r"switch\s*(?:topic|report|project|book))"
+    r"\s*[:：]?\s*(?P<title>.*)$",
     re.IGNORECASE,
+)
+
+# --- Rename chapter intent ---
+RE_RENAME_CHAPTER = re.compile(
+    r"^\s*(\d+)\s*장\s*제목.*?['\"](.+?)['\"]\s*로\s*변경", re.IGNORECASE
 )
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -93,6 +102,9 @@ def extract_write_title(text_like: Any) -> Optional[str]:
     """문자열/멀티모달 입력에서 write/작성/집필 명령의 타이틀을 추출."""
     text = coerce_message_content_to_str(text_like)
     if not text:
+        return None    
+    # ✅ 새 주제 전환 문구면 write 해석 금지
+    if RE_NEW_TOPIC.search(text):
         return None
     m = RE_WRITE_LINE.search(text) or RE_WRITE_INLINE.search(text)
     if not m:
@@ -116,8 +128,24 @@ def extract_new_topic_title(text_like: Any) -> Optional[str]:
     if not text:
         return None
     m = RE_NEW_TOPIC.search(text)
-    t = (m.group("title").strip() if (m and m.group("title")) else "")
+    if not m:
+        return None
+    t = (m.group("title") or "").strip()
+    # ✅ 제목 앞에 "작성:/집필:/write:"가 붙은 경우 제거 (예: "작성: 샘플 북 프로젝트")
+    if t:
+        t = re.sub(r"^(?:작성|집필|write)\s*[:：]\s*", "", t, flags=re.IGNORECASE).strip()
     return t or None
+
+def extract_rename_chapter(text_like: Any) -> Optional[tuple[int, str]]:
+    text = coerce_message_content_to_str(text_like)
+    if not text:
+        return None
+    m = RE_RENAME_CHAPTER.search(text)
+    if not m:
+        return None
+    idx = int(m.group(1))
+    new_title = m.group(2).strip()
+    return (idx, new_title) if new_title else None
 
 # ───────────────────────────────────────────────────────────────────────────────
 # Self-test

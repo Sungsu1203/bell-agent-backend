@@ -16,10 +16,10 @@ from utils.tasks import has_pending
 from utils.outline import get_topic_outline_text
 
 from core.llm import get_llm
-llm=get_llm()
 
 def communicator(state: State):
     print("\n\n============ COMMUNICATOR ============")
+    llm=get_llm()
     state = sanitize_state(state)
     # state = sanitize_numeric_state(state)
 
