@@ -1,0 +1,11 @@
+{
+  "round": 1,
+  "timestamp": "2025-10-12 20:11:03",
+  "round_new_urls": 14,
+  "no_new_url_streak": 0,
+  "min_rounds": 1,
+  "max_no_new": 1,
+  "halt_threshold": 1,
+  "halted": false,
+  "findings_path": "D:\\GPT_AGENT_2025_BOOK\\chap14-6\\research\\한국-제약산업-전망-20251012-2008\\round-01-findings.md"
+}

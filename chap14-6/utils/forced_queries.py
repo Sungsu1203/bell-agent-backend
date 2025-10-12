@@ -3,6 +3,9 @@
 import json, re
 from typing import List
 
+import logging
+logger = logging.getLogger(__name__)
+
 __all__ = ["extract_forced_queries_from_messages"]
 
 BULLET = r"^[\-\*\u2022\u2013]\s*"  # -, *, •, – 지원

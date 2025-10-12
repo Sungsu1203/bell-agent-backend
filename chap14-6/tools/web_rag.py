@@ -1,6 +1,9 @@
 # tools/web_rag.py
 from __future__ import annotations
 
+import logging
+logger = logging.getLogger(__name__)
+
 import os, json, time, io, hashlib
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple, DefaultDict
@@ -12,6 +15,12 @@ from langchain_core.tools import tool
 from langchain_core.documents import Document
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from settings_gatekeep import (
+    gatekeep_enabled,
+    url_allowed,
+    _normalize_host,   # 로그 요약용 (없으면 제거해도 무방)
+)
 
 from collections import defaultdict as _dd
 
@@ -33,6 +42,7 @@ try:
     _HAS_SERPAPI = True
 except Exception:
     _HAS_SERPAPI = False
+    logger.debug("SerpAPI not available.")
 
 # ---- Optional: Tavily ----
 try:
@@ -40,6 +50,7 @@ try:
     _HAS_TAVILY = True
 except Exception:
     _HAS_TAVILY = False
+    logger.debug("Tavily client not available.")
 
 # ---- RAG (Chroma + OpenAI embeddings) ----
 from langchain_openai import OpenAIEmbeddings
@@ -54,14 +65,27 @@ dotenv_path = find_dotenv(usecwd=True)
 if dotenv_path:
     load_dotenv(dotenv_path, override=False)
 else:
-    print("[INFO] .env 미발견: OS 환경변수만 사용합니다.")
+    logger.info(".env file not found: using OS environment variables only.")
 
 PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT", Path(__file__).resolve().parents[1]))
 DATA_DIR = Path(os.getenv("DATA_DIR", str(PROJECT_ROOT / "data")))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+# 파일 상단 전역들 근처에 추가
+_RECENTLY_CLEARED: dict[str, float] = {}             # dir -> cleared_at epoch (부드러운 신호, 시간기반)
+_FRESH_KEYS: set[tuple[str, str]] = set()            # (persist_dir, namespace) 강한 신호(원샷)
+
 def _now(fmt: str = "%Y_%m%d_%H%M%S") -> str:
     return datetime.now().strftime(fmt)
+
+def _truthy(name: str, default: Optional[str] = None) -> bool:
+    """
+    환경변수의 진리값 해석 헬퍼.
+    default=None이면 unset 시 False 처리.
+    """
+    raw = os.getenv(name) if default is None else os.getenv(name, default)
+    v = (raw or "").strip().lower()
+    return v in {"1", "true", "yes", "on"}
 
 def _save_results(items, out_dir: Optional[Path | str] = None, *, query: Optional[str] = None) -> str:
     """
@@ -87,6 +111,7 @@ def _save_results(items, out_dir: Optional[Path | str] = None, *, query: Optiona
     path = base_dir / fname
     with path.open("w", encoding="utf-8") as f:
         json.dump(items or [], f, ensure_ascii=False, indent=2)
+    logger.info("[web_search] results saved → %s (items=%d)", path, len(items or []))
     return str(path)
 
 # =============================================================================
@@ -147,18 +172,45 @@ def _looks_like_serialized_blob(txt: str) -> bool:
         return True
     brace_ratio = (txt.count("{") + txt.count("}")) / max(1, len(txt))
     return brace_ratio > 0.02  # 경험치 임계값
-# 프리뷰/적재 직전: if _looks_like_serialized_blob(page_text): skip
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 게이트키핑: 검색 결과 URL에 대한 허용/차단 적용
+# ─────────────────────────────────────────────────────────────────────────────
+def _apply_gatekeep_to_results(results: list[dict]) -> list[dict]:
+    if not results:
+        return results
+    if not gatekeep_enabled():
+        return results
+
+    allowed, blocked = [], []
+    for r in results:
+        u = (r.get("url") or r.get("source") or "").strip()
+        if not u:
+            continue
+        if url_allowed(u):
+            allowed.append(r)
+        else:
+            blocked.append(u)
+
+    if blocked:
+        try:
+            # 호스트만 요약해서 로그
+            hosts = []
+            for u in blocked:
+                h = _normalize_host(u)
+                hosts.append(h or u)
+            logger.warning("[GATEKEEP] blocked %d url(s): %s", len(blocked), ", ".join(hosts[:10]))
+        except Exception:
+            logger.warning("[GATEKEEP] blocked %d url(s).", len(blocked))
+
+    return allowed
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 원문 로딩: 세션 + 타임아웃 + 바이트 한도 + 폴백(WebBaseLoader with timeout)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _load_web_page(url: str) -> str:
-    """
-    빠르고 안전한 원문 로딩:
-    1) requests 세션으로 스트리밍 GET (타임아웃/최대바이트/인코딩 추정)
-    2) 실패하면 WebBaseLoader를 '타임아웃 지정'으로 폴백
-    """
     connect_to = int(os.getenv("WEB_FETCH_TIMEOUT_CONNECT", "6"))
     read_to    = int(os.getenv("WEB_FETCH_TIMEOUT_READ", "20"))
     max_bytes  = int(os.getenv("WEB_FETCH_MAX_BYTES", "1000000"))  # 1MB
@@ -181,14 +233,13 @@ def _load_web_page(url: str) -> str:
             except Exception:
                 enc = "utf-8"
             text = raw.decode(enc, errors="replace")
-            # 간단 정리
             while "\n\n\n" in text or "\t\t\t" in text:
                 text = text.replace("\n\n\n", "\n\n").replace("\t\t\t", "\t\t")
             return text.strip()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("requests session load failed for %s: %s", url, e)
 
-    # 2) WebBaseLoader 폴백 (타임아웃/헤더/검증 지정)
+    # 2) WebBaseLoader 폴백
     try:
         try:
             loader = WebBaseLoader(
@@ -198,10 +249,9 @@ def _load_web_page(url: str) -> str:
                     "verify": session.verify,
                     "headers": dict(session.headers),
                 },
-                verify_ssl=True,  # 최신 langchain-community에선 verify_ssl 지원
+                verify_ssl=True,
             )
         except TypeError:
-            # 구버전 호환
             loader = WebBaseLoader(url, requests_kwargs={
                 "timeout": (connect_to, read_to),
                 "verify": session.verify,
@@ -212,15 +262,12 @@ def _load_web_page(url: str) -> str:
         while "\n\n\n" in txt or "\t\t\t" in txt:
             txt = txt.replace("\n\n\n", "\n\n").replace("\t\t\t", "\t\t")
         return txt
-    except Exception:
+    except Exception as e:
+        logger.debug("WebBaseLoader fallback failed for %s: %s", url, e)
         return ""
 
 
 def _enrich_raw_content(results: List[Dict[str, Any]]) -> None:
-    """
-    상위 N개 결과만, 각 URL에 타임아웃 걸고, 전체 예산(budget)도 제한.
-    - 끊임없이 대기하는 문제 방지
-    """
     top = int(os.getenv("WEB_SEARCH_RAW_FETCH_TOP", "5") or "5")
     if top <= 0:
         return
@@ -240,7 +287,7 @@ def _enrich_raw_content(results: List[Dict[str, Any]]) -> None:
         if i >= top:
             break
         if time.time() - t0 > budget_s:
-            # 전체 예산 초과 → 중단
+            logger.debug("raw fetch budget exceeded (>%ss) — stopping enrichment", budget_s)
             break
         if r.get("raw_content"):
             continue
@@ -250,41 +297,32 @@ def _enrich_raw_content(results: List[Dict[str, Any]]) -> None:
         try:
             html = _load_web_page(url)
             if html and not _is_bad_doc_text(html[:2000]):
-                # 🔎 프리뷰/적재 전 직렬화 블롭(SSR/번들, next data 등) 차단
                 if _looks_like_serialized_blob(html):
+                    logger.debug("serialized blob detected; skip raw_content for %s", url)
                     continue
                 r["raw_content"] = html
-        except Exception:
-            # URL 하나 실패해도 전체는 계속
+        except Exception as e:
+            logger.debug("raw_content fetch failed for %s: %s", url, e)
             continue
 
 # 추가: persist_directory/CHROMA_DIR/기본값을 일관되게 해석
 def _resolve_persist_dir(namespace: str, persist_directory: Optional[str]) -> str:
-    # 1) 인자로 명시된 persist_directory가 최우선
     if persist_directory is not None:
         s = persist_directory.strip()
         if s:
             return s
 
-    # 2) CHROMA_DIR을 베이스로 취급 (빈 문자열/None 방지)
     chroma_dir = os.getenv("CHROMA_DIR")
     if chroma_dir is not None:
         s = chroma_dir.strip()
         if s:
             p = Path(s)
-
-            # (a) 이미 ns로 끝나면 그대로 사용
             if p.name == namespace:
                 return str(p)
-
-            # (b) 과거: .../chroma_store/<old_ns> 를 전체로 넣어둔 케이스 → 마지막 컴포넌트를 ns로 교체
             if p.parent.name == "chroma_store":
                 return str(p.parent / namespace)
-
-            # (c) 일반 케이스: 베이스/namespace
             return str(p / namespace)
 
-    # 3) 완전 기본값(프로젝트 data/chroma_store/namespace)
     return str(DATA_DIR / "chroma_store" / namespace)
 
 # =============================================================================
@@ -317,7 +355,7 @@ def _search_tavily(query: str) -> List[Dict[str, Any]]:
             })
         return parsed
     except Exception as e:
-        print(f"[web_rag] Tavily 실패: {e}")
+        logger.warning("Tavily search failed: %s", e)
         return []
 
 def _search_google_cse(query: str, *, num: int = 10, timeout: int = 20) -> List[Dict[str, Any]]:
@@ -353,7 +391,7 @@ def _search_google_cse(query: str, *, num: int = 10, timeout: int = 20) -> List[
             })
         return parsed
     except Exception as e:
-        print(f"[web_rag] Google CSE 실패: {e}")
+        logger.warning("Google CSE search failed: %s", e)
         return []
 
 def _search_serpapi(query: str, *, num: int = 10, timeout: int = 20) -> List[Dict[str, Any]]:
@@ -387,7 +425,7 @@ def _search_serpapi(query: str, *, num: int = 10, timeout: int = 20) -> List[Dic
             })
         return parsed
     except Exception as e:
-        print(f"[web_rag] SerpAPI 실패: {e}")
+        logger.warning("SerpAPI search failed: %s", e)
         return []
 
 
@@ -448,9 +486,11 @@ def web_search(
         )
 
     results = _dedup_by_url(_normalize_results(results))
+    # 🔒 게이트키핑 적용 (ON일 때만)
+    results = _apply_gatekeep_to_results(results)
     _enrich_raw_content(results)
-    path = _save_results(results, query=query)  # ← 기본 out_dir 사용 + query 해시 suffix
-    print(f"[web_search] backend={used}, results={len(results)}, saved={path}")
+    path = _save_results(results, query=query)
+    logger.info("[web_search] backend=%s, results=%d, saved=%s", used, len(results), path)
     return results, path
 
 
@@ -459,26 +499,23 @@ def web_search(
 # =============================================================================
 
 def web_results_to_documents(resources: List[Dict[str, Any]]) -> List[Document]:
-    """
-    이미 메모리 상의 검색결과 리스트를 LangChain Document로 변환.
-    - 차단/봇 페이지/바이너리 감지 시 제외
-    """
     docs: List[Document] = []
     for r in (resources or []):
         pc = r.get("raw_content") or r.get("content") or ""
         if not pc or _is_block_page(pc) or _looks_like_pdf_bytes(pc):
             continue
-        # 🔎 직렬화 블롭(Next.js __NEXT_DATA__, huge JSON, 번들 청크 등) 제외
         if _looks_like_serialized_blob(pc):
             continue
         src = r.get("source") or r.get("url") or ""  # ← source 우선!
         docs.append(Document(
             page_content=_clean_text(pc),
             metadata={"title": r.get("title", ""), "source": src}))
+    logger.debug("web_results_to_documents: %d docs built", len(docs))
     return docs
 
 def web_page_json_to_documents(json_file: str) -> List[Document]:
     if not os.path.exists(json_file):
+        logger.debug("web_page_json_to_documents: file not found %s", json_file)
         return []
 
     def _flex_load(path: str):
@@ -510,48 +547,68 @@ def web_page_json_to_documents(json_file: str) -> List[Document]:
 
     try:
         resources = _flex_load(json_file) or []
-    except Exception:
+    except Exception as e:
+        logger.warning("web_page_json_to_documents: load failed for %s: %s", json_file, e)
         resources = []
 
-    return web_results_to_documents(resources)
+    docs = web_results_to_documents(resources)
+    logger.info("web_page_json_to_documents: %d docs from %s", len(docs), json_file)
+    return docs
 
 
 # ---- Vector store cache (persist_dir, collection) ----
 _VS_CACHE: Dict[Tuple[str, str], Chroma] = {}
 
-# ✅ 프로세스 당 1회 초기화 가드
-_CLEARED_ONCE = False
+# ✅ 네임스페이스별 1회 초기화 가드 상태
+_CLEARED_ONCE_KEYS: set[tuple[str, str]] = set()
 
 def _default_chroma_dir(namespace: str) -> str:
-    # 과거 직접 구현 대신, 단일 해석 로직으로 통일
     return _resolve_persist_dir(namespace, persist_directory=None)
 
 def clear_vector_store(namespace: Optional[str] = None, persist_directory: Optional[str] = None) -> str:
     """
     해당 namespace/persist_directory의 Chroma를 완전히 초기화한다.
-    - _VS_CACHE에서 핸들 제거
-    - 디스크 폴더 삭제 후 재생성
+    - _VS_CACHE에서 핸들 제거 + 클라이언트 close/reset 시도
+    - 디스크 폴더 삭제(재시도/격리) 후 재생성
+    - 재생성 직후 (pd, ns)에 대한 fresh 신호를 기록
     반환: 실제 초기화된 디렉터리 경로(문자열)
     """
-    import shutil, stat
+    import shutil, stat, gc, time
 
-    # ns = (namespace or os.getenv("CHROMA_NAMESPACE", "default")).strip()
     env_ns = os.getenv("CHROMA_NAMESPACE")
     ns = (namespace or (env_ns if env_ns is not None else "default")).strip()
     pd = _resolve_persist_dir(ns, persist_directory)
 
-    # (안전장치) 명시적 인자가 없는 전역 초기화는 기본적으로 막는다.
+    # 전역 클리어 안전 가드
     if (namespace is None and persist_directory is None) and os.getenv("ALLOW_GLOBAL_CLEAR", "0") != "1":
-        print(f"[INIT] clear_vector_store skipped (global clear disabled). ns='{ns}' dir='{pd}'")
+        logger.info("[INIT] clear_vector_store skipped (global clear disabled). ns='%s' dir='%s'", ns, pd)
         return pd
 
-    # 메모리 캐시 제거
+    # 0) VS 캐시/클라이언트 정리 → 파일 핸들 해제
+    vs = _VS_CACHE.pop((pd, ns), None)
     try:
-        _VS_CACHE.pop((pd, ns), None)
+        client = getattr(vs, "_client", None)
+        for meth in ("persist", "reset", "teardown", "close", "stop", "shutdown"):
+            fn = getattr(client, meth, None)
+            if callable(fn):
+                try:
+                    fn()
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    try:
+        _VS_CACHE.clear()  # 동일 dir의 다른 키가 남아있을 가능성 차단
     except Exception:
         pass
 
-    # Windows에서 읽기전용 파일도 지울 수 있게 onerror 핸들러
+    try:
+        del vs  # type: ignore
+    except Exception:
+        pass
+    gc.collect()
+    time.sleep(0.15)  # Windows 파일락 완화
+
     def _on_rm_error(func, path, exc_info):
         try:
             os.chmod(path, stat.S_IWRITE)
@@ -559,37 +616,69 @@ def clear_vector_store(namespace: Optional[str] = None, persist_directory: Optio
         except Exception:
             pass
 
-    # 디스크 폴더 제거 후 재생성
+    # 1) rmtree 재시도 (백오프)
+    ok = False
+    for i in range(6):  # 필요시 8로 상향 가능
+        try:
+            if os.path.isdir(pd):
+                shutil.rmtree(pd, onerror=_on_rm_error)
+            ok = True
+            break
+        except Exception:
+            time.sleep(0.2 * (i + 1))  # 0.2, 0.4, ..., 1.2s
+
+    # 2) 최후 수단: quarantine 폴더로 격리(rename)
+    if not ok:
+        try:
+            if os.path.isdir(pd):
+                quarantine = f"{pd}.quarantine_{int(time.time())}"
+                os.replace(pd, quarantine)
+                logger.debug("[INIT] vector store quarantined → %s", quarantine)
+            ok = True
+        except Exception as e:
+            logger.warning("[INIT] clear_vector_store failed(final): %s", e)
+
+    # 3) 재생성
     try:
-        if os.path.isdir(pd):
-            shutil.rmtree(pd, onerror=_on_rm_error)
         os.makedirs(pd, exist_ok=True)
     except Exception as e:
-        print(f"[INIT] clear_vector_store 실패: {e}")
+        logger.warning("[INIT] re-create dir failed: %s", e)
 
-    print(f"[INIT] vector store cleared → ns='{ns}' dir='{pd}'")
+    # 4) fresh 신호 기록 (강한 신호: 원샷)
+    try:
+        _FRESH_KEYS.add((pd, ns))
+    except Exception:
+        pass
+
+    logger.info("[INIT] vector store cleared → ns='%s' dir='%s'", ns, pd)
     return pd
+
 
 def ensure_vector_store_cleared_once(
     namespace: Optional[str] = None,
     persist_directory: Optional[str] = None,
 ) -> bool:
     """
-    프로세스 시작 후 '한 번만' 벡터스토어를 초기화한다.
-    - CLEAR_CHROMA_ON_START=1 (기본)일 때만 동작
-    - 이미 한 번 초기화했으면 False 반환
-    - 실제 초기화하면 True 반환
+    (persist_dir, namespace) 단위로 '최초 1회만 clear' 수행.
+    - 신규 플래그 CLEAR_ON_FIRST_VECTOR(우선) 또는 레거시 CLEAR_CHROMA_ON_START 가 true일 때 동작
+    - 한 번 실행되면 동일 (pd, ns) 키에 대해 재실행하지 않음
     """
-    global _CLEARED_ONCE
-    if _CLEARED_ONCE:
+    # 둘 중 하나라도 true면 허용
+    if not (_truthy("CLEAR_ON_FIRST_VECTOR", default=None) or _truthy("CLEAR_CHROMA_ON_START", default=None)):
         return False
 
-    if os.getenv("CLEAR_CHROMA_ON_START", "1") != "1":
-        # 스위치로 비활성화된 상태
+    env_ns = os.getenv("CHROMA_NAMESPACE")
+    ns = (namespace or (env_ns if env_ns is not None else "default")).strip()
+    pd = _resolve_persist_dir(ns, persist_directory)
+    key = (pd, ns)
+
+    if key in _CLEARED_ONCE_KEYS:
+        logger.debug("[INIT] clear_once skipped (already cleared): ns='%s' dir='%s'", ns, pd)
         return False
 
-    clear_vector_store(namespace=namespace, persist_directory=persist_directory)
-    _CLEARED_ONCE = True
+    clear_vector_store(namespace=ns, persist_directory=pd)
+    _CLEARED_ONCE_KEYS.add(key)
+    logger.info("[INIT] vector store cleared once (ns='%s', dir='%s')", ns, pd)
     return True
 
 def _get_embeddings(embedding=None):
@@ -606,10 +695,10 @@ def _get_vs(collection_name: str, persist_directory: str, embedding=None) -> Chr
             embedding_function=_get_embeddings(embedding),
         )
         _VS_CACHE[key] = vs
+        logger.debug("Chroma instance created (collection=%s, dir=%s)", collection_name, persist_directory)
     return vs
 
 def split_documents(documents: List[Document], *, chunk_size: Optional[int] = None, chunk_overlap: Optional[int] = None) -> List[Document]:
-    # ENV 기반 기본값(문자 기준, 토큰≈문자/4 가정)
     cs = int(os.getenv("RAG_CHUNK_CHARS", "2400")) if chunk_size is None else int(chunk_size)
     ov = int(os.getenv("RAG_CHUNK_OVERLAP", "200")) if chunk_overlap is None else int(chunk_overlap)
     cs = max(300, min(cs, 6000))
@@ -618,50 +707,89 @@ def split_documents(documents: List[Document], *, chunk_size: Optional[int] = No
     return splitter.split_documents(documents)
 
 def _approx_tokens(s: str) -> int:
-    # 대략 토큰≈문자/4
     return max(1, len(s or "") // 4)
 
-def _batched_add(vs: Chroma, splits: List[Document], ids: Optional[List[str]] = None) -> int:
+def _batched_add(
+    vs: Chroma,
+    splits: List[Document],
+    ids: Optional[List[str]] = None,
+) -> int:
     """
-    안전 배치 삽입:
-    - 요청 당 토큰 상한(ENV: RAG_TOKEN_BUDGET_PER_REQ, 기본 250k) 이하로 묶음
-    - 건수 상한(ENV: RAG_EMBED_BATCH, 기본 64)도 동시에 적용
+    안전 업서트:
+      - 토큰/배치 예산으로 1차 배치 구성
+      - 예외 시 배치 반으로 축소 → 단건까지 이분탐색
+      - 단건도 실패하면 해당 청크를 격리(quarantine) JSON으로 기록하고 건너뜀
     """
     MAX_TOKENS = int(os.getenv("RAG_TOKEN_BUDGET_PER_REQ", "250000"))
-    MAX_BATCH  = int(os.getenv("RAG_EMBED_BATCH", "64"))
+    # 기존 RAG_EMBED_BATCH가 있으면 우선 사용, 없으면 CHROMA_MAX_BATCH, 없으면 64
+    MAX_BATCH  = int(os.getenv("RAG_EMBED_BATCH", os.getenv("CHROMA_MAX_BATCH", "64")))
     total_added = 0
 
+    # 격리 폴더 준비
+    quarantine_dir = Path(
+        os.getenv("CHROMA_QUARANTINE_DIR", "")
+        or (Path(vs._persist_directory) / "quarantine")  # type: ignore[attr-defined]
+    )
+    try:
+        quarantine_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    def _write_quarantine(doc: Document, doc_id: Optional[str], err: Exception) -> None:
+        try:
+            payload = {
+                "id": doc_id,
+                "metadata": getattr(doc, "metadata", None),
+                "text_head": (getattr(doc, "page_content", "") or "")[:600],
+                "error": str(err),
+                "ts": datetime.now().isoformat(timespec="seconds"),
+            }
+            qf = quarantine_dir / f"quarantine_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.json"
+            qf.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            logger.warning("[CHROMA] quarantined bad doc → %s", qf)
+        except Exception:
+            logger.warning("[CHROMA] quarantine write failed")
+
+    # 메인 루프
     i = 0
     while i < len(splits):
-        tok_sum = 0
-        j = i
+        # 토큰/배치 한도로 1차 배치 구성
+        tok_sum, j = 0, i
         while j < len(splits) and (j - i) < MAX_BATCH:
             tok_sum += _approx_tokens(splits[j].page_content)
             if tok_sum > MAX_TOKENS and j > i:
                 break
             j += 1
-        batch_docs = splits[i:j]
-        batch_ids  = ids[i:j] if ids else None
-        try:
-            if batch_ids:
-                vs.add_documents(batch_docs, ids=batch_ids)
-            else:
-                vs.add_documents(batch_docs)
-            total_added += len(batch_docs)
-        except Exception as e:
-            # 혹시 실패하면 더 작은 단위로 폴백
-            mid = (i + j) // 2
-            if mid == i:
-                # 한 건도 못 넣는다면 해당 문서는 스킵
-                print(f"[WARN] add_documents 실패(1건 스킵): {e}")
-                i += 1
-                continue
-            # 재귀적 분할 대신 선형 축소
-            step = max(1, (j - i) // 2)
-            j = i + step
-            continue
-        i = j
+
+        def _try_range(lo: int, hi: int) -> int:
+            """[lo, hi) 구간을 최대한 추가. 실패 시 이분 분해. 반환=성공 추가 개수"""
+            n = hi - lo
+            if n <= 0:
+                return 0
+            try:
+                if ids:
+                    vs.add_documents(splits[lo:hi], ids=ids[lo:hi])  # type: ignore[arg-type]
+                else:
+                    vs.add_documents(splits[lo:hi])
+                return n
+            except Exception as e:
+                # 배치를 절반으로 쪼개서 재귀 시도
+                if n >= 2:
+                    mid = lo + n // 2
+                    left  = _try_range(lo, mid)
+                    right = _try_range(mid, hi)
+                    return left + right
+                # n == 1 인데도 실패 → 격리 후 스킵
+                _write_quarantine(splits[lo], ids[lo] if ids else None, e)
+                return 0
+
+        added_now = _try_range(i, j)
+        total_added += added_now
+        i = j  # 다음 배치로 진행
+
+    logger.info("batched_add: added %d chunks", total_added)
     return total_added
+
 
 def documents_to_chroma(
     documents: List[Document],
@@ -676,20 +804,29 @@ def documents_to_chroma(
     verbose: bool = True,
 ) -> Tuple[int, int]:
     """
-    문서들을 세션/주제별 Chroma 컬렉션에 적재.
-    - namespace/collection_name + persist_directory 로 논리/물리 격리
-    - 기존 저장 URL(source) 중복 방지
-    - 초대형 문서 안전 청킹 + 배치 임베딩(토큰 상한 보호)
-    - 반환: (원본 문서 수, 적재된 청크 수)
+    입력 문서를 Chroma에 안전하게 인덱싱.
+    - 게이트키핑/블롭/차단 텍스트 필터
+    - fresh store 감지(초기화 이후 캐시 핸들 재생성)
+    - 안전 배치 업서트(_batched_add) 사용
+    - 상세 진단 로그 및 ID 길이 제한(환경변수로 조정)
     """
     from typing import cast
-    from chromadb.api.types import Where, Include  # ← 중요
+    from chromadb.api.types import Where, Include
     from settings_gatekeep import url_allowed
 
     ns = collection_name or namespace or os.getenv("CHROMA_NAMESPACE") or "default"
     pd = _resolve_persist_dir(ns, persist_directory)
     os.makedirs(pd, exist_ok=True)
-    
+
+    # 요약 로그용 카운터
+    total_in_docs   = len(documents or [])
+    pre_docs_count  = 0
+    skipped_gate    = 0
+    skipped_block   = 0
+    new_docs_count  = 0
+    split_count     = 0
+    added_chunks    = 0
+
     if clear:
         _VS_CACHE.pop((pd, ns), None)
         try:
@@ -697,120 +834,220 @@ def documents_to_chroma(
             if os.path.isdir(pd):
                 shutil.rmtree(pd)
             os.makedirs(pd, exist_ok=True)
-        except Exception:
-            pass
+            logger.info("documents_to_chroma: cleared vector store (%s, %s)", ns, pd)
+        except Exception as e:
+            logger.warning("documents_to_chroma: clear failed: %s", e)
 
     vs = _get_vs(ns, pd, embedding)
 
-    # 0) 차단/바이너리 텍스트 제거
+    # --- 새(빈) 스토어 감지: 컬렉션 카운트/디렉터리 비어있음/강한 신호(FRESH_KEYS)
+    def _is_fresh_store() -> bool:
+        if (pd, ns) in _FRESH_KEYS:  # 강한 신호
+            return True
+        try:
+            col = getattr(vs, "_collection", None)
+            cnt_fn = getattr(col, "count", None)
+            if callable(cnt_fn) and cnt_fn() == 0:
+                return True
+        except Exception:
+            pass
+        try:
+            p = Path(pd)
+            if p.exists():
+                for _ in p.iterdir():
+                    break
+                else:
+                    return True  # 비어 있음
+        except Exception:
+            pass
+        return False
+
+    is_fresh = _is_fresh_store()
+    if is_fresh:
+        try:
+            _VS_CACHE.pop((pd, ns), None)
+        except Exception:
+            pass
+        vs = _get_vs(ns, pd, embedding)
+        try:
+            _FRESH_KEYS.discard((pd, ns))
+        except Exception:
+            pass
+        logger.debug("documents_to_chroma: fresh store — evicted cached VS and recreated handle")
+
+    # 0) 차단/바이너리/블롭 텍스트 제거 + 클린업
     pre_docs: List[Document] = []
     for d in (documents or []):
         txt = getattr(d, "page_content", "") or ""
         if (not txt
             or _is_block_page(txt)
             or _looks_like_pdf_bytes(txt)
-            or _looks_like_serialized_blob(txt)  # 🔎 이중 안전망
+            or _looks_like_serialized_blob(txt)
         ):
+            skipped_block += 1
             continue
         d.page_content = _clean_text(txt)
         pre_docs.append(d)
+    pre_docs_count = len(pre_docs)
 
-    # 1) 이미 저장된 URL set
+    # 1) 이미 저장된 URL set 수집
     all_urls = {
         (getattr(d, "metadata", {}) or {}).get("source")
         for d in (pre_docs or [])
         if (getattr(d, "metadata", {}) or {}).get("source")
     }
     stored_urls = set()
-    if all_urls:
+
+    # fresh store면 저장된 URL 조회를 생략
+    if all_urls and not is_fresh:
         try:
-            urls: list[str] = [u for u in all_urls if isinstance(u, str) and u]  # None 제거 + 문자열 보장
-            where_filter = {"source": {"$in": urls}}  # 런타임에서 유효한 쿼리
+            urls: list[str] = [u for u in all_urls if isinstance(u, str) and u]
+            where_filter = {"source": {"$in": urls}}
             include = ["metadatas"]
-            res = vs._collection.get(
+            res = vs._collection.get(  # type: ignore[attr-defined]
                 where=cast(Where, where_filter),
                 include=cast(Include, include),
             )
-            # where_filter: Where = {"source": {"$in": list(all_urls)}}
-            # include: Include = ["metadatas"]
-            # res = vs._collection.get(where=where_filter, include=include)
             for m in (res or {}).get("metadatas") or []:
                 if isinstance(m, dict) and m.get("source"):
                     stored_urls.add(m["source"])
-        except Exception:
+        except Exception as e:
+            logger.debug("chroma get(where=$in) failed, fallback to full metadatas: %s", e)
             try:
-                res = vs._collection.get(include=["metadatas"])
+                res = vs._collection.get(include=["metadatas"])  # type: ignore[attr-defined]
                 for m in (res or {}).get("metadatas") or []:
                     if isinstance(m, dict) and m.get("source"):
                         stored_urls.add(m["source"])
-            except Exception:
+            except Exception as e2:
+                logger.debug("chroma full metadatas get failed: %s", e2)
                 stored_urls = set()
+    elif is_fresh:
+        logger.debug("documents_to_chroma: fresh store detected; skip stored_urls check")
 
+    # 2) 게이트키핑 및 신규 문서 선택
     new_documents: List[Document] = []
-    skipped = []  # ← [옵션] 로그용
     new_url_set = all_urls - stored_urls
+    skipped_samples: list[str] = []
     for d in (pre_docs or []):
         meta = getattr(d, "metadata", {}) or {}
         src = meta.get("source") or meta.get("url") or meta.get("file_path") or ""
-
-        # [2번 수정] 허용 도메인 필터
         if not url_allowed(src):
-            skipped.append(src)
+            skipped_gate += 1
+            if len(skipped_samples) < 3 and src:
+                skipped_samples.append(src)
             continue
-
-        if src and src in new_url_set:
+        if src and (is_fresh or src in new_url_set):
             new_documents.append(d)
-            if verbose:
-                print(d.metadata)
-                
-    if skipped and verbose:
-        print(f"[GATEKEEP] skipped {len(skipped)} doc(s) by allowlist; sample={skipped[:3]}")
+        elif not src and is_fresh:
+            # 소스가 없지만 fresh면 그대로 수용(희귀 케이스)
+            new_documents.append(d)
+    new_docs_count = len(new_documents)
+
+    # fresh인데도 enqueue가 비었고 URL은 있는 경우 → 강제 enqueue
+    if not new_documents and is_fresh and all_urls:
+        logger.debug("fresh-store fallback: forcing enqueue of all urls")
+        new_documents = list(pre_docs)
+        new_docs_count = len(new_documents)
+
+    if skipped_gate and verbose:
+        logger.info("[GATEKEEP] skipped %d doc(s) by allowlist; sample=%s", skipped_gate, skipped_samples)
 
     if not new_documents:
         if verbose:
-            print("[INFO] documents_to_chroma: No new urls to process")
-        return (len(documents or []), 0)
+            logger.info(
+                "documents_to_chroma: no new urls to process | "
+                "in=%d, pre=%d, blocked=%d, gate_skipped=%d, fresh=%s",
+                total_in_docs, pre_docs_count, skipped_block, skipped_gate, is_fresh
+            )
+        return (total_in_docs, 0)
 
-    # 2) 안전 청킹(ENV 기반)
+    # 3) 안전 청킹
     splits = split_documents(new_documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    split_count = len(splits)
     if not splits:
-        return (len(documents or []), 0)
+        if verbose:
+            logger.info(
+                "documents_to_chroma: no splits produced | "
+                "in=%d, pre=%d, new=%d", total_in_docs, pre_docs_count, new_docs_count
+            )
+        return (total_in_docs, 0)
 
-    # 3) 결정적 ID 생성(업서트 친화)
-    from collections import defaultdict as _dd
+    # 4) 결정적 ID 생성 + 길이 제한(강제)
+    MAX_ID_CHARS = int(os.getenv("CHROMA_MAX_ID_CHARS", "128"))
     ids: List[str] = []
-    # counter = _dd(int)
     counter: DefaultDict[str, int] = _dd(int)
+
+    def _cap_id(s: str) -> str:
+        if len(s) <= MAX_ID_CHARS:
+            return s
+        # 뒤쪽 일련번호 보존을 위해 12자 정도는 남겨둔다.
+        keep_tail = 12
+        return s[: MAX_ID_CHARS - keep_tail] + s[-keep_tail:]
+
     for s in splits:
         src = (getattr(s, "metadata", {}) or {}).get("source", "")
         if src:
             base = hashlib.sha1(src.encode("utf-8", "ignore")).hexdigest()
             counter[base] += 1
-            ids.append(f"{base}-{counter[base]:06d}")
+            raw_id = f"{base}-{counter[base]:06d}"
         else:
             counter["__none__"] += 1
-            ids.append(f"none-{counter['__none__']:06d}")
+            raw_id = f"none-{counter['__none__']:06d}"
+        ids.append(_cap_id(raw_id))
 
-    # 4) 배치 임베딩(토큰 상한 보호)
-    added = _batched_add(vs, splits, ids)
+    # 5) 배치 업서트(안전화된 _batched_add 사용)
+    t0 = time.time()
+    try:
+        added_chunks = _batched_add(vs, splits, ids)
+    except Exception as e:
+        logger.warning("documents_to_chroma: batched_add raised — forcing smaller path: %s", e)
+        # 비상 경로: 개별 업서트 시도(최소 손실)
+        added_chunks = 0
+        for k, doc in enumerate(splits):
+            try:
+                if ids:
+                    vs.add_documents([doc], ids=[ids[k]])
+                else:
+                    vs.add_documents([doc])
+                added_chunks += 1
+            except Exception as e2:
+                logger.warning("single upsert failed at %d: %s", k, e2)
 
+    # 6) persist
     persist_fn = getattr(vs, "persist", None)
     if callable(persist_fn):
-        persist_fn()
+        try:
+            persist_fn()
+        except Exception as e:
+            logger.debug("vs.persist failed (ignored): %s", e)
     else:
         client = getattr(vs, "_client", None)
         client_persist = getattr(client, "persist", None)
         if callable(client_persist):
-            client_persist()
+            try:
+                client_persist()
+            except Exception as e:
+                logger.debug("client.persist failed (ignored): %s", e)
 
-    # added = _batched_add(vs, splits, ids)
+    # 7) 상세 요약 로그
+    avg_len = 0
+    if split_count:
+        try:
+            total_chars = sum(len(d.page_content or "") for d in splits)
+            avg_len = int(total_chars / split_count)
+        except Exception:
+            avg_len = 0
 
-    # try:
-    #     vs.persist()
-    # except AttributeError:
-    #     pass
+    elapsed = time.time() - t0
+    logger.info(
+        ("documents_to_chroma: %d docs → %d chunks (ns=%s, dir=%s) | "
+         "in=%d, pre=%d, blocked=%d, gate_skipped=%d, new=%d, splits=%d, avg_chunk_chars=%d, fresh=%s, time=%.2fs"),
+        total_in_docs, added_chunks, ns, pd,
+        total_in_docs, pre_docs_count, skipped_block, skipped_gate, new_docs_count,
+        split_count, avg_len, is_fresh, elapsed
+    )
 
-    return (len(documents or []), added)
+    return (total_in_docs, added_chunks)
 
 def add_web_pages_json_to_chroma(
     json_file: str,
@@ -846,26 +1083,89 @@ def retrieve(
     embedding=None,
 ):
     """
-    세션/주제별 Chroma 컬렉션에서 RAG 검색.
-    미지정 시 CHROMA_NAMESPACE/CHROMA_DIR 사용.
+    세션/주제별 Chroma 컬렉션에서 RAG 검색 (고속 경로 + 친절한 예외 메시지).
+    - vs에 이미 설정된 임베딩 함수를 우선 재사용(테스트 더미 임베딩 포함)
+    - 직접 Chroma .query()로 문서/메타만 가져와 빠르게 반환
+    - 임베딩 모델/차원 불일치 등 흔한 오류는 RuntimeError로 원인/해결책 안내
     """
-    # --- 추가: local/glob 쿼리 방어 ---
-    ql = (query or "").lower().strip()
+    q = (query or "").strip()
+    if not q:
+        return []
+
+    ql = q.lower()
     if ql.startswith("local:"):
-        print(f"[retrieve] skip local/glob query: {query}")
+        logger.debug("[retrieve] skip local/glob query: %s", query)
         return []
-    if any(tok in query for tok in ("**\\", "**/", "\\*.", "/*.", "\\**", "/**")):
-        print(f"[retrieve] skip glob-like query: {query}")
+    if any(tok in q for tok in ("**\\", "**/", "\\*.", "/*.", "\\**", "/**")):
+        logger.debug("[retrieve] skip glob-like query: %s", query)
         return []
-    # ---------------------------------
-    
+
     ns = collection_name or namespace or os.getenv("CHROMA_NAMESPACE") or "default"
     pd = _resolve_persist_dir(ns, persist_directory)
-
     vs = _get_vs(ns, pd, embedding)
-    retriever = vs.as_retriever(search_kwargs={"k": top_k})
-    return retriever.invoke(query)
 
+    # ★ 임베딩 함수: vs에 붙어있는 것을 1순위로 재사용
+    emb_fn = getattr(vs, "_embedding_function", None) or embedding or _get_embeddings(embedding)
+
+    # -------- Fast path: 직접 Chroma 질의 --------
+    try:
+        # 더미/실 임베딩 모두 embed_query 인터페이스를 가정
+        q_emb = emb_fn.embed_query(q) if hasattr(emb_fn, "embed_query") else emb_fn(q)  # type: ignore
+        n = max(1, int(top_k or 5))
+        res = vs._collection.query(  # type: ignore[attr-defined]
+            query_embeddings=[q_emb],
+            n_results=n,
+            include=["documents", "metadatas"],  # 최소 데이터만으로 I/O 절감
+        )
+
+        docs_out = []
+        docs = (res or {}).get("documents") or []
+        metas = (res or {}).get("metadatas") or []
+        if docs and isinstance(docs, list):
+            rows = zip(docs[0] if docs else [], metas[0] if metas else [])
+            for doc_text, meta in rows:
+                text = (doc_text or "")
+                # 테스트/운영 보호: 단일 청크는 20k 미만으로 제한
+                if len(text) > 19000:
+                    text = text[:19000]
+                m = meta if isinstance(meta, dict) else {}
+                docs_out.append(Document(page_content=text, metadata=m))
+        logger.debug("[retrieve-fast] ns=%s dir=%s k=%d → %d docs", ns, pd, n, len(docs_out))
+        return docs_out
+
+    except Exception as e:
+        # 흔한 원인: 인제스트와 검색 시 임베딩 모델/차원 불일치
+        emsg = (str(e) or "").lower()
+        mismatch_signals = (
+            "dimension" in emsg or
+            ("embed" in emsg and "mismatch" in emsg) or
+            "expected" in emsg and "got" in emsg and "dimension" in emsg
+        )
+        if mismatch_signals:
+            raise RuntimeError(
+                "Vector query failed due to a likely embedding model/dimension mismatch between "
+                "ingestion and retrieval.\n\n"
+                "How to fix:\n"
+                "  • Ensure the SAME embedding model is used for both ingestion and retrieval.\n"
+                "  • If you pass a custom `embedding=` here, it must match the one used to build this collection.\n"
+                "  • Otherwise, omit `embedding` so the vector store’s existing embedding function is reused."
+            ) from e
+
+        # 그 외 예외는 디버그로 남기고 폴백 경로 시도
+        logger.debug("[retrieve-fast] direct query failed; falling back to retriever: %s", e)
+
+    # -------- Fallback: LangChain retriever --------
+    retriever = vs.as_retriever(search_kwargs={"k": max(1, int(top_k or 5))})
+    results = retriever.invoke(q)
+    out = []
+    for d in (results or []):
+        text = d.page_content or ""
+        if len(text) > 19000:
+            text = text[:19000]
+        d.page_content = text
+        out.append(d)
+    logger.debug("[retrieve-fallback] ns=%s dir=%s k=%d → %d docs", ns, pd, top_k, len(out))
+    return out
 
 # =============================================================================
 # Exports
@@ -878,8 +1178,7 @@ __all__ = [
     "documents_to_chroma",
     "add_web_pages_json_to_chroma",
     "retrieve",
-    # ✅ 추가
     "clear_vector_store",
     "ensure_vector_store_cleared_once",
-    "_default_chroma_dir",  # ← 추가
+    "_default_chroma_dir",
 ]

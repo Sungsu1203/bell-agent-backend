@@ -15,6 +15,9 @@ import re
 import argparse
 from pathlib import Path
 
+import logging
+logger = logging.getLogger(__name__)
+
 # 하위 섹션 이름 패턴 (양쪽 공백 허용, 괄호 안 변형 허용)
 SUBSECTION_PAT = re.compile(
     r"^\s*#{1,6}\s*(배경|핵심\s*요점|근거(\s*\(.*?\))?|시사점|Actionable\s+Recommendations)\s*$",

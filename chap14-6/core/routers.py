@@ -2,10 +2,15 @@ from __future__ import annotations
 import os
 from typing import Optional
 
+import logging
+logger = logging.getLogger(__name__)
+
 from core.config import DOC_MODE
 from core.state_types import State
 from utils.sanitize import as_int
 from utils.outline import get_topic_outline_text
+
+from utils.tasks import schedule_writer_if_needed
 
 
 def tail_task_router(state: State):
@@ -15,36 +20,51 @@ def tail_task_router(state: State):
     outline_not_shown = state.get("outline_shown") is False
 
     if outline_missing:
+        logger.info("[router.tail] outline missing → content_strategist")
         return "content_strategist"
     if outline_not_shown:
+        logger.info("[router.tail] outline exists but not shown → communicator")
         return "communicator"
 
-    tasks = state.get("task_history", [])
+    tasks = state.get("task_history", []) or []
 
     # 1) 선호 writer가 미완료면 우선
     preferred_writer = "section_writer" if DOC_MODE == "report" else "chapter_writer"
     for t in reversed(tasks):
         if (not getattr(t, "done", False)) and getattr(t, "agent", "") == preferred_writer:
+            logger.debug("[router.tail] preferred writer pending → %s", preferred_writer)
             return preferred_writer
 
     # 2) 대안 writer가 미완료면 그 다음
     alt_writer = "chapter_writer" if preferred_writer == "section_writer" else "section_writer"
     for t in reversed(tasks):
         if (not getattr(t, "done", False)) and getattr(t, "agent", "") == alt_writer:
+            logger.debug("[router.tail] alt writer pending → %s", alt_writer)
             return alt_writer
 
     # 3) 커뮤니케이터가 미완료면
     for t in reversed(tasks):
         if (not getattr(t, "done", False)) and getattr(t, "agent", "") == "communicator":
+            logger.debug("[router.tail] communicator pending → communicator")
             return "communicator"
 
     # 4) 아무 것도 없으면 기본 writer
+    logger.info("[router.tail] no pending tasks → preferred writer %s", preferred_writer)
     return preferred_writer
 
 
 def after_vector_router(state: State):
     """벡터검색 이후 라우팅."""
+    schedule_writer_if_needed(
+        state,
+        tasks=state.get("tasks"),
+        messages=state.get("messages"),
+        outline_text=state.get("outline_text"),
+        allow_during_research=os.getenv("AUTO_WRITE_DURING_RESEARCH","0")=="1",
+    )
+    
     if state.get("qa_direct_reply"):
+        logger.info("[router.after_vector] qa_direct_reply=True → communicator")
         return "communicator"
 
     role = (state.get("agent_role") or "").strip().lower()
@@ -53,9 +73,12 @@ def after_vector_router(state: State):
     has_objs = bool(state.get("research_objectives"))
 
     if role == "research analyst" and has_objs and rounds_done < max_iter:
+        logger.info("[router.after_vector] research loop continues → research_synthesizer")
         return "research_synthesizer"
 
-    return tail_task_router(state)
+    nxt = tail_task_router(state)
+    logger.info("[router.after_vector] fallback → %s", nxt)
+    return nxt
 
 
 def after_planner_router(state: State):
@@ -67,7 +90,7 @@ def after_planner_router(state: State):
     4) SKIP_WEB_SEARCH=1 또는 state.flags.skip_web_search → vector_search_agent
     5) 기본: web_search_agent
     """
-    tasks = state.get("task_history", [])
+    tasks = state.get("task_history", []) or []
 
     def _has_pending(agent: str) -> bool:
         return any((not getattr(t, "done", False)) and getattr(t, "agent", "") == agent for t in tasks)
@@ -86,25 +109,30 @@ def after_planner_router(state: State):
     # 0) 플래너 announce 옵션
     announce = os.getenv("RESEARCH_PLANNER_ANNOUNCE", "0") == "1" or as_int(state, "research_planner_announce", 0) == 1
     if announce:
+        logger.info("[router.after_planner] announce=1 → communicator")
         return "communicator"
 
     # 1) writer 펜딩 최우선
     w = _pending_writer()
     if w:
+        logger.info("[router.after_planner] writer pending → %s", w)
         return w
 
     # 2) 새 쿼리 유무
     plan_qs = ((state.get("research_plan") or {}).get("queries") or []) or state.get("planner_queries") or []
     have_queries = bool(plan_qs)
     if not have_queries:
+        logger.info("[router.after_planner] no planner queries → communicator")
         return "communicator"
 
     # 3) 웹검색 스킵 → 벡터검색
     skip_web = (os.getenv("SKIP_WEB_SEARCH", "0") == "1") or bool((state.get("flags") or {}).get("skip_web_search"))
     if skip_web:
+        logger.info("[router.after_planner] SKIP_WEB_SEARCH=1 → vector_search_agent")
         return "vector_search_agent"
 
     # 4) 기본 경로 = 웹검색
+    logger.info("[router.after_planner] default → web_search_agent")
     return "web_search_agent"
 
 
@@ -114,12 +142,19 @@ def after_synthesizer_router(state: State):
     - 연구 라운드를 더 돌지 결정(신규 URL 수, 최소/최대 라운드, 무신규 연속치 등)
     - 계속 연구면 research_planner, 아니면 tail_task_router(writer/communicator 등)
     """
+    schedule_writer_if_needed(
+        state,
+        tasks=state.get("tasks"),
+        messages=state.get("messages"),
+        outline_text=state.get("outline_text"),
+        allow_during_research=os.getenv("AUTO_WRITE_DURING_RESEARCH","0")=="1",
+    )
     rounds_done = as_int(state, "research_round", 0)
     max_iter = as_int(state, "iteration_count", 0)
 
     if os.getenv("DEBUG_ROUTER_KEYS") == "1":
         keys_preview = list(state.keys())[:40]
-        print(f"[ROUTER] keys[:40]={keys_preview}")
+        logger.debug("[router.after_synth] keys[:40]=%s", keys_preview)
 
     def first_int(st: State, keys: list[str], default: int = 0) -> int:
         for k in keys:
@@ -148,16 +183,20 @@ def after_synthesizer_router(state: State):
     max_no_new     = _pick("RESEARCH_MAX_NO_NEW_ROUNDS", "research_max_no_new_rounds", 1)
     no_new_streak  = as_int(state, "no_new_url_streak", 0)
 
-    # 라운드 지속 조건:
-    # - 라운드가 남아 있고
-    # - (최소 라운드 미만) 또는 (이번 라운드 신규 수가 임계치 초과) 또는 (무신규 연속 허용 한도 미만)
     can_continue = (
         (rounds_done < max_iter)
         and ((rounds_done < min_rounds) or (url_new_actual > halt_threshold) or (no_new_streak < max_no_new))
     )
 
+    logger.info(
+        "[router.after_synth] round=%s/%s | new=%s | streak=%s (max_no_new=%s) | min=%s | threshold=%s | continue=%s",
+        rounds_done, max_iter, url_new_actual, no_new_streak, max_no_new, min_rounds, halt_threshold, can_continue
+    )
+
     if can_continue:
+        logger.info("[router.after_synth] continue research → research_planner")
         return "research_planner"
 
-    # 연구 종료 → writer/communicator 우선 선택
-    return tail_task_router(state)
+    nxt = tail_task_router(state)
+    logger.info("[router.after_synth] halt research → %s", nxt)
+    return nxt

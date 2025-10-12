@@ -2,11 +2,13 @@ from __future__ import annotations
 from langchain_core.output_parsers.string import StrOutputParser
 from utils.tasks import AIMessage
 
+import logging
+logger = logging.getLogger(__name__)
+
 from core.paths import now_str as _now_str
 from core.state_types import State
 from core.models import Task, AgentName
 from utils.sanitize import sanitize_state, as_int
-from utils.rag_utils import refs_preview_text
 from prompts import get_research_planner_prompt
 from utils.tasks import has_pending
 from utils.refs import refs_preview_text as _refs_preview_text
@@ -19,13 +21,40 @@ from core.llm import get_llm
 
 
 def research_planner(state: State):
-    print("\n\n============ RESEARCH PLANNER ============")
-    llm=get_llm()
+    logger.info("============ RESEARCH PLANNER ============")
+    llm = get_llm()
     state = sanitize_state(state)
+
+    # 연구 루프 시작 표식 (writer 자동 기동 가드와 연동)
+    cast(MutableMapping[str, Any], state)["research_loop_active"] = True
 
     max_iter = int(state.get("iteration_count", 0))
     rnd = int(state.get("research_round", 0))
-    objs = state.get("research_objectives", []) or []
+
+    # 목표 로딩: state 우선 → BLOCKAGI_OBJECTIVE_1..9 → BLOCKAGI_OBJECTIVES(JSON)
+    def _load_objectives(st) -> list[str]:
+        objs0 = [str(s).strip() for s in (st.get("research_objectives") or []) if str(s).strip()]
+        if objs0:
+            return list(dict.fromkeys(objs0))
+        env_objs = []
+        for i in range(1, 10):
+            v = os.getenv(f"BLOCKAGI_OBJECTIVE_{i}", "")
+            if isinstance(v, str) and v.strip():
+                env_objs.append(v.strip())
+        if not env_objs:
+            raw = os.getenv("BLOCKAGI_OBJECTIVES", "")
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    import json
+                    cand = json.loads(raw)
+                    if isinstance(cand, list):
+                        env_objs = [str(x).strip() for x in cand if str(x).strip()]
+                except Exception:
+                    pass
+        return list(dict.fromkeys(env_objs))
+
+    objs = _load_objectives(state)
+    cast(MutableMapping[str, Any], state)["research_objectives"] = objs
 
     # 항상 리스트 보장
     tasks = state.get("task_history", []) or []
@@ -37,7 +66,7 @@ def research_planner(state: State):
         None,
     )
 
-    # ======== [FIX] 목표 없음: pending 닫고 communicator 안내로 안전 탈출 ========
+    # ======== 목표 없음: 루프 HOLD + communicator 안내 (writer 금지) ========
     if not objs:
         if pending:
             pending.done = True
@@ -45,17 +74,23 @@ def research_planner(state: State):
             if not getattr(pending, "description", ""):
                 pending.description = "plan: auto"
             pending.description += " [skipped: no research_objectives]"
-
-        # 사용자 안내 메시지 + 중복 방지하고 communicator 예약
-        msg = "[Research Planner] 연구 목표(research_objectives)가 비어 있어 플래닝을 건너뜁니다. " \
-              "환경변수(BLOCKAGI_OBJECTIVE_1..n) 또는 메시지로 목표를 알려주세요."
-        messages.append(AIMessage(msg))
+        messages.append(AIMessage(
+            content=(
+                "[Research Planner] 연구 목표(research_objectives)가 비어 있어 플래닝을 일시 정지합니다. "
+                "환경변수(BLOCKAGI_OBJECTIVE_1..n 또는 BLOCKAGI_OBJECTIVES)나 메시지로 목표를 알려주세요."
+            )
+        ))
         if not has_pending(tasks, "communicator"):
-            tasks.append(Task(agent="communicator", done=False,
-                              description="ask: set research objectives", done_at=""))
-
-        return {"messages": messages, "task_history": tasks}
-    # ======== [END FIX] ============================================================
+            tasks.append(Task(agent="communicator", done=False, description="ask: set research objectives", done_at=""))
+        cast(MutableMapping[str, Any], state)["research_loop_active"] = True
+        return {
+            "messages": messages,
+            "task_history": tasks,
+            "research_loop_active": True,
+            "research_objectives": objs,
+            "research_plan": state.get("research_plan", {"round": 0, "objective": "", "queries": [], "timestamp": _now_str()}),
+        }
+    # ======== END ============================================================
 
     # 여기부터는 목표가 있는 정상 경로
     if pending:
@@ -123,15 +158,15 @@ def research_planner(state: State):
         "queries": normed,
         "timestamp": _now_str(),
     }
-    print(f"[Planner] saved {len(normed)} queries to state.research_plan (round={rnd + 1})")
+    logger.info("[Planner] saved %s queries to state.research_plan (round=%s)", len(normed), rnd + 1)
     # ======== [END PLAN_PERSIST] ========
 
     plan_msg = (
         f"[Research Planner] Round {rnd + 1} objective: {current_obj}\n"
         "Queries:\n" + "\n".join(f"- {q}" for q in normed)
     )
-    print("\n" + plan_msg)
-    messages.append(AIMessage(plan_msg))
+    logger.debug(plan_msg)
+    messages.append(AIMessage(content=plan_msg))
 
     # ======== [SEARCH-ANCHOR: SCHEDULE_NEXT] ========
     tasks = state.setdefault("task_history", [])
@@ -146,15 +181,21 @@ def research_planner(state: State):
         if skip_web:
             if not has_pending(tasks, "vector_search_agent"):
                 tasks.append(Task(agent="vector_search_agent", done=False, description="retrieve:auto", done_at=""))
-            print(f"[Planner] schedule next → vector_search_agent (queries={len(normed)})")
+            logger.info("[Planner] schedule next → vector_search_agent (queries=%s)", len(normed))
         else:
             if not has_pending(tasks, "web_search_agent"):
                 tasks.append(Task(agent="web_search_agent", done=False, description="search:auto", done_at=""))
-            print(f"[Planner] schedule next → web_search_agent (queries={len(normed)})")
+            logger.info("[Planner] schedule next → web_search_agent (queries=%s)", len(normed))
     else:
         if not has_pending(tasks, "communicator"):
             tasks.append(Task(agent="communicator", done=False, description="planner:no_new_queries", done_at=""))
-        print("[Planner] no new queries → communicator")
+        logger.info("[Planner] no new queries → communicator")
 
-    return {"messages": messages, "task_history": tasks}
+    return {
+        "messages": messages,
+        "task_history": tasks,
+        "research_loop_active": True,
+        "research_objectives": objs,
+        "research_plan": state["research_plan"],
+    }
     # ======== [END SCHEDULE_NEXT] ========

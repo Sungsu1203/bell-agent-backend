@@ -1,5 +1,8 @@
 # core/config.py
 from __future__ import annotations
+import logging
+logger = logging.getLogger(__name__)
+
 from typing import Final, Literal, cast
 import os
 from pathlib import Path

@@ -1,4 +1,7 @@
 from __future__ import annotations
+import logging
+logger = logging.getLogger(__name__)
+
 from langgraph.graph import StateGraph, START, END
 from core.state_types import State
 from core.config import DOC_MODE
@@ -36,6 +39,8 @@ def build_graph():
         "chapter_writer": "chapter_writer",
         "section_writer": "section_writer",
         "research_planner": "research_planner",
+        "research_synthesizer": "research_synthesizer",
+
     })
     g.add_edge("content_strategist", "communicator")
     g.add_conditional_edges("research_planner", after_planner_router, {

@@ -1,6 +1,9 @@
 # agents/web_search.py
 from __future__ import annotations
 
+import logging
+logger = logging.getLogger(__name__)
+
 # (외부 타입/설정/유틸)
 from core.state_types import State
 from core.config import WRITER_AGENT            # ← main.py의 전역 상수 대신 여기서 import
@@ -27,11 +30,10 @@ from tools.web_rag import (
     web_page_json_to_documents,
     _default_chroma_dir,
     clear_vector_store,
-    ensure_vector_store_cleared_once,
 
 )
 
-from utils.query_filters import strip_web_filters, looks_like_local_glob, clean_seed as _clean_seed, ok_query
+from utils.query_filters import looks_like_local_glob, clean_seed as _clean_seed, ok_query
 from tools.local_rag import ingest_local_files
 
 from core.llm import get_llm
@@ -45,9 +47,12 @@ def web_search_agent(state: State):
     from pathlib import Path
     from utils.tasks import HumanMessage, AIMessage
     from langchain_core.documents import Document
+    from urllib.parse import urlparse
+    import re as _re
+    from typing import Iterable, Set
     # ────────────────────────────────────────────────────────────────────────────
-    print("\n\n============ WEB SEARCH AGENT ============")
-    llm=get_llm()
+    logger.info("============ WEB SEARCH AGENT ============")
+    llm = get_llm()
     state = sanitize_state(state)
 
     # --- (1) 태스크 확보 ------------------------------------------------------
@@ -61,8 +66,8 @@ def web_search_agent(state: State):
     web_search_system_prompt = get_web_search_prompt()
 
     messages = state.get("messages", [])
-    references: dict[str, list] = {"queries": [], "docs": []}
-    # references = state.get("references", {"queries": [], "docs": []})
+    # ✅ 이전 라운드까지의 refs를 그대로 이어받기
+    references: dict[str, list] = state.get("references", {"queries": [], "docs": []})
     _existing_qs = set(q.strip().lower() for q in (references.get("queries") or []) if q and q.strip())
 
     outline_text = get_topic_outline_text(state)
@@ -85,7 +90,7 @@ def web_search_agent(state: State):
     MAX_SEARCH_QUERIES_PER_ROUND = int(os.getenv("MAX_SEARCH_QUERIES_PER_ROUND", "6"))
     SKIP_WEB = os.getenv("SKIP_WEB_SEARCH", "0") == "1"
     if SKIP_WEB:
-        print("[WEB SEARCH AGENT] SKIP_WEB_SEARCH=1 → 외부 웹검색 건너뜀(로컬 RAG만).")
+        logger.info("[WEB SEARCH AGENT] SKIP_WEB_SEARCH=1 → 외부 웹검색 건너뜀(로컬 RAG만).")
 
     ns = state.get("chroma_ns") or os.getenv("CHROMA_NAMESPACE") or "default"
     slug = state.get("topic_slug")
@@ -95,36 +100,11 @@ def web_search_agent(state: State):
 
     # [ANCHOR: VECTOR_COUNT_AFTER_INIT]
     try:
-        print(f"[DEBUG] after init, doc_count={vector_count(ns, persist_dir)}")
+        logger.debug("[DEBUG] after init, doc_count=%s", vector_count(ns, persist_dir))
     except Exception as e:
-        print(f"[DEBUG] after init, doc_count check failed: {e}")
-
-#     # --- (2) 소스 게이트 설정(허용 도메인) -----------------------------------
-#     _DEFAULT_ALLOWED = [
-#     "me.go.kr","molit.go.kr","motie.go.kr","korea.kr","mss.go.kr","moef.go.kr",
-#     "kofpi.or.kr","kepco.co.kr","kesis.kr","kama.or.kr","kotra.or.kr","kei.re.kr","iea.org",
-#     "oecd.org","kdi.re.kr","kiep.go.kr"
-# ]
-
-#     # 1) 환경변수 캐시(폴백 소스)
-#     _env_allowed_raw = os.getenv("ALLOWED_DOMAINS", "")
-#     _env_allowed_set = {d.strip().lower() for d in _env_allowed_raw.split(",") if d.strip()} if _env_allowed_raw.strip() else set(_DEFAULT_ALLOWED)
-#     _env_gate = os.getenv("GATE_KEEP_SOURCES", "0") == "1"
-
-#     # 2) settings_gatekeep 가 있으면 우선 사용, 실패/미정의 시 환경변수로 폴백
-#     try:
-#         GATE_KEEP_SOURCES = bool(gatekeep_enabled())
-#         _maybe = get_allowed_domains() or []
-#         _maybe: list[str] = []
-#         ALLOWED_DOMAINS = {d.strip().lower() for d in _maybe} or _env_allowed_set
-#     except Exception:
-#         GATE_KEEP_SOURCES = _env_gate
-#         ALLOWED_DOMAINS = _env_allowed_set
+        logger.debug("[DEBUG] after init, doc_count check failed: %s", e)
 
     # --- (2) 소스 게이트 설정(허용 도메인) -----------------------------------
-    from typing import Iterable, Set
-
-    # 0) 기본 허용 도메인 (상수)
     _DEFAULT_ALLOWED: Set[str] = {
         "me.go.kr","molit.go.kr","motie.go.kr","korea.kr","mss.go.kr","moef.go.kr",
         "kofpi.or.kr","kepco.co.kr","kesis.kr","kama.or.kr","kotra.or.kr","kei.re.kr",
@@ -132,13 +112,11 @@ def web_search_agent(state: State):
     }
 
     def _normalize_domains(domains: Iterable[str] | None) -> Set[str]:
-        """문자열 이터러블을 소문자/트림/공백제거하여 set으로 변환."""
         if not domains:
             return set()
         return {d.strip().lower() for d in domains if isinstance(d, str) and d.strip()}
 
-    # 1) 환경변수 기반 폴백값 구성
-    _env_allowed_raw = os.getenv("ALLOWED_DOMAINS")  # e.g. "a.com,b.org"
+    _env_allowed_raw = os.getenv("ALLOWED_DOMAINS")
     if _env_allowed_raw and _env_allowed_raw.strip():
         ENV_ALLOWED_DOMAINS: Set[str] = _normalize_domains(_env_allowed_raw.split(","))
     else:
@@ -146,32 +124,17 @@ def web_search_agent(state: State):
 
     ENV_GATE: bool = os.getenv("GATE_KEEP_SOURCES", "0").strip().lower() in {"1", "true", "yes"}
 
-    # 2) 실행값(선 초기화) — settings_gatekeep 가 없거나 실패해도 안전
     GATE_KEEP_SOURCES: bool = ENV_GATE
     ALLOWED_DOMAINS: Set[str] = set(ENV_ALLOWED_DOMAINS)
 
-    # 3) settings_gatekeep 가 제공되면 그것을 우선 적용 (실패 시 조용히 폴백 유지)
     try:
-        # gatekeep_enabled/get_allowed_domains 는 외부에서 제공된다고 가정
         GATE_KEEP_SOURCES = bool(gatekeep_enabled())
-
-        _maybe_domains = get_allowed_domains()  # Iterable[str] | None 가정
+        _maybe_domains = get_allowed_domains()
         parsed = _normalize_domains(_maybe_domains)
         if parsed:
             ALLOWED_DOMAINS = parsed
     except Exception:
-        # 실패해도 ENV_* 기반 초기값이 이미 들어가 있으니 폴백 그대로 사용
         pass
-
-
-    # def _allowed(src: str) -> bool:
-    #     if not GATE_KEEP_SOURCES:
-    #         return True
-    #     s = (src or "").lower()
-    #     host = urlparse(s).netloc
-    #     if host.startswith("www."):
-    #         host = host[4:]
-    #     return any(host == d or host.endswith("." + d) for d in ALLOWED_DOMAINS)
 
     # --- (2b) JSON 로더/필터 ---------------------------------------------------
     def _load_items(json_path: str) -> list[dict]:
@@ -223,10 +186,6 @@ def web_search_agent(state: State):
         return str(out)
     
     # [ANCHOR: ROUND_URL_TALLY_INIT]
-    # 라운드별 '신규 URL' 집계 (도메인/경로 기준, 토픽 스코프)
-    from urllib.parse import urlparse
-    import re as _re
-
     flags = state.setdefault("flags", {})
     topic_key = (slug or "default")
 
@@ -239,21 +198,18 @@ def web_search_agent(state: State):
         u = (u or "").strip()
         if not u:
             return ""
-        # 로컬/파일 경로: file:// 또는 윈도 경로, 혹은 절대경로
+        # 로컬/파일 경로
         if u.startswith("file://") or _re.match(r"^[a-zA-Z]:[\\/]", u) or u.startswith(os.sep):
             path = u.replace("\\", "/").lower()
-            # 파일명 끝의 버전 suffix 제거(__v_숫자_숫자)
             path = _re.sub(r"__v_\d+_\d+$", "", path)
             return path
-
-        # HTTP(S) URL
+        # HTTP(S)
         if "://" not in u:
             u = "http://" + u
         p = urlparse(u)
         host = p.netloc.lower()
         if host.startswith("www."):
             host = host[4:]
-        # 경로의 버전 suffix 제거
         normalized_path = _re.sub(r"__v_\d+_\d+$", "", p.path)
         return f"{host}{normalized_path}"
 
@@ -274,24 +230,21 @@ def web_search_agent(state: State):
             if isinstance(items, list):
                 _tally_new_urls_from_items(items)
         except Exception as e:
-            print(f"[WARN] url tally failed for {json_path}: {e}")
+            logger.warning("[WARN] url tally failed for %s: %s", json_path, e)
 
-    # ✅ 여기 추가
-    print(f"[DEBUG] seen_sources_by_topic[{topic_key}] = {len(_seen_by_topic.get(topic_key, []))}")
+    # 🔎 상태 디버그
+    logger.debug("[DEBUG] seen_sources_by_topic[%s] = %s", topic_key, len(_seen_by_topic.get(topic_key, [])))
 
-    
     # --- (2c) 품질 필터 --------------------------------------------------------
     def _is_bad_doc(d: Document) -> bool:
         txt = ((getattr(d, "page_content", None) or "")[:2000]).lower()
         return any(k in txt for k in ["access denied","enable javascript","just a moment","security controls triggered","captcha"])
 
-
     # --- (3) 실제 검색/적재 실행 유틸 -----------------------------------------
     def _run_web_search_with_guard(q: str, preview_limit: int = 5, retries: int = 2) -> bool:
         nonlocal chunk_total
-        # 웹검색 전면 건너뛰기 모드일 때 즉시 종료
         if SKIP_WEB:
-            print("[WEB SEARCH AGENT] SKIP_WEB_SEARCH=1 → web search skipped.")
+            logger.info("[WEB SEARCH AGENT] SKIP_WEB_SEARCH=1 → web search skipped.")
             return False
 
         q = (q or "").strip()
@@ -305,7 +258,7 @@ def web_search_agent(state: State):
                 _, json_path = web_search.invoke({"query": q})
                 json_paths.append(json_path)
 
-                # 2) 결과 JSON을 프로젝트 리소스 폴더로 이동(옵션)
+                # 2) 결과 JSON 이동(옵션)
                 try:
                     res_dir = os.path.join(current_path, "resources", state.get("topic_slug") or "default")
                     Path(res_dir).mkdir(parents=True, exist_ok=True)
@@ -314,9 +267,9 @@ def web_search_agent(state: State):
                         shutil.move(json_path, new_json_path)
                         json_path = new_json_path
                         json_paths[-1] = json_path
-                    print(f"[web_search] saved → {json_path}")
+                    logger.info("[web_search] saved → %s", json_path)
                 except Exception as move_e:
-                    print(f"[WARN] resources JSON 이동 실패: {move_e}")
+                    logger.warning("[WARN] resources JSON 이동 실패: %s", move_e)
 
                 # 3) 허용 도메인 필터
                 filtered_json = _filter_json_by_domain(json_path)
@@ -329,7 +282,7 @@ def web_search_agent(state: State):
                     )
                     chunk_total += int(chunk_count or 0)
                 except Exception as idx_e:
-                    print(f"[WARN] add_web_pages_json_to_chroma 실패: {idx_e}")
+                    logger.warning("[WARN] add_web_pages_json_to_chroma 실패: %s", idx_e)
 
                 # 5) 프리뷰
                 try:
@@ -350,7 +303,7 @@ def web_search_agent(state: State):
                             )
                         )
                 except Exception as prev_e:
-                    print(f"[WARN] preview build 실패: {prev_e}")
+                    logger.warning("[WARN] preview build 실패: %s", prev_e)
 
                 queries.append(q)
                 ok = True
@@ -360,15 +313,13 @@ def web_search_agent(state: State):
                 if attempt < retries:
                     time.sleep(1.2 * (attempt + 1))
                     continue
-                print(f"[WARN] web_search 실패(재시도 후): {q} -> {e}")
+                logger.warning("[WARN] web_search 실패(재시도 후): %s -> %s", q, e)
                 ok = False
                 break
 
         return ok
 
-
     # --- (4) 쿼리 실행 파이프라인 ---------------------------------------------
-    # 4-0) 플래너 쿼리: research_plan.queries 우선, 없으면 planner_queries
     def _normalize_planner_q(s: str) -> str:
         s = (s or "").strip()
         s = re.sub(r"^\s*[\-\•]\s*", "", s)      # bullet
@@ -389,47 +340,56 @@ def web_search_agent(state: State):
         seen_norm.add(lk)
         planner_qs.append(nq)
 
+    # ======== [ANCHOR: RESEARCH_FLAG_SET] ========
+    if (state.get("research_plan") or {}).get("objective") or planner_qs:
+        state["research_loop_active"] = True
+    # =============================================
+
+    auto_mode = "rag_update:auto" in mission.lower()
+    if auto_mode:
+        state["research_loop_active"] = True
+
     ran_planner = 0
     if planner_qs:
         if not SKIP_WEB:
-            print("[WEB SEARCH AGENT] planner queries:", planner_qs)
+            logger.info("[WEB SEARCH AGENT] planner queries: %s", planner_qs)
             for q in planner_qs:
                 if _run_web_search_with_guard(q):
                     _existing_qs.add(q.lower())
                     ran_planner += 1
-            print(f"[WEB SEARCH AGENT] planner queries executed: {ran_planner}/{len(planner_qs)}")
+            logger.info("[WEB SEARCH AGENT] planner queries executed: %s/%s", ran_planner, len(planner_qs))
         else:
-            print("[WEB SEARCH AGENT] (skip) planner queries ignored:", planner_qs)
-        # 사용 후 항상 비움
+            logger.info("[WEB SEARCH AGENT] (skip) planner queries ignored: %s", planner_qs)
         state["planner_queries"] = []
         rp = state.get("research_plan") or {}
         rp["queries"] = []
         state["research_plan"] = rp
-        print(f"[WEB SEARCH AGENT] planner queries executed: {ran_planner}/{len(planner_qs)}")
+        logger.info("[WEB SEARCH AGENT] planner queries executed: %s/%s", ran_planner, len(planner_qs))
 
     # 4-1) 강제 쿼리
     forced_queries: list[str] = []
     try:
         forced_queries = extract_forced_queries_from_messages(messages, lookback=20) or []
     except Exception as e:
-        print(f"[WARN] forced query extraction failed: {e}")
+        logger.warning("[WARN] forced query extraction failed: %s", e)
 
     if forced_queries:
+        state["research_loop_active"] = True
         if not SKIP_WEB:
-            print("[WEB SEARCH AGENT] forced queries:", forced_queries)
+            logger.info("[WEB SEARCH AGENT] forced queries: %s", forced_queries)
             for q in forced_queries:
                 q = (q or "").strip()
                 if not q:
                     continue
                 lk = q.lower()
                 if lk in _existing_qs:
-                    print(f"[WEB SEARCH AGENT] skip duplicate (forced): {q}")
+                    logger.debug("[WEB SEARCH AGENT] skip duplicate (forced): %s", q)
                     continue
-                print("-------- web search --------", {"query": q})
+                logger.debug("-------- web search -------- %s", {"query": q})
                 if _run_web_search_with_guard(q):
                     _existing_qs.add(lk)
         else:
-            print("[WEB SEARCH AGENT] (skip) forced queries ignored:", forced_queries)
+            logger.info("[WEB SEARCH AGENT] (skip) forced queries ignored: %s", forced_queries)
 
     # 4-2) LLM 설계 쿼리
     if not SKIP_WEB:
@@ -445,12 +405,12 @@ def web_search_agent(state: State):
             lk = q.lower()
             if lk in _existing_qs:
                 continue
-            print("-------- web search --------", {"query": q})
+            logger.debug("-------- web search -------- %s", {"query": q})
             if _run_web_search_with_guard(q):
                 _existing_qs.add(lk)
                 ran += 1
     else:
-        print("[WEB SEARCH AGENT] (skip) LLM-designed web queries suppressed.")
+        logger.info("[WEB SEARCH AGENT] (skip) LLM-designed web queries suppressed.")
 
     # 4-3) 자동 폴백(자동 모드 & 지금까지 실행 쿼리 전무)
     def _fallback_auto_queries():
@@ -462,7 +422,6 @@ def web_search_agent(state: State):
             f"{topic} supply chain risks 2025",
             f"{topic} policy & regulation Korea 2025",
         ]
-        # extra = []
         extra: list[str] = []
         if outline_text:
             for line in outline_text.splitlines():
@@ -474,8 +433,7 @@ def web_search_agent(state: State):
                 extra.append(f"{line[:40]} 2025 overview")
         return base + extra
 
-    auto_mode = "rag_update:auto" in mission.lower()
-    if auto_mode and not queries:  # 아직 단 한 건도 실행되지 않았다면 폴백
+    if auto_mode and not queries:
         if not SKIP_WEB:
             for q in _fallback_auto_queries():
                 q = (q or "").strip()
@@ -483,12 +441,12 @@ def web_search_agent(state: State):
                     continue
                 lk = q.lower()
                 if lk in _existing_qs:
-                    print(f"[WEB SEARCH AGENT] skip duplicate (fallback): {q}")
+                    logger.debug("[WEB SEARCH AGENT] skip duplicate (fallback): %s", q)
                     continue
                 if _run_web_search_with_guard(q):
                     _existing_qs.add(lk)
         else:
-            print("[WEB SEARCH AGENT] (skip) auto-fallback web queries suppressed.")
+            logger.info("[WEB SEARCH AGENT] (skip) auto-fallback web queries suppressed.")
 
     # --- (5) 로컬 파일 인덱싱 (토픽당 1회, TypedDict-safe) --------------------
     env_globs = [g.strip() for g in (os.getenv("LOCAL_RAG_GLOBS", "") or "").split("|") if g.strip()]
@@ -519,30 +477,29 @@ def web_search_agent(state: State):
             continue
         seen.add(key); dedup_globs.append(g)
 
-    # 스캔 로그 (가드와 무관히 경로 유효성 점검)
+    # 스캔 로그
     debug_matches_total = 0
     if not dedup_globs:
-        print("[LOCAL SCAN] 구성된 글롭이 없습니다. LOCAL_RAG_GLOBS 또는 add_local 명령을 확인하세요.")
+        logger.info("[LOCAL SCAN] 구성된 글롭이 없습니다. LOCAL_RAG_GLOBS 또는 add_local 명령을 확인하세요.")
     else:
         for pattern in dedup_globs:
             pattern_abs = pattern if pattern.startswith(os.sep) or (":" in pattern) else os.path.join(current_path, pattern)
             found = list(glob.iglob(pattern_abs, recursive=True))
-            print(f"[LOCAL SCAN] {pattern}  -> {len(found)} file(s)")
+            logger.info("[LOCAL SCAN] %s  -> %s file(s)", pattern, len(found))
             if len(found) == 0:
-                print(f"[LOCAL SCAN]   ↳ 경로 확인: {pattern_abs}")
+                logger.info("[LOCAL SCAN]   ↳ 경로 확인: %s", pattern_abs)
             debug_matches_total += len(found)
         if debug_matches_total == 0:
-            print("[LOCAL SCAN] 모든 글롭이 0개 매칭입니다. 경로/패턴 점검 필요.")
+            logger.info("[LOCAL SCAN] 모든 글롭이 0개 매칭입니다. 경로/패턴 점검 필요.")
 
-    # ✅ 토픽별 1회 인덱싱 가드 (flags.local_ingested[topic_key])
-    flags = state.setdefault("flags", {})                  # 안전 컨테이너
-    li = flags.setdefault("local_ingested", {})            # 토픽별 기록 맵
+    # ✅ 토픽별 1회 인덱싱 가드
+    flags = state.setdefault("flags", {})
+    li = flags.setdefault("local_ingested", {})
     topic_key = (slug or "default")
     skip_local_ingest = bool(li.get(topic_key))
     if skip_local_ingest:
-        print(f"[LOCAL SCAN] already ingested for topic '{topic_key}' → skip ingest")
+        logger.info("[LOCAL SCAN] already ingested for topic '%s' → skip ingest", topic_key)
 
-    # 실제 ingest는 가드 통과시에만
     if dedup_globs and not skip_local_ingest:
         l_jsons, l_docs, l_chunks = ingest_local_files(
             dedup_globs,
@@ -554,36 +511,32 @@ def web_search_agent(state: State):
             web_page_json_to_documents=web_page_json_to_documents,
         )
         if l_docs:
-            print("[WEB SEARCH AGENT] ingest local refs:", dedup_globs)
+            logger.info("[WEB SEARCH AGENT] ingest local refs: %s", dedup_globs)
             json_paths.extend(l_jsons)
             new_docs_preview.extend(l_docs)
             chunk_total += int(l_chunks or 0)
-            # [ANCHOR: ROUND_URL_TALLY_LOCAL_JSONS]
             if int(l_chunks or 0) > 0:
                 for jp in (l_jsons or []):
                     _tally_new_urls_from_json(jp)
-            # 실행 질의 목록에 local:* 도장 (향후 중복 방지)
             for g in dedup_globs:
                 q = f"local:{g}"
                 lk = q.lower()
                 if lk not in _existing_qs:
                     queries.append(q)
                     _existing_qs.add(lk)
-            # ✅ 토픽당 1회 ingest 마킹 (TypedDict-safe)
             li[topic_key] = True
-            # (선택) VS agent 온디맨드 가드와도 일치
             state["local_ingested_once"] = True
         else:
-            print("[LOCAL RAG] no docs matched; skip adding local:* queries")
+            logger.info("[LOCAL RAG] no docs matched; skip adding local:* queries")
 
     # [ANCHOR: VECTOR_COUNT_AFTER_LOCAL_INGEST]
     try:
         if persist_dir:
-            print(f"[DEBUG] after local ingest, doc_count={vector_count(ns, persist_dir)}")
+            logger.debug("[DEBUG] after local ingest, doc_count=%s", vector_count(ns, persist_dir))
         else:
-            print("[DEBUG] after local ingest, doc_count skipped (persist_dir=None)")
+            logger.debug("[DEBUG] after local ingest, doc_count skipped (persist_dir=None)")
     except Exception as e:
-        print(f"[DEBUG] after local ingest, doc_count check failed: {e}")
+        logger.debug("[DEBUG] after local ingest, doc_count check failed: %s", e)
 
     # (선택) 로컬 프리뷰 키워드 필터
     allow_kw_env = os.getenv("LOCAL_RAG_ALLOW", "")
@@ -596,44 +549,33 @@ def web_search_agent(state: State):
         new_docs_preview[:] = [d for d in new_docs_preview if _relevant(d)]
         after = len(new_docs_preview)
         if before != after:
-            print(f"[LOCAL RAG] preview filtered by keywords: {before} → {after}")
+            logger.info("[LOCAL RAG] preview filtered by keywords: %s → %s", before, after)
 
     # --- (6) 상태 갱신 & 다음 단계 -------------------------------------------
     state["references"] = merge_refs(state.get("references"), queries, new_docs_preview)
 
     # [ANCHOR: ROUND_URL_TALLY_COMMIT]
-    # 라운드 신규 URL 개수 확정
-    # 1) 토픽 스코프 'seen' 커밋
     _seen_by_topic[topic_key] = list(_seen_sources)
-    flags["seen_sources_by_topic"] = _seen_by_topic  # 전체 flags에 반영
+    flags["seen_sources_by_topic"] = _seen_by_topic
 
-    # 🔎 커밋 직후 디버그 (여기에 추가)
-    print(f"[DEBUG] committed seen_sources_by_topic[{topic_key}] -> {len(_seen_sources)}")
+    logger.debug("[DEBUG] committed seen_sources_by_topic[%s] -> %s", topic_key, len(_seen_sources))
 
-    # 2) 실측/캡 분리 (캡은 '출력/호환' 전용)
     actual = int(_round_added_urls)
-    # 이미 상단에 읽은 MAX_INDEXED_PER_ROUND 재사용 (일관성)
     cap = int(MAX_INDEXED_PER_ROUND)
     capped = min(actual, cap) if cap > 0 else actual
 
-    # ✅ 정지판단/핵심 로직은 '실측' round_added_urls 기반
     state["round_added_urls"]     = actual
-
-    # ↔ 레거시/호환 키는 '캡' 적용값 유지 (기존 의미 보존)
     state["new_url_count"]        = actual
     state["new_url_count_round"]  = actual
     state["round_new_urls"]       = actual
 
-    # (선택) 디버그에 실측/캡 모두 남김
     flags.setdefault("debug", {})["last_capped_new_urls"] = capped
 
-    print(
-        f"[DEBUG] round_added_urls(actual) = {actual} | "
-        f"new_url_count(capped) = {capped} | chunk_total = {chunk_total} | "
-        f"queries_executed = {len(queries)}"
+    logger.debug(
+        "[DEBUG] round_added_urls(actual)=%s | new_url_count(capped)=%s | chunk_total=%s | queries_executed=%s",
+        actual, capped, chunk_total, len(queries)
     )
 
-    # 반환/다음 단계 전달용(호환키) — capped
     n = actual
 
     pending.done = True
@@ -645,21 +587,25 @@ def web_search_agent(state: State):
             desc += f" queries={queries}"
         if json_paths:
             desc += f" json_paths={json_paths}"
+        desc += f" new_urls={int(state.get('round_added_urls') or 0)}"
         tasks.append(Task(agent="vector_search_agent", done=False, description=desc, done_at=""))
 
     mode_label = "로컬 전용" if SKIP_WEB else "웹+로컬"
     messages.append(AIMessage(
-        f"[WEB SEARCH AGENT] 검색 완료({len(queries)}건). JSON 저장 및 Chroma 적재/프리뷰 완료. 모드={mode_label}"
-        + (f" (예: {json_paths[0]})" if json_paths else "")
+        content=f"[WEB SEARCH AGENT] 검색 완료({len(queries)}건). JSON 저장 및 Chroma 적재/프리뷰 완료. 모드={mode_label}"
+                + (f" (예: {json_paths[0]})" if json_paths else "")
     ))
 
     return {
         "messages": messages,
         "task_history": tasks,
-        "references": state["references"],
-        "new_url_count": n,             # = actual
-        "new_url_count_round": n,       # = actual
-        "round_new_urls": n,            # = actual
-        "round_added_urls": n,          # = actual# [ANCHOR: RETURN_ROUND_ADDED_URLS]
-        "flags": flags,         # ✅ 추가 — 라운드 사이에 seen_sources_by_topic 보존
+        "references": state.get("references", {"queries": [], "docs": []}),
+        "research_loop_active": bool(state.get("research_loop_active")),
+        "research_plan": state.get("research_plan"),
+        "new_url_count": int(state.get("new_url_count") or n),
+        "new_url_count_round": int(state.get("new_url_count_round") or n),
+        "round_new_urls": int(state.get("round_new_urls") or n),
+        "round_added_urls": int(state.get("round_added_urls") or n),
+        "flags": flags,
+        "local_ingested_once": bool(state.get("local_ingested_once")),
     }

@@ -1,7 +1,10 @@
 from __future__ import annotations
-import re, os
+import re, os, sys
 from typing import Any
 from utils.tasks import HumanMessage, AIMessage
+
+import logging
+logger = logging.getLogger(__name__)
 
 from core.config import DOC_MODE
 from core.paths import now_str as _now_str, current_path
@@ -10,7 +13,7 @@ from core.models import Task, AgentName
 from utils.sanitize import sanitize_state
 from rag_expression import is_outline_creation, is_outline_display
 from prompts import get_communicator_prompt
-from content_utils import read_outline
+from core.paths import read_outline
 
 from utils.tasks import has_pending
 from utils.outline import get_topic_outline_text
@@ -18,10 +21,15 @@ from utils.outline import get_topic_outline_text
 from core.llm import get_llm
 
 def communicator(state: State):
-    print("\n\n============ COMMUNICATOR ============")
-    llm=get_llm()
+    # truthy ENV helper (1/true/yes/on)
+    def _truthy_env(name: str) -> bool:
+        v = (os.getenv(name) or "").strip().lower()
+        return v in ("1", "true", "yes", "on")
+    ECHO_OUTLINE = _truthy_env("ECHO_OUTLINE")
+
+    logger.info("============ COMMUNICATOR ============")
+    llm = get_llm()
     state = sanitize_state(state)
-    # state = sanitize_numeric_state(state)
 
     messages = state.get("messages", [])
     tasks = state.get("task_history", [])
@@ -40,14 +48,12 @@ def communicator(state: State):
                 if isinstance(item, str):
                     parts.append(item)
                 elif isinstance(item, dict):
-                    # 흔한 키들 우선
                     for k in ("text", "content", "value", "message"):
                         v = item.get(k)
                         if isinstance(v, str):
                             parts.append(v)
                             break
                     else:
-                        # 텍스트가 없으면 안전하게 문자열화
                         parts.append(str(item))
                 else:
                     parts.append(str(item))
@@ -63,8 +69,8 @@ def communicator(state: State):
         )
         raw = last_planner.content if last_planner else "(리서치 플래너 메시지를 찾지 못했습니다.)"
         text = _as_text(raw)
-        print("\nAI\t:\n" + text)
-        messages.append(AIMessage(text))
+        messages.append(AIMessage(content=text))
+        logger.info("[Communicator] announce_planner delivered (%s chars)", len(text))
         if pending:
             pending.done = True
             pending.done_at = _now_str()
@@ -83,10 +89,9 @@ def communicator(state: State):
     if ("show_outline" in desc.lower()) or (last_human and is_outline_display(last_human.content)):
         show_outline_req = True
 
-    # 이미 outline을 보여준 상태이고, 이번에 명시적으로 요청되지 않았다면 재표시는 억제
     if state.get("outline_shown") and not show_outline_req:
-        # outline을 다시 보여주지 않고 일반 커뮤니케이션으로만 진행
-        pass
+        # 재표시 억제 (로그만)
+        logger.debug("[Communicator] outline already shown in this session; skipping re-display")
 
     if show_outline_req:
         preferred = state.get("outline_fname")
@@ -107,8 +112,8 @@ def communicator(state: State):
                 tasks.append(Task(agent="content_strategist", done=False, description=f"create_outline:{fname}", done_at=""))
 
             note = f"({fname}) 파일이 아직 없습니다. 지금 기본 목차를 생성하겠습니다."
-            print("\nAI\t:\n" + note)
-            messages.append(AIMessage(note))
+            messages.append(AIMessage(content=note))
+            logger.info("[Communicator] outline missing; scheduled content_strategist to create (%s)", fname)
             state["outline_shown"] = False
 
             if pending:
@@ -118,9 +123,25 @@ def communicator(state: State):
 
         title = f"## 현재 목차 ({used_path.name if used_path else fname})"
         content = f"{title}\n\n{outline_text}"
-        print("\nAI\t:\n" + content)
-        messages.append(AIMessage(content))
+        messages.append(AIMessage(content=content))
+        logger.info("[Communicator] outline displayed (%s, %s chars)", fname, len(outline_text or ""))
         state["outline_shown"] = True
+    
+        # (NEW) 콘솔 에코: 사람이 바로 읽을 수 있게 원문을 그대로 출력
+        #   - app.py에서 --echo-outline 플래그로 ENV ECHO_OUTLINE=1 설정됨
+        #   - JSON 로그만 켠 환경에서도 실제 본문이 보이도록 print 사용
+        if ECHO_OUTLINE:
+            try:
+                _hdr = f"\n============ OUTLINE ({used_path.name if used_path else fname}) ============"
+                _ftr = "=" * len(_hdr)
+                # stdout에 직접 쓰기 (JSON 포맷터 영향 최소화)
+                sys.stdout.write(_hdr + "\n\n")
+                sys.stdout.write((outline_text or "").rstrip() + "\n")
+                sys.stdout.write(_ftr + "\n")
+                sys.stdout.flush()
+            except Exception as e:
+                # 에코 실패는 치명 아님: 디버그로만 남김
+                logger.debug("outline echo failed: %s", e)
 
         followup = (
             "목차를 확인했습니다. 다음 중 어떻게 진행할까요?\n"
@@ -128,11 +149,7 @@ def communicator(state: State):
             "2) 목차 수정 → 바꿀 제목/순서를 말씀해 주세요\n"
             "3) 최신 자료 보강 → `최신 자료로 RAG 업데이트`\n"
         )
-        # 동일 세션에서 불필요한 반복 표시 방지용 힌트
-        # 다음 커뮤니케이터 호출에서 show_outline이 들어오지 않는 한, outline 재표시 생략
-        # (state["outline_shown"] 는 이미 True)
-        print("\nAI\t:\n" + followup)
-        messages.append(AIMessage(followup))
+        messages.append(AIMessage(content=followup))
 
         if pending:
             pending.done = True
@@ -155,8 +172,8 @@ def communicator(state: State):
         "topic_title": state.get("topic_title") or "",
     }):
         part_text = _as_text(getattr(chunk, "content", ""))
-        print(part_text, end="")
         parts.append(part_text)
+    text_buf = "".join(parts)
 
     def _dedupe_consecutive_lines(s: str) -> str:
         lines, out, prev = s.splitlines(), [], None
@@ -167,10 +184,9 @@ def communicator(state: State):
             prev = ln
         return "\n".join(out)
 
-    # 생성 후 후처리
-    text_buf = "".join(parts)
-    text_buf = _dedupe_consecutive_lines(text_buf)  # ← 추가
-    messages.append(AIMessage(text_buf))
+    text_buf = _dedupe_consecutive_lines(text_buf)
+    messages.append(AIMessage(content=text_buf))
+    logger.debug("[Communicator] generated reply (%s chars)", len(text_buf))
 
     # 마지막 저장 경로 힌트 부가
     try:
@@ -209,13 +225,10 @@ def communicator(state: State):
                     last_save_path = os.path.normpath(last_save_path)
                 except Exception:
                     pass
-                messages[-1] = AIMessage(base_text + f"\n\n최종 저장 경로: `{last_save_path}`" + (moved_note or ""))
+                messages[-1] = AIMessage(content=base_text + f"\n\n최종 저장 경로: `{last_save_path}`" + (moved_note or ""))
+                logger.debug("[Communicator] appended last_saved_path hint → %s", last_save_path)
     except Exception as e:
-        print(f"[WARN] last-save-path hint failed: {e}")
-    
-    #except Exception:
-    #    pass
-
+        logger.warning("[WARN] last-save-path hint failed: %s", e)
 
     if pending:
         pending.done = True

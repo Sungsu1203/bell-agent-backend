@@ -1,7 +1,7 @@
 {
   "messages": [
     {
-      "content": "너희 AI들은 사용자의 요구에 맞는 보고서을(를) 쓰는 작가팀이다. 사용자가 사용하는 언어로 대화하라. 현재시각은 2025-10-09 20:51:12이다.",
+      "content": "너희 AI들은 사용자의 요구에 맞는 보고서을(를) 쓰는 작가팀이다. 사용자가 사용하는 언어로 대화하라. 현재시각은 2025-10-12 20:05:08이다.",
       "additional_kwargs": {},
       "response_metadata": {},
       "type": "system",
@@ -9,7 +9,7 @@
       "id": null
     },
     {
-      "content": "새 보고서 작성: 한국 전기차 배터리 산업 2025",
+      "content": "새 보고서 작성: 한국 제약산업 전망",
       "additional_kwargs": {},
       "response_metadata": {},
       "type": "human",
@@ -18,7 +18,7 @@
       "example": false
     },
     {
-      "content": "[Supervisor] 새 주제 세션 시작: '한국 전기차 배터리 산업 2025' (ns=ns-b351c16947)",
+      "content": "[Supervisor] 새 주제 세션 시작: '한국 제약산업 전망' (ns=ns-1c5c1622b9)",
       "additional_kwargs": {},
       "response_metadata": {},
       "type": "ai",
@@ -42,7 +42,7 @@
       "usage_metadata": null
     },
     {
-      "content": "[WEB SEARCH AGENT] 검색 완료(2건). JSON 저장 및 Chroma 적재/프리뷰 완료. 모드=로컬 전용 (예: D:\\gpt_agent_2025_book\\chap14-6\\resources\\한국-전기차-배터리-산업-2025-20251009-2051\\local_2025_10_09_205135.json)",
+      "content": "[WEB SEARCH AGENT] 검색 완료(2건). JSON 저장 및 Chroma 적재/프리뷰 완료. 모드=웹+로컬 (예: D:\\GPT_AGENT_2025_BOOK\\chap14-6\\resources\\한국-제약산업-전망-20251012-2008\\resources_2025_10_12_200808_547554_e7301653.json)",
       "additional_kwargs": {},
       "response_metadata": {},
       "type": "ai",
@@ -54,7 +54,7 @@
       "usage_metadata": null
     },
     {
-      "content": "[VECTOR SEARCH AGENT] 검색 완료 (질의 4건, 예시): ['local:demo_data\\\\*.txt', 'local:demo_data\\\\*.md', '새 보고서 작성: 한국 전기차 배터리 산업 2025', '한국 전기차 배터리 산업 2025']",
+      "content": "[VECTOR SEARCH AGENT] 연구 라운드 진행 중 → 합성 단계(Research Synthesizer)로 이동",
       "additional_kwargs": {},
       "response_metadata": {},
       "type": "ai",
@@ -66,7 +66,7 @@
       "usage_metadata": null
     },
     {
-      "content": "[Content Strategist] 목차 작성 완료 → D:\\gpt_agent_2025_book\\chap14-6\\outlines\\한국-전기차-배터리-산업-2025-20251009-2051\\outline_report.md",
+      "content": "[Content Strategist] 목차 작성 완료 → D:\\GPT_AGENT_2025_BOOK\\chap14-6\\outlines\\한국-제약산업-전망-20251012-2008\\outline_report.md",
       "additional_kwargs": {},
       "response_metadata": {},
       "type": "ai",
@@ -102,7 +102,7 @@
       "usage_metadata": null
     },
     {
-      "content": "계속",
+      "content": "write: Executive Summary",
       "additional_kwargs": {},
       "response_metadata": {},
       "type": "human",
@@ -111,7 +111,7 @@
       "example": false
     },
     {
-      "content": "[SECTION WRITER] 'Executive Summary' 초안 저장 완료 → D:\\GPT_AGENT_2025_BOOK\\chap14-6\\sections\\한국-전기차-배터리-산업-2025-20251009-2051\\executive-summary.md",
+      "content": "[Supervisor] writer 예약이 생략되었습니다(조건 부적합 또는 중복).",
       "additional_kwargs": {},
       "response_metadata": {},
       "type": "ai",
@@ -123,7 +123,7 @@
       "usage_metadata": null
     },
     {
-      "content": "현재 보고서 작성 작업이 진행 중입니다. 'Executive Summary' 섹션의 초안이 완료되었습니다. 다음으로 어떤 섹션을 작성할지 선택하시거나, 추가적인 지시사항이 있으시면 알려주세요. \n\n1) 특정 섹션부터 바로 집필 → `write: 섹션명`\n2) 목차 수정 → 바꿀 제목/순서를 말씀해 주세요\n3) 최신 자료 보강 → `최신 자료로 RAG 업데이트`\n\n최종 저장 경로: `D:\\gpt_agent_2025_book\\chap14-6\\outlines\\한국-전기차-배터리-산업-2025-20251009-2051\\outline_report.md`",
+      "content": "[SECTION WRITER] 'Executive Summary' 초안 저장 완료 → D:\\GPT_AGENT_2025_BOOK\\chap14-6\\sections\\한국-제약산업-전망-20251012-2008\\executive-summary.md",
       "additional_kwargs": {},
       "response_metadata": {},
       "type": "ai",
@@ -135,73 +135,7 @@
       "usage_metadata": null
     },
     {
-      "content": "write: 시장 규모 전망",
-      "additional_kwargs": {},
-      "response_metadata": {},
-      "type": "human",
-      "name": null,
-      "id": null,
-      "example": false
-    },
-    {
-      "content": "[Supervisor fast-path] → section_writer (mode=report, write: 시장 규모 전망)",
-      "additional_kwargs": {},
-      "response_metadata": {},
-      "type": "ai",
-      "name": null,
-      "id": null,
-      "example": false,
-      "tool_calls": [],
-      "invalid_tool_calls": [],
-      "usage_metadata": null
-    },
-    {
-      "content": "[SECTION WRITER] '시장 규모 전망' 초안 저장 완료 → D:\\GPT_AGENT_2025_BOOK\\chap14-6\\sections\\한국-전기차-배터리-산업-2025-20251009-2051\\시장-규모-전망.md",
-      "additional_kwargs": {},
-      "response_metadata": {},
-      "type": "ai",
-      "name": null,
-      "id": null,
-      "example": false,
-      "tool_calls": [],
-      "invalid_tool_calls": [],
-      "usage_metadata": null
-    },
-    {
-      "content": "현재 보고서 작성 작업이 진행 중입니다. '시장 규모 전망' 섹션의 초안이 완료되었습니다. 다음으로 어떤 섹션을 작성할지 선택하시거나, 추가적인 지시사항이 있으시면 알려주세요.\n\n1) 특정 섹션부터 바로 집필 → `write: 섹션명`\n2) 목차 수정 → 바꿀 제목/순서를 말씀해 주세요\n3) 최신 자료 보강 → `최신 자료로 RAG 업데이트`\n\n최종 저장 경로: `D:\\gpt_agent_2025_book\\chap14-6\\outlines\\한국-전기차-배터리-산업-2025-20251009-2051\\outline_report.md`\n\n최종 저장 경로: `D:\\gpt_agent_2025_book\\chap14-6\\outlines\\한국-전기차-배터리-산업-2025-20251009-2051\\outline_report.md`",
-      "additional_kwargs": {},
-      "response_metadata": {},
-      "type": "ai",
-      "name": null,
-      "id": null,
-      "example": false,
-      "tool_calls": [],
-      "invalid_tool_calls": [],
-      "usage_metadata": null
-    },
-    {
-      "content": "한국 배터리 3사의 점유율은?",
-      "additional_kwargs": {},
-      "response_metadata": {},
-      "type": "human",
-      "name": null,
-      "id": null,
-      "example": false
-    },
-    {
-      "content": "[VECTOR SEARCH AGENT] 검색 완료 (질의 6건, 예시): ['local:demo_data\\\\*.txt', 'local:demo_data\\\\*.md', '새 보고서 작성: 한국 전기차 배터리 산업 2025', '한국 전기차 배터리 산업 2025', '한국 배터리 3사의 점유율은', '한국 배터리 3사의 점유율은?']",
-      "additional_kwargs": {},
-      "response_metadata": {},
-      "type": "ai",
-      "name": null,
-      "id": null,
-      "example": false,
-      "tool_calls": [],
-      "invalid_tool_calls": [],
-      "usage_metadata": null
-    },
-    {
-      "content": "현재 한국 배터리 3사의 시장 점유율에 대한 정보를 제공하겠습니다. 2025년 기준으로 한국의 주요 배터리 제조사인 LG에너지솔루션, 삼성SDI, SK이노베이션은 글로벌 전기차 배터리 시장에서 상당한 점유율을 차지하고 있습니다. \n\n1. **LG에너지솔루션**: LG에너지솔루션은 전 세계 전기차 배터리 시장에서 선두를 달리고 있으며, 다양한 글로벌 자동차 제조사와의 협력을 통해 시장 점유율을 지속적으로 확대하고 있습니다.\n\n2. **삼성SDI**: 삼성SDI는 고성능 배터리 기술을 바탕으로 시장에서의 입지를 강화하고 있으며, 특히 유럽 시장에서의 점유율이 증가하고 있습니다.\n\n3. **SK이노베이션**: SK이노베이션은 혁신적인 배터리 기술 개발과 생산 능력 확장을 통해 시장 점유율을 높이고 있으며, 특히 미국 시장에서의 성장이 두드러지고 있습니다.\n\n이들 3사는 기술 혁신과 글로벌 파트너십을 통해 전기차 배터리 시장에서의 경쟁력을 유지하고 있으며, 2025년에도 지속적인 성장이 예상됩니다. 보다 구체적인 수치와 분석은 보고서의 'Key Findings' 또는 'Analysis & Insights' 섹션에서 다룰 수 있습니다. 추가적인 정보가 필요하시면 말씀해 주세요.\n\n최종 저장 경로: `D:\\gpt_agent_2025_book\\chap14-6\\outlines\\한국-전기차-배터리-산업-2025-20251009-2051\\outline_report.md`",
+      "content": "현재 'Executive Summary' 섹션의 초안이 저장되었습니다. 다음으로 진행할 섹션을 선택하시거나, 다른 요청이 있으시면 말씀해 주세요. \n\n1) 특정 섹션부터 바로 집필 → `write: 섹션명`\n2) 목차 수정 → 바꿀 제목/순서를 말씀해 주세요\n3) 최신 자료 보강 → `최신 자료로 RAG 업데이트`\n\n최종 저장 경로: `D:\\GPT_AGENT_2025_BOOK\\chap14-6\\outlines\\한국-제약산업-전망-20251012-2008\\outline_report.md`",
       "additional_kwargs": {},
       "response_metadata": {},
       "type": "ai",
@@ -218,167 +152,223 @@
       "agent": "content_strategist",
       "done": true,
       "description": "create_outline:outline_report.md",
-      "done_at": "2025-10-09 20:51:45"
+      "done_at": "2025-10-12 20:08:28"
     },
     {
       "agent": "web_search_agent",
       "done": true,
       "description": "rag_update:auto",
-      "done_at": "2025-10-09 20:51:37"
+      "done_at": "2025-10-12 20:08:16"
     },
     {
       "agent": "vector_search_agent",
       "done": true,
-      "description": "RAG 인덱싱을 위한 벡터 검색/검증을 수행한다. queries=['local:demo_data\\\\*.txt', 'local:demo_data\\\\*.md'] json_paths=['D:\\\\gpt_agent_2025_book\\\\chap14-6\\\\resources\\\\한국-전기차-배터리-산업-2025-20251009-2051\\\\local_2025_10_09_205135.json']",
-      "done_at": "2025-10-09 20:51:43"
+      "description": "RAG 인덱싱을 위한 벡터 검색/검증을 수행한다. queries=['한국 제약산업 정책 2025 (site:go.kr OR site:re.kr OR site:iea.org OR site:oecd.org OR site:kdi.re.kr) -site:facebook.com -site:instagram.com -site:myfair.co -event -exhibition -tickets -행사 -티켓', '한국 제약산업 시장 규모 2025 (site:go.kr OR site:re.kr OR site:iea.org OR site:oecd.org OR site:kdi.re.kr) -site:facebook.com -site:instagram.com -site:myfair.co -event -exhibition -tickets -행사 -티켓'] json_paths=['D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-6\\\\resources\\\\한국-제약산업-전망-20251012-2008\\\\resources_2025_10_12_200808_547554_e7301653.json', 'D:\\\\GPT_AGENT_2025_BOOK\\\\chap14-6\\\\resources\\\\한국-제약산업-전망-20251012-2008\\\\resources_2025_10_12_200815_133540_fbd91c04.json'] new_urls=14",
+      "done_at": "2025-10-12 20:08:23"
     },
     {
-      "agent": "section_writer",
-      "done": true,
-      "description": "write: Executive Summary",
-      "done_at": "2025-10-09 20:52:47"
+      "agent": "research_synthesizer",
+      "done": false,
+      "description": "synthesize:auto",
+      "done_at": ""
     },
     {
       "agent": "communicator",
       "done": true,
       "description": "show_outline:outline_report.md",
-      "done_at": "2025-10-09 20:51:45"
+      "done_at": "2025-10-12 20:08:28"
     },
     {
       "agent": "communicator",
       "done": true,
       "description": "목차 확인 후 다음 집필 대상/수정 요청 파악",
-      "done_at": "2025-10-09 20:52:49"
-    },
-    {
-      "agent": "section_writer",
-      "done": true,
-      "description": "write: 시장 규모 전망",
-      "done_at": "2025-10-09 20:53:41"
-    },
-    {
-      "agent": "communicator",
-      "done": true,
-      "description": "'시장 규모 전망' 초안 완료 보고 및 다음 섹션/수정 범위 확인",
-      "done_at": "2025-10-09 20:53:42"
-    },
-    {
-      "agent": "vector_search_agent",
-      "done": true,
-      "description": "사용자 질의 기반 RAG 검색을 수행한다.",
-      "done_at": "2025-10-09 20:54:15"
-    },
-    {
-      "agent": "section_writer",
-      "done": false,
-      "description": "write: 시장 규모 전망",
-      "done_at": ""
+      "done_at": "2025-10-12 20:09:24"
     }
   ],
   "references": {
     "queries": [
-      "local:demo_data\\*.txt",
-      "local:demo_data\\*.md",
-      "새 보고서 작성: 한국 전기차 배터리 산업 2025",
-      "한국 전기차 배터리 산업 2025",
-      "한국 배터리 3사의 점유율은",
-      "한국 배터리 3사의 점유율은?"
+      "한국 제약산업 정책 2025 (site:go.kr OR site:re.kr OR site:iea.org OR site:oecd.org OR site:kdi.re.kr) -site:facebook.com -site:instagram.com -site:myfair.co -event -exhibition -tickets -행사 -티켓",
+      "한국 제약산업 시장 규모 2025 (site:go.kr OR site:re.kr OR site:iea.org OR site:oecd.org OR site:kdi.re.kr) -site:facebook.com -site:instagram.com -site:myfair.co -event -exhibition -tickets -행사 -티켓",
+      "새 보고서 작성: 한국 제약산업 전망",
+      "한국 제약산업 정책 2025",
+      "한국 제약산업 시장 규모 2025"
     ],
     "docs": [
       {
         "id": null,
         "metadata": {
-          "title": "energy_policy.txt",
-          "source": "file:///D:/GPT_AGENT_2025_BOOK/chap14-6/demo_data/energy_policy.txt__v_1759884413_134"
+          "source": "https://www.mohw.go.kr/board.es?mid=a10409020000&bid=0026&act=view&list_no=1486634"
         },
-        "page_content": "﻿태양광 보조금은 2024년 기준 kW당 75만원까지 지원됩니다.\n설치 건수는 2023년에 12,345건이었습니다.\n",
+        "page_content": "<!DOCTYPE html>\n\n\r\r\r\r\r\r\r\n\n<html lang=\"ko\">\n<head>\n    <script>\n       if(document.location.protocol == 'http:'){\n            document.location.href = document.location.href.replace('http:','https:');\n        }\n        var newUrl = window.location.href;\n        if(newUrl.indexOf(\"www\")==-1){\n            window.location.href = newUrl.replace('//', '//www.');\n        }\n    </script>\n    <meta charset=\"UTF-8\">\n    \n    <meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\">\n    \n        <meta name=\"vi",
         "type": "Document"
       },
       {
         "id": null,
         "metadata": {
-          "title": "kr_ev_battery_market_2025_basics.md",
-          "source": "file:///D:/GPT_AGENT_2025_BOOK/chap14-6/demo_data/kr_ev_battery_market_2025_basics.md__v_1759618785_841"
+          "source": "https://www.kistep.re.kr/gpsNewsForeignView.es?mid=a30301000000&list_no=51199"
         },
-        "page_content": "# 한국 전기차 배터리 시장 규모 전망 (2025 기본 가정)\n\n## 범위\n- 대상: 한국 전기차 배터리 산업 (셀/모듈/팩, 소재 일부)\n- 시점: 2024~2026 (핵심: 2025)\n\n## 시장 규모(샘플 가정치)\n- 2024: 68조원 (± 샘플)\n- 2025: 78조원 (± 샘플) — *시장 규모 전망* 키워드 포함\n- 2026: 86조원 (± 샘플)\n\n## 가정\n- 글로벌 EV 판매 성장 둔화에도 한국 3사(예: 샘플기업A/B/C) 수주 잔고는 2025까지 견조\n- NCM 고에너지밀도 제품과 LFP 저원가 제품의 **투트랙** 공존\n- IRA, EU 규제 대응에 따른 북미/유럽 **현지화(2024~2026)**\n\n## 시사점(샘플)\n- 2025년 *CAGR 15% 내외* 가정 시, **설비 가동률**과 **수율**이 수익성 좌우\n- 장기계약 중심의 양극/음극/전해질 소재 **원가 안정화**가 관건\n",
+        "page_content": "<!DOCTYPE html>\r\n\r\n\r\n\r\n\r\n\r\r\r\r\r\r\n\r\n\r\n\r\n\r\n<html lang=\"ko\">\r\n<head>\r\n<!-- Google Tag Manager -->\r\n<script>\r\n//<![CDATA[\r\n(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':\r\n\tnew Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],\r\n\tj=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=\r\n\t'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);\r\n\t})(window,document,'script','dataLayer','GTM-TWSDPHB');\r\n//]]>\r\n</script>\r\n<!-- End Goog",
         "type": "Document"
       },
       {
         "id": null,
         "metadata": {
-          "title": "kr_ev_battery_policy_notes_2024_2025.md",
-          "source": "file:///D:/GPT_AGENT_2025_BOOK/chap14-6/demo_data/kr_ev_battery_policy_notes_2024_2025.md__v_1759547496_626"
+          "source": "https://khiss.go.kr/board?menuId=MENU00305"
         },
-        "page_content": "# 정책 노트 (2024~2025) — 로컬 RAG 샘플\n\n## 국내·외 정책 이슈 키워드\n- IRA 최종 가이던스(샘플 레퍼런스) / 북미 현지화 인센티브\n- EU 공급망 리스크 관리, 역내 생산 촉진\n- 한국형 세액공제(샘플), R&D 지원 확대 (2024, 2025)\n\n## 규제/표준 동향(샘플)\n- 배터리 여권(Passport) 논의와 **재활용/순환경제** 요구 강화\n- 안전/품질 표준 고도화 (UN 38.3 등)\n\n## 함의(샘플)\n- 소재 국산화율 제고, **공급망 가시성** 강화 필요\n- 2025년까지 **현지화 투자 일정**과 **수주 포트폴리오** 정합성 점검\n",
+        "page_content": "바이오헬스산업 브리프 ; 457, 글로벌 바이오헬스 R&D 정책 10대 이슈, 2025-09-02 ; 456, 근감소증 치료의 새로운 접근: 운동 유도 약물 치료, 2025-08-25 ; 455, 에미리트 ...",
         "type": "Document"
       },
       {
         "id": null,
         "metadata": {
-          "title": "memo.md",
-          "source": "file:///D:/GPT_AGENT_2025_BOOK/chap14-6/demo_data/memo.md__v_1759884414_91"
+          "source": "https://www.mfds.go.kr/brd/m_487/list.do?page=1&srchFr=&srchTo=&srchWord=&srchTp=&itm_seq_1=0&itm_seq_2=0&multi_itm_seq=0&company_cd=&company_nm="
         },
-        "page_content": "﻿# 재생에너지 메모\n- 보조금 단가 변동성 큼\n- 2030 목표: 보급률 21%\n",
+        "page_content": "2025년도 의약품 안전 및 제약산업 발전 유공 포상후보자 공개검증. 담당부서 | 의약품정책과. 조회수 | 114. 의약품 안전 및 제약산업 발전 유공 포상 후보자 공개검증안.",
         "type": "Document"
       },
       {
         "id": null,
         "metadata": {
-          "title": "전기차-배터리-시장-규모-전망.md",
-          "source": "file:///D:/GPT_AGENT_2025_BOOK/chap14-6/demo_data/%EC%A0%84%EA%B8%B0%EC%B0%A8-%EB%B0%B0%ED%84%B0%EB%A6%AC-%EC%8B%9C%EC%9E%A5-%EA%B7%9C%EB%AA%A8-%EC%A0%84%EB%A7%9D.md__v_1759544510_5116"
+          "source": "https://www.khiss.go.kr/board/view?menuId=MENU00309&linkId=176369"
         },
-        "page_content": "# 시장 규모 전망\n\n## 배경\n\n2025년 현재, 한국 전기차 배터리 산업은 글로벌 시장에서 중요한 역할을 하고 있습니다.[^1] 한국은 주요 배터리 제조업체들이 위치한 국가로, 전기차 배터리 시장의 중심에 서 있습니다. 이러한 배경에는 정부의 적극적인 정책 지원과 기업들의 기술 혁신이 자리 잡고 있습니다. 한국의 배터리 산업은 전 세계 전기차 수요 증가와 함께 빠르게 성장하고 있으며, 이는 시장 규모의 확대를 의미합니다. \n\n## 핵심 요점\n\n- **시장 성장률**: 2025년까지 한국 전기차 배터리 시장은 연평균 성장률(CAGR) 15% 이상을 기록할 것으로 예상됩니다.[^2] \n- **글로벌 시장 점유율**: 한국 기업들은 글로벌 전기차 배터리 시장에서 약 35%의 점유율을 차지하고 있으며, 이는 지속적으로 증가할 전망입니다.[^3] \n- **주요 기업**: LG에너지솔루션, 삼성 SDI, SK이노베이션 등 주요 기업들이 시장을 주도하고 있습니다. \n- **기술 발전**: 고밀도 배터리 및 전고체 배터리 기술의 발전이 시장 성장을 견인하고 있습니다. \n\n## 근거 (데이터·사례)\n\n1.[^4] **시장 성장률**: 국제에너지기구(IEA)에 따르면, 2025년까지 한국의 배터리 시장은 연평균 15% 이상의 성장률을 기록할 것으로 예상됩니다.[^5] 이는 전기차 수요 증가와 맞물려 배터리 수요가 급증하고 있기 때문입니다 [IEA]. \n2. **글로벌 시장 점유율**: 2025년 기준, 한국 기업들은 유럽 배터리 셀 제조 능력의 75%를 차지하고 있으며, 이 중 LG에너지솔루션이 약 50%를 점유하고 있습니다[^6] [G-News]. \n3. **기술 발전**: 한국의 주요 배터리 제조업체들은 고밀도 배터리와 전고체 배터리 기술 개발에 집중하고 있습니다. 이러한 기술 혁신은 배터리의 효율성과 안전성을 높여 시장 경쟁력을 강화하고 있습니다 [WertCorp]. \n\n## 시사점\n\n한국 전기차 배터리 시장의 성장은 글로벌 전기차 수요 증가와 밀접한 관련이 있습니다. 한국 기업들은 기술 혁신을 통해 시장 점유율을 확대하고 있으며, 이는 글로벌 시장에서의 경쟁력을 강화하고 있습니다. 또한, 정부의 정책 지원은 이러한 성장을 뒷받침하고 있으며, 지속 가능한 배터리 기술 개발은 환경적 측면에서도 긍정적인 영향을 미칠 것입니다. \n\n## Actionable Recommendations\n\n1. **기술 투자 강화**: 차세대 배터리 기술에 대한 연구개발 투자를 확대하여 기술적 우위를 확보해야 합니다. \n2. **글로벌 시장 진출**: 해외 시장 진출 전략을 수립하고 현지화 전략을 강화하여 글로벌 시장 점유율을 확대해야 합니다. \n3. **지속 가능성 강화**: 배터리 재활용 및 친환경 소재 사용을 확대하여 지속 가능한 산업 생태계를 구축해야 합니다. \n4. **정책 협력 강화**: 정부와의 협력을 통해 정책 지원을 극대화하고, 산업 발전을 위한 제도적 기반을 강화해야 합니다. \n5. **공급망 안정화**: 원자재 공급망의 안정성을 확보하기 위한 전략을 수립하여 리스크를 최소화해야 합니다.\n\n[^1]: https://www.wertcorp.com/kr/resources/view?pkResources=204\n[^2]: https://www.g-enews.com/article/Global-Biz/2025/09/202509140826283099fbbec65dfb_1\n[^3]: https://tickgo.kr/subEvent/134\n[^4]: https://eiec.kdi.re.kr/policy/domesticView.do?ac=0000190998\n[^5]: https://www.facebook.com/gsckr/posts/2025-%EB%B0%B0%ED%84%B0%EB%A6%AC-%EA%B8%B0%EC%88%A0-%ED%98%81%EC%8B%A0-2025%EB%85%84-%EB%B0%B0%ED%84%B0%EB%A6%AC-%EA%B8%B0%EC%88%A0%EC%9D%B4-%EB%8C%80%ED%8F%AD-%ED%98%81%EC%8B%A0%EC%9D%84-%EC%9D%B4%EB%A3%A8%EA%B3%A0-%EC%9E%88%EC%8A%B5%EB%8B%88%EB%8B%A4%EB%8B%A4%EC%96%91%ED%95%9C-%EA%B5%AD%EB%82%B4-%EA%B8%B0%EC%97%85%EA%B3%BC-%EC%97%B0%EA%B5%AC%EC%A7%84%EB%93%A4%EC%9D%B4-%EA%B0%81%EA%B8%B0-%EB%8B%A4%EB%A5%B8-%EB%B0%A9%EC%8B%9D%EC%9C%BC%EB%A1%9C-%EC%8B%9C%EC%9E%A5%EC%9D%84-%EC%84%A0%EB%8F%84%ED%95%98%EA%B3%A0/648898834784969/\n[^6]: https://www.sneresearch.com/\n\n## 참고 자료\n- https://www.wertcorp.com/kr/resources/view?pkResources=204\n- https://www.g-enews.com/article/Global-Biz/2025/09/202509140826283099fbbec65dfb_1\n- https://tickgo.kr/subEvent/134\n- https://eiec.kdi.re.kr/policy/domesticView.do?ac=0000190998\n- https://www.facebook.com/gsckr/posts/2025-%EB%B0%B0%ED%84%B0%EB%A6%AC-%EA%B8%B0%EC%88%A0-%ED%98%81%EC%8B%A0-2025%EB%85%84-%EB%B0%B0%ED%84%B0%EB%A6%AC-%EA%B8%B0%EC%88%A0%EC%9D%B4-%EB%8C%80%ED%8F%AD-%ED%98%81%EC%8B%A0%EC%9D%84-%EC%9D%B4%EB%A3%A8%EA%B3%A0-%EC%9E%88%EC%8A%B5%EB%8B%88%EB%8B%A4%EB%8B%A4%EC%96%91%ED%95%9C-%EA%B5%AD%EB%82%B4-%EA%B8%B0%EC%97%85%EA%B3%BC-%EC%97%B0%EA%B5%AC%EC%A7%84%EB%93%A4%EC%9D%B4-%EA%B0%81%EA%B8%B0-%EB%8B%A4%EB%A5%B8-%EB%B0%A9%EC%8B%9D%EC%9C%BC%EB%A1%9C-%EC%8B%9C%EC%9E%A5%EC%9D%84-%EC%84%A0%EB%8F%84%ED%95%98%EA%B3%A0/648898834784969/\n- https://www.sneresearch.com/\n",
+        "page_content": "2025 글로벌 바이오헬스산업 시장규모(2019~2030). 작성자: 관리자; 카테고리: 한국보건산업진흥원; 작성일: 2025-04-25; 조회수: 3,420. 한국보건산업진흥원에서 발간한 ' ...",
         "type": "Document"
       },
       {
-        "id": "5903a831623e47a03597b536eca6bba107dc4e96-000002",
+        "id": null,
         "metadata": {
-          "title": "전기차-배터리-시장-규모-전망.md",
-          "source": "file:///D:/GPT_AGENT_2025_BOOK/chap14-6/demo_data/%EC%A0%84%EA%B8%B0%EC%B0%A8-%EB%B0%B0%ED%84%B0%EB%A6%AC-%EC%8B%9C%EC%9E%A5-%EA%B7%9C%EB%AA%A8-%EC%A0%84%EB%A7%9D.md__v_1759544510_5116"
+          "source": "https://khiss.go.kr/board?menuId=MENU00305"
         },
-        "page_content": "## 참고 자료\n- https://www.wertcorp.com/kr/resources/view?pkResources=204\n- https://www.g-enews.com/article/Global-Biz/2025/09/202509140826283099fbbec65dfb_1\n- https://tickgo.kr/subEvent/134\n- https://eiec.kdi.re.kr/policy/domesticView.do?ac=0000190998\n- https://www.facebook.com/gsckr/posts/2025-%EB%B0%B0%ED%84%B0%EB%A6%AC-%EA%B8%B0%EC%88%A0-%ED%98%81%EC%8B%A0-2025%EB%85%84-%EB%B0%B0%ED%84%B0%EB%A6%AC-%EA%B8%B0%EC%88%A0%EC%9D%B4-%EB%8C%80%ED%8F%AD-%ED%98%81%EC%8B%A0%EC%9D%84-%EC%9D%B4%EB%A3%A8%EA%B3%A0-%EC%9E%88%EC%8A%B5%EB%8B%88%EB%8B%A4%EB%8B%A4%EC%96%91%ED%95%9C-%EA%B5%AD%EB%82%B4-%EA%B8%B0%EC%97%85%EA%B3%BC-%EC%97%B0%EA%B5%AC%EC%A7%84%EB%93%A4%EC%9D%B4-%EA%B0%81%EA%B8%B0-%EB%8B%A4%EB%A5%B8-%EB%B0%A9%EC%8B%9D%EC%9C%BC%EB%A1%9C-%EC%8B%9C%EC%9E%A5%EC%9D%84-%EC%84%A0%EB%8F%84%ED%95%98%EA%B3%A0/648898834784969/\n- https://www.sneresearch.com/",
+        "page_content": "2025-06-30, 831, 첨부파일. 451, 한국 제약바이오산업의 유럽 진출을 위한 유럽시장 및 바이오클러스터 현황 분석, 2025-06-19, 1,016, 첨부파일. 450, 의료기기 임상시험 ...",
+        "type": "Document"
+      },
+      {
+        "id": null,
+        "metadata": {
+          "source": "https://khiss.go.kr/geo?menuId=MENU00323"
+        },
+        "page_content": "- 주: 1) 순위는 2025년 예측치 기준임 2) 보건산업은 제약, 의료기기, 화장품 ... 기준 - 자료: 한국보건산업진흥원, 해외DB(Fitchsolutions, Euromonitor) 재가공.",
+        "type": "Document"
+      },
+      {
+        "id": null,
+        "metadata": {
+          "source": "https://www.kiet.re.kr/upload/medata/910/77B27F1A84_1748313627523_910.pdf"
+        },
+        "page_content": "자료: 통계청 서비스업동향조사. 자료: 한국은행. ○ 설비투자는 반도체를 중심으로 한 IT 경기 회복과 수출 호조 등에 힘입어 전년 ...",
+        "type": "Document"
+      },
+      {
+        "id": null,
+        "metadata": {
+          "source": "https://www.katech.re.kr/download/b6725834-149a-4cc6-96d6-6a2f02912c14;jsessionid=5B8A8EF93AA39CD729E29C595EFA6387"
+        },
+        "page_content": "2024. 12. 23. ... 글로벌 완성차 시장은 최근 'COVID-19 영향으로부터 회복'이라는 공통적인 모멘텀이 약화되고. 있으며, 2025년 각 시장은 거시경제 등의 영향에 따라 ...",
+        "type": "Document"
+      },
+      {
+        "id": null,
+        "metadata": {
+          "title": "해외단신 | 단신동향 : S&T GPS",
+          "source": "https://www.kistep.re.kr/gpsNewsForeignView.es?mid=a30301000000&list_no=51199"
+        },
+        "page_content": "<input type=\"hidden\" id=\"data02\" name=\"data02\" value=\"\" />\r\n\t<input type=\"hidden\" id=\"keyField\" name=\"keyField\" value=\"\" />\r\n\t<input type=\"hidden\" id=\"keyWord\" name=\"keyWord\" value=\"\" />\r\n\t<input type=\"hidden\" id=\"b_list\" name=\"b_list\" value=\"1\" />\r\n</form>\r\n\r\n<article class=\"board_view\">\r\n\t<h2 class=\"title\">\r\n\t\t제약협회 산업비전 2035 및 정책제안 2025\r\n\t\t\r\n\t\t<a href='https://www.jpma.or.jp/news_room/release/2025/250226_vision.html' target=\"_blank\" rel=\"noopener noreferrer\" title=\"새창으로 열림\" class=\"btn_type04 original_see\">원문보기 1 <i class=\"xi-arrow-right\"></i></a>\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t</h2>\r\n\t<ul class=\"info\">\r\n\t\t<li class=\"cate\">\r\n\t\t<strong>국가</strong>\r\n\t\t<span>\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t<span>일본</span>\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t</span>\r\n\t\t</li>\r\n\t\t<li class=\"cate\">\r\n\t\t<strong>생성기관</strong>\r\n\t\t<span>일본제약공업협회</span>\r\n\t\t</li>\r\n\t\t<li class=\"cate\">\r\n\t\t<strong>주제분류</strong>\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t<span>핵심R&D분야</span>\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t\r\n\t\t</li>\r\n\t\t<li class=\"date\">\r\n\t\t<strong>원문발표일</strong>\r\n\t\t<span>2025-02-26</span>\r\n\t\t</li>\r\n\t\t<li class=\"date\">\r\n\t\t<strong>등록일</strong>\r\n\t\t<span>2025-03-07</span>\r\n\t\t</li>\r\n\t\t<li class=\"hit\">\r\n\t\t<strong>권호</strong>\r\n\t\t<span>282</span>\r\n\t\t</li>\r\n\t</ul>\r\n\t\r\n\t\r\n\r\n\t<div class=\"contents gps_bbsView\">",
+        "type": "Document"
+      },
+      {
+        "id": null,
+        "metadata": {
+          "source": "https://www.kiet.re.kr/upload/ecolook/53/78523D6DDD_1751869358963_53.PDF",
+          "title": "2 0 2 5년 하 반 기 경 제 · 산 업 전 망"
+        },
+        "page_content": "2025. 5. 27. ... 50 2025년 하반기 경제ㆍ산업 전망: 13대 주력산업편 ... ○ 최근 중국 배터리 기업의 세계 시장 점유율 상승이 한국 이차전지산업의 위기 요인으로.",
+        "type": "Document"
+      },
+      {
+        "id": null,
+        "metadata": {
+          "title": "제목 기계기술정책 No.118. 기계산업 2024년 성과와 2025년 전망",
+          "source": "https://www.kimm.re.kr/pr_policy/view/id/108"
+        },
+        "page_content": "2025. 2. 27. ... ... 시장 변동성 등의 제약요인 상존으로 2025년 경제 성장은 소폭 성장 전망 ○ (국내) 2025년 주력산업의 수출은 글로벌 수요의 점진적 회복이 기대되어 ...",
+        "type": "Document"
+      },
+      {
+        "id": null,
+        "metadata": {
+          "source": "https://www.mohw.go.kr/board.es?mid=a10409020000&bid=0026&act=view&list_no=1486634",
+          "title": "「혁신형 제약기업 인증현황 고시」일부개정 < 훈령/예규/고시/지침 ..."
+        },
+        "page_content": "<p class=\"1\" style=\"line-height: 140%; text-align: justify;\">&nbsp;</p>\r\n<p class=\"1\" style=\"text-align: justify;\"><span lang=\"EN-US\" style=\"font-family: 휴먼명조;\"></span><span style=\"font-family: 한양신명조; letter-spacing: 0pt;\">「</span><span style=\"font-family: 휴먼명조;\">제약산업 육성 및 지원에 관한 특별법</span><span style=\"font-family: 한양신명조; letter-spacing: 0pt;\">」</span><span lang=\"EN-US\" style=\"font-family: 휴먼명조;\"> </span><span style=\"font-family: 휴먼명조;\">제</span><span lang=\"EN-US\" style=\"font-family: 'HCI Poppy'; letter-spacing: 0pt;\">7</span><span style=\"font-family: 휴먼명조;\">조제</span><span lang=\"EN-US\" style=\"font-family: 'HCI Poppy'; letter-spacing: 0pt;\">3</span><span style=\"font-family: 휴먼명조;\">항 및 같은 법 </span><span style=\"font-family: 휴먼명조;\">시행규칙 </span><span style=\"font-family: 휴먼명조;\">제</span><span lang=\"EN-US\" style=\"font-family: 'HCI Poppy'; letter-spacing: 0pt;\">3</span><span style=\"font-family: 휴먼명조;\">조제</span><span lang=\"EN-US\" style=\"font-family: 'HCI Poppy'; letter-spacing: 0pt;\">4</span><span style=\"font-family: 휴먼명조;\">항에 의한 </span><span style=\"font-family: 한양신명조; letter-spacing: 0pt;\">「</span><span style=\"font-family: 휴먼명조;\">혁신형 제약기업 인증현황 고시</span><span style=\"font-family: 한양신명조; letter-spacing: 0pt;\">」</span><span lang=\"EN-US\" style=\"font-family: 'HCI Poppy'; letter-spacing: 0pt;\">(</span><span style=\"font-family: 휴먼명조;\">보건복지부 고시 제</span><span lang=\"EN-US\" style=\"font-family: 'HCI Poppy'; letter-spacing: 0pt;\">2024-274</span><span style=\"font-family: 휴먼명조;\">호</span><span lang=\"EN-US\" style=\"font-family: 'HCI Poppy'; letter-spacing: 0pt;\">, </span><span lang=\"EN-US\" style=\"font-family: 'HCI Poppy'; letter-spacing: -0.4pt;\">2024. 12. 27.) </span><span style=\"font-family: 휴먼명조;\">를 다음과 같이 개정ㆍ발령합니다</span><span lang=\"EN-US\" style=\"font-family: 'HCI Poppy'; letter-spacing: 0pt;\">.</span></p>\r\n<p class=\"1\" style=\"line-height: 140%; text-align: justify;\">&nbsp;</p>",
+        "type": "Document"
+      },
+      {
+        "id": null,
+        "metadata": {
+          "title": "혁신형 제약기업 24개사, 2027년까지 인증연장 결정 < 전체 < 보도 ...",
+          "source": "https://www.mohw.go.kr/board.es?mid=a10503010100&bid=0027&act=view&list_no=1482011&tag=&nPage=1"
+        },
+        "page_content": "2024. 6. 20. ... 보건복지부는 제약산업 육성 및 지원에 관한 특별법에 따라 2012년부터 연구개발 투자 비중이 일정 수준* 이상이고 신약 연구개발 실적이 우수한 기업들을 ...",
+        "type": "Document"
+      },
+      {
+        "id": null,
+        "metadata": {
+          "source": "https://eiec.kdi.re.kr/policy/domesticView.do?ac=0000191090&country=2",
+          "title": "2025년 수출전망 및 지역별 시장여건 | 국내연구자료 | KDI 경제교육 ..."
+        },
+        "page_content": "2025. 1. 2. ... ... 산업 투자 확대로 對중·아세안 시장 수출 기회 확대 전망 (품목별) AI·반도체 관련 고부가품목과 무선통신기기, 선박·바이오헬스 및 K-컨텐츠 기반의 ...",
         "type": "Document"
       }
     ]
   },
-  "last_saved_path": "D:\\GPT_AGENT_2025_BOOK\\chap14-6\\sections\\한국-전기차-배터리-산업-2025-20251009-2051\\시장-규모-전망.md",
-  "topic_title": "한국 전기차 배터리 산업 2025",
-  "topic_slug": "한국-전기차-배터리-산업-2025-20251009-2051",
-  "chroma_ns": "ns-b351c16947",
-  "outline_fname": "outline_report.md",
-  "outline_shown": false,
-  "agent_role": "# 'research analyst'면 라운드형 연구 모드",
-  "iteration_count": 0,
-  "research_round": 0,
+  "agent_role": "research analyst",
+  "iteration_count": 3,
   "research_objectives": [],
+  "research_round": 0,
+  "research_loop_active": true,
   "findings_md": [],
   "llm_logs": [],
-  "new_url_count": 5,
-  "new_url_count_round": 5,
-  "round_new_urls": 5,
-  "round_added_urls": 5,
+  "new_url_count": 14,
+  "topic_slug": "한국-제약산업-전망-20251012-2008",
+  "outline_fname": "outline_report.md",
+  "outline_shown": false,
   "facts_ctx": "",
   "research_plan": {
     "round": 0,
     "objective": "",
     "queries": [],
-    "timestamp": "2025-10-09 20:51:12"
+    "timestamp": "2025-10-12 20:05:08"
   },
   "flags": {
     "seen_sources_by_topic": {
-      "한국-전기차-배터리-산업-2025-20251009-2051": [
-        "file:///d:/gpt_agent_2025_book/chap14-6/demo_data/kr_ev_battery_policy_notes_2024_2025.md",
-        "file:///d:/gpt_agent_2025_book/chap14-6/demo_data/energy_policy.txt",
-        "file:///d:/gpt_agent_2025_book/chap14-6/demo_data/memo.md",
-        "file:///d:/gpt_agent_2025_book/chap14-6/demo_data/kr_ev_battery_market_2025_basics.md",
-        "file:///d:/gpt_agent_2025_book/chap14-6/demo_data/%ec%a0%84%ea%b8%b0%ec%b0%a8-%eb%b0%b0%ed%84%b0%eb%a6%ac-%ec%8b%9c%ec%9e%a5-%ea%b7%9c%eb%aa%a8-%ec%a0%84%eb%a7%9d.md"
+      "한국-제약산업-전망-20251012-2008": [
+        "khiss.go.kr/geo",
+        "eiec.kdi.re.kr/policy/domesticView.do",
+        "kistep.re.kr/gps",
+        "kistep.re.kr/gpsNewsForeignView.es",
+        "kiet.re.kr/upload/medata/910/77B27F1A84_1748313627523_910.pdf",
+        "mohw.go.kr/board.es",
+        "kiet.re.kr/upload/medata/875/963516CE24_1732511711532_875.pdf",
+        "mfds.go.kr/brd/m_487/list.do",
+        "katech.re.kr/download/b6725834-149a-4cc6-96d6-6a2f02912c14",
+        "kiet.re.kr/upload/ecolook/53/78523D6DDD_1751869358963_53.PDF",
+        "library.kiet.re.kr/collections/quration",
+        "khiss.go.kr/board",
+        "kimm.re.kr/pr_policy/view/id/108",
+        "khiss.go.kr/board/view"
       ]
     },
-    "local_ingested": {
-      "한국-전기차-배터리-산업-2025-20251009-2051": true
-    },
+    "local_ingested": {},
     "debug": {
       "last_capped_new_urls": 3
     }
-  }
+  },
+  "topic_title": "한국 제약산업 전망",
+  "chroma_ns": "ns-1c5c1622b9",
+  "new_url_count_round": 14,
+  "round_new_urls": 14,
+  "round_added_urls": 14,
+  "local_ingested_once": false,
+  "last_saved_path": "D:\\GPT_AGENT_2025_BOOK\\chap14-6\\sections\\한국-제약산업-전망-20251012-2008\\executive-summary.md"
 }

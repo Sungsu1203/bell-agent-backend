@@ -3,7 +3,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional, cast
 
-from utils.writer_scheduler import schedule_writer_if_needed
+from utils.tasks import schedule_writer_if_needed
 from core.models import Task
 from utils.tasks import has_pending
 

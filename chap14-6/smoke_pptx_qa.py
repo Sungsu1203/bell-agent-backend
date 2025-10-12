@@ -6,6 +6,9 @@ from typing import List, Optional
 from pptx import Presentation
 from langchain_core.documents import Document
 
+import logging
+logger = logging.getLogger(__name__)
+
 import re
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser

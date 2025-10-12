@@ -1,5 +1,9 @@
 # core/topic.py
 from __future__ import annotations
+
+import logging
+logger = logging.getLogger(__name__)
+
 import os, hashlib, re
 from typing import Any
 from core.state_types import State

@@ -1,5 +1,7 @@
 # tools/local_rag.py
 from __future__ import annotations
+import logging
+logger = logging.getLogger(__name__)
 
 import os, re, json, glob, hashlib
 from pathlib import Path
@@ -17,24 +19,28 @@ try:
     BeautifulSoup: Any = _BeautifulSoup
 except Exception:
     BeautifulSoup = None
+    logger.debug("BeautifulSoup not available; falling back to regex for HTML parsing.")
 
 try:
     from pypdf import PdfReader as _PdfReader
     PdfReader: Any = _PdfReader
 except Exception:
     PdfReader = None
+    logger.debug("pypdf not available; PDF extraction disabled.")
 
 try:
     import docx as _docx  # python-docx
     docx: Any = _docx
 except Exception:
     docx = None
+    logger.debug("python-docx not available; .docx extraction disabled.")
 
 try:
     from pptx.enum.shapes import MSO_SHAPE_TYPE as _MSO_SHAPE_TYPE
     MSO_SHAPE_TYPE: Any = _MSO_SHAPE_TYPE
 except Exception:
     MSO_SHAPE_TYPE = None
+    logger.debug("python-pptx shape type enum not available.")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 내부 유틸
@@ -48,6 +54,7 @@ def _file_version(path: str) -> str:
     """
     forced = os.getenv("LOCAL_RAG_FORCE_VERSION")
     if forced:
+        logger.debug("Using forced version for %s: %s", path, forced)
         return str(forced)
 
     mode = (os.getenv("LOCAL_RAG_VERSION_MODE", "mtime") or "mtime").lower()
@@ -57,11 +64,14 @@ def _file_version(path: str) -> str:
             with open(path, "rb") as f:
                 for chunk in iter(lambda: f.read(65536), b""):
                     h.update(chunk)
-            return h.hexdigest()[:12]
+            ver = h.hexdigest()[:12]
         else:
             st = os.stat(path)
-            return f"{int(st.st_mtime)}_{st.st_size}"
-    except Exception:
+            ver = f"{int(st.st_mtime)}_{st.st_size}"
+        logger.debug("Computed version for %s: %s (mode=%s)", path, ver, mode)
+        return ver
+    except Exception as e:
+        logger.warning("Version compute failed for %s: %s", path, e)
         return "na"
 
 
@@ -71,6 +81,11 @@ def _read_txt(path: str) -> str:
 
 def _read_md(path: str) -> str:
     return Path(path).read_text(encoding="utf-8", errors="ignore")
+
+def _truthy_env(name: str) -> bool:
+    v = (os.getenv(name) or "").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
 
 
 def _read_html(path: str) -> str:
@@ -202,10 +217,11 @@ def _to_webjson_items(path: str) -> List[dict]:
         if max_mb > 0:
             size_mb = os.path.getsize(path) / (1024 * 1024)
             if size_mb > max_mb:
-                print(f"[LOCAL RAG] skip large file (> {max_mb}MB): {path} ({size_mb:.1f}MB)")
+                logger.info("[LOCAL RAG] skip large file (> %s MB): %s (%.1f MB)", max_mb, path, size_mb)
                 return []
     except Exception:
-        pass
+        # 파일 크기 확인 실패는 심각하지 않으므로 DEBUG
+        logger.debug("filesize check failed for %s", path)
 
     # PDF: 페이지 단위로 쪼개기
     if ext == ".pdf":
@@ -223,15 +239,14 @@ def _to_webjson_items(path: str) -> List[dict]:
             if len(ct) > max_chars:
                 ct = ct[:max_chars]
 
-            items.append(
-                {
-                    "title": f"{title} (p.{i})",
-                    "url": url_for_click,
-                    "source": source_key,
-                    "content": ct,
-                }
-            )
+            items.append({
+                "title": f"{title} (p.{i})",
+                "url": url_for_click,
+                "source": source_key,
+                "content": ct,
+            })
         if not items:
+            logger.debug("[LOCAL RAG] PDF had no extractable text: %s", path)
             items = [{"title": title, "url": url_click, "source": f"{url_click}__v_{ver}", "content": ""}]
         return items
 
@@ -247,6 +262,7 @@ def _to_webjson_items(path: str) -> List[dict]:
     elif ext in (".pptx",):
         text = _read_pptx(path)
     else:
+        logger.debug("[LOCAL RAG] unsupported extension skipped: %s", path)
         return []
 
     max_chars = int(os.getenv("LOCAL_RAG_MAX_TEXT_CHARS", "200000"))
@@ -254,14 +270,12 @@ def _to_webjson_items(path: str) -> List[dict]:
     if len(content) > max_chars:
         content = content[:max_chars]
 
-    return [
-        {
-            "title": title,
-            "url": url_click,  # 클릭용
-            "source": f"{url_click}__v_{ver}",  # 디듀프 키(접미사 버전)
-            "content": content,
-        }
-    ]
+    return [{
+        "title": title,
+        "url": url_click,                             # 클릭용
+        "source": f"{url_click}__v_{ver}",            # 디듀프 키(접미사 버전)
+        "content": content,
+    }]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -280,14 +294,14 @@ def build_webjson_from_local(globs: List[str], out_dir: str) -> str:
         try:
             items.extend(_to_webjson_items(f))
         except Exception as e:
-            print(f"[WARN] local ingest 실패: {f} -> {e}")
+            logger.warning("[LOCAL RAG] local ingest 실패: %s -> %s", f, e)
 
     # 빈 content 제거
     items = [it for it in items if (it.get("content") or "").strip()]
 
     # 디버그 요약
     uniq_sources = {it.get("source") for it in items}
-    print(f"[LOCAL RAG] files={len(files)} items={len(items)} unique_sources={len(uniq_sources)}")
+    logger.info("[LOCAL RAG] files=%d items=%d unique_sources=%d", len(files), len(items), len(uniq_sources))
     if items:
         def _pretty_src(src: str) -> str:
             s = unquote(src or "")
@@ -302,14 +316,15 @@ def build_webjson_from_local(globs: List[str], out_dir: str) -> str:
         sample_sources = [_pretty_src(it.get("source", "")) for it in sample]
         sample_urls = [unquote(it.get("url", "")) for it in sample]
 
-        print(f"[LOCAL RAG] sample titles : {sample_titles}")
-        print(f"[LOCAL RAG] sample sources: {sample_sources}")
-        print(f"[LOCAL RAG] sample urls   : {sample_urls}")
+        logger.debug("[LOCAL RAG] sample titles : %s", sample_titles)
+        logger.debug("[LOCAL RAG] sample sources: %s", sample_sources)
+        logger.debug("[LOCAL RAG] sample urls   : %s", sample_urls)
 
     ts = datetime.now().strftime("%Y_%m_%d_%H%M%S")
     out_path = os.path.join(out_dir, f"local_{ts}.json")
     with open(out_path, "w", encoding="utf-8") as fp:
         json.dump(items, fp, ensure_ascii=False, indent=2)
+    logger.info("[LOCAL RAG] web.json saved → %s", out_path)
     return out_path
 
 
@@ -328,7 +343,17 @@ def ingest_local_files(
     """
     반환: (생성 JSON 경로들, 미리보기 Documents, 인덱싱된 청크 수 합)
     """
+    # ── 연구 요약(findings)을 벡터스토어에 함께 넣는 옵션 ─────────────────────
+    # research/<topic-slug>/round-*-findings.md  (research_synthesizer 저장 규칙과 일치)
+    if _truthy_env("INCLUDE_FINDINGS_IN_VECTOR"):
+        slug = (topic_slug or os.getenv("TOPIC_SLUG") or "default").strip()
+        findings_pattern = os.path.join(root_dir, "research", slug, "round-*-findings.md")
+        globs = list(globs or [])
+        globs.append(findings_pattern)
+        logger.info("[LOCAL RAG] findings included → %s", findings_pattern)
+
     if not globs:
+        logger.info("[LOCAL RAG] no globs provided → skip ingest")
         return ([], [], 0)
 
     res_dir = os.path.join(root_dir, "resources", topic_slug or "default")
@@ -341,14 +366,16 @@ def ingest_local_files(
                 json_path, namespace=namespace, persist_directory=persist_directory
             )
             chunk_total += int(chunk_count or 0)
+            logger.info("[LOCAL RAG] added to chroma: chunks=%s (ns=%s, dir=%s)", chunk_count, namespace, persist_directory)
         except Exception as e:
-            print(f"[WARN] add_web_pages_json_to_chroma(local) 실패: {e}")
+            logger.warning("[LOCAL RAG] add_web_pages_json_to_chroma(local) 실패: %s", e)
 
     docs_preview: List[Document] = []
     if web_page_json_to_documents is not None:
         try:
             docs_preview = web_page_json_to_documents(json_path)[:8]
+            logger.debug("[LOCAL RAG] preview docs: %d", len(docs_preview))
         except Exception as e:
-            print(f"[WARN] preview build(local) 실패: {e}")
+            logger.warning("[LOCAL RAG] preview build(local) 실패: %s", e)
 
     return ([json_path], docs_preview, chunk_total)

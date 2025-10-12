@@ -1,6 +1,9 @@
 from __future__ import annotations
 from typing import List, Optional, NotRequired, Dict, Any, TypedDict, Required
 
+import logging
+logger = logging.getLogger(__name__)
+
 class ResearchPlan(TypedDict, total=False):
     round: int
     objective: str
@@ -36,6 +39,7 @@ class State(TypedDict, total=False):
     research_halt_threshold: int | None
     research_min_rounds: int | None
     research_max_no_new_rounds: int | None
+    research_loop_active: NotRequired[bool]
     facts_ctx: Optional[str]
     _vs_cleared_once: bool | None
     research_plan: ResearchPlan

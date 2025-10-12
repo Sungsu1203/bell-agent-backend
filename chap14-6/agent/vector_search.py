@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+logger = logging.getLogger(__name__)
+
 import os,re
 from typing import TypedDict, List, Any, Mapping, cast, MutableMapping, Iterable 
 from utils.tasks import HumanMessage, AIMessage
@@ -13,7 +16,8 @@ from utils.rag_utils import merge_refs, refs_preview_text
 from utils.query_filters import strip_web_filters as _strip_web_filters, looks_like_local_glob as _looks_like_local_glob, clean_seed as _clean_seed, ok_query as _ok_query
 
 from prompts import get_vector_search_prompt
-from content_utils import read_outline, next_unwritten_title
+from core.paths import read_outline
+from utils.outline import next_unwritten_title
 from utils.tasks import has_pending, get_last_write_target, iter_tool_calls
 from utils.outline import get_topic_outline_text
 from tools.web_rag import (
@@ -25,7 +29,7 @@ from tools.web_rag import (
 )
 from tools.local_rag import ingest_local_files
 from utils.text_utils import plain_snip as _plain_snip
-from utils.writer_scheduler import schedule_writer_if_needed
+from utils.tasks import schedule_writer_if_needed
 
 # types_refs.py (예: vector_search.py 상단에 넣어도 됨)
 
@@ -48,9 +52,9 @@ def get_refs(state: Mapping[str, Any]) -> Refs:
     return _to_refs(cast(Mapping[str, Any] | None, state.get("references")))
 
 def vector_search_agent(state: State):
-    print("\n\n============ VECTOR SEARCH AGENT ============")
-    llm=get_llm()
-    
+    logger.info("============ VECTOR SEARCH AGENT ============")
+    llm = get_llm()
+
     state = sanitize_state(state)
 
     tasks = state.get("task_history", []) or []
@@ -68,26 +72,23 @@ def vector_search_agent(state: State):
     vector_search_system_prompt = get_vector_search_prompt()
 
     mission = (pending.description or "")
-    # references = state.get("references", {"queries": [], "docs": []}) or {"queries": [], "docs": []}
     references: Refs = get_refs(state)
     outline_text = get_topic_outline_text(state)
-    # ns = state.get("chroma_ns") or os.getenv("CHROMA_NAMESPACE") or "default"
-    ns_raw = state.get("chroma_ns") or os.getenv("CHROMA_NAMESPACE") or "default"
-    ns: str = str(ns_raw).strip() or "default"
 
-    slug = state.get("topic_slug")  # Optional[str]
-    # persist_dir = _topic_dir(slug) if slug else (os.getenv("CHROMA_DIR") or _default_chroma_dir(ns))
-    persist_dir: str = (
-        str(_topic_dir(slug))
-        if slug else (os.getenv("CHROMA_DIR") or _default_chroma_dir(ns))
-    )
+    # === 네임스페이스 & 퍼시스트 디렉터리 규칙 ===
+    topic_slug: str = state.get("topic_slug") or "default"
+    session_suffix: str = (state.get("session_tag") or state.get("topic_ts") or "default")
+    ns: str = f"{topic_slug}-{session_suffix}"
 
-    # 💡 세션 디렉터리 확정 후 '1회만' 초기화 (환경변수로 on/off)
-    if os.getenv("CLEAR_CHROMA_ON_START", "0") == "1" and not state.get("_vs_cleared_once"):
-        # clear_vector_store(namespace=ns, persist_directory=persist_dir)
+    # persist_directory는 None으로 두고, web_rag._resolve_persist_dir 규칙을 따름
+    persist_dir = None
+
+    # ✅ 첫 라운드에만 clear (옵션) — 내부에서 CLEAR_ON_FIRST_VECTOR/CLEAR_CHROMA_ON_START 체크
+    #    동일 (persist_dir, ns) 키에 대해서는 1회만 클리어
+    try:
         ensure_vector_store_cleared_once(namespace=ns, persist_directory=persist_dir)
-        state["_vs_cleared_once"] = True
-        # print(f"[INIT] vector store cleared once (ns='{ns}', dir='{persist_dir}')")
+    except Exception as e:
+        logger.debug("ensure_vector_store_cleared_once skipped/failed: %s", e)
 
     TOP_K = int(os.getenv("RAG_TOP_K", "6"))
 
@@ -98,7 +99,7 @@ def vector_search_agent(state: State):
         need_local = ensure_local and bool(local_globs_env.strip())
         not_yet = not state.get("local_ingested_once")
         if need_local and not_yet:
-            slug = state.get("topic_slug") or "default"
+            slug = topic_slug
             raw_globs = [g.strip() for g in local_globs_env.split("|") if g.strip()]
 
             def _norm(p: str) -> str:
@@ -114,43 +115,27 @@ def vector_search_agent(state: State):
                 dedup.append(g)
 
             if dedup:
-                print("[VECTOR SEARCH AGENT] on-demand local ingest:", dedup)
+                logger.info("[VECTOR SEARCH AGENT] on-demand local ingest: %s", dedup)
                 l_jsons, l_docs, l_chunks = ingest_local_files(
                     dedup,
                     namespace=ns,
-                    persist_directory=persist_dir,
+                    persist_directory=persist_dir,   # ← None 유지 (클리어 X, 업서트만)
                     topic_slug=slug,
                     root_dir=current_path,
                     add_web_pages_json_to_chroma=add_web_pages_json_to_chroma,
                     web_page_json_to_documents=web_page_json_to_documents,
                 )
                 if l_docs:
-                    # references = merge_refs(references, [], l_docs)  # dict 구조 동일
-                    # state["references"] = cast(Refs, references)     # <- 타입 고정
-                    # references = cast(Refs, merge_refs(references, [], l_docs))
-                    # references = cast(Refs, merge_refs(cast(Mapping[str, Any], references), [], l_docs))
-                    # cast(MutableMapping[str, Any], state)["references"] = references
-                    # # references = merge_refs(references, [], l_docs)
-                    # state["references"] = references
                     merged_dict = merge_refs(cast(dict[str, Any], references), [], l_docs)
                     references = _to_refs(merged_dict)
                     cast(MutableMapping[str, Any], state)["references"] = references
                 state["local_ingested_once"] = True
     except Exception as e:
-        print(f"[WARN] on-demand local ingest 실패: {e}")
+        logger.warning("on-demand local ingest 실패: %s", e)
 
-    # new_url_count = int(l_chunks or 0)
-    # state["new_url_count"] = new_url_count
-    # state["new_url_count_round"] = new_url_count
-    # state["round_new_urls"] = new_url_count
-
-    # ✅ ran_queries를 set()으로 변경 (중복 체크 O(1))
-    # ran_queries: set[str] = set()
-    # accum_queries: list[str] = []
-    # accum_docs: list = []
     ran_queries: set[str] = set()
     accum_queries: list[str] = []
-    accum_docs: list[Any] = []  # <- Any로 넉넉하게
+    accum_docs: list[Any] = []
 
     def _skip_reason(q: str, key: str) -> str:
         if not (q or "").strip():
@@ -188,7 +173,7 @@ def vector_search_agent(state: State):
         return False
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 1) 사용자 질의 우선 검색 (+ 정제/중복/노이즈 가드, 스킵 이유 로그)
+    # 1) 사용자 질의 우선 검색
     # ─────────────────────────────────────────────────────────────────────────
     last_human = next((m for m in reversed(messages) if isinstance(m, HumanMessage)), None)
     user_q = _extract_user_query(last_human.content) if (last_human and isinstance(last_human.content, str)) else ""
@@ -197,48 +182,46 @@ def vector_search_agent(state: State):
     user_key = user_q_clean.strip().lower()
 
     if user_q_clean and (not _is_noise_query(user_q_clean)) and _ok_query(user_q_clean) and (user_key not in ran_queries):
-        # >>> ANCHOR: FILTER_USER_QUERY_BEFORE_RETRIEVE >>>
         if _looks_like_local_glob(user_q_clean):
-            print(f"[FILTER] skip local/glob query: {user_q_clean}")
-            # 실행/기록 모두 건너뜀
+            logger.debug("[FILTER] skip local/glob query: %s", user_q_clean)
         else:
-        # <<< ANCHOR: FILTER_USER_QUERY_BEFORE_RETRIEVE <<<
             try:
-                print("-----------------------------------", {
-                    "name": "retrieve",
-                    "args": {
-                        "query_raw": user_q,
-                        "query_retrieval": user_q_clean,
-                        "top_k": TOP_K
-                    }
+                logger.debug("retrieve.invoke args: %s", {
+                    "query_raw": user_q,
+                    "query_retrieval": user_q_clean,
+                    "top_k": TOP_K,
                 })
-                # retrieved_docs = retrieve.invoke({
                 retrieved_docs: list[Any] = retrieve.invoke({
                     "query": user_q_clean,
                     "namespace": ns,
-                    "persist_directory": persist_dir,
+                    "persist_directory": persist_dir,   # ← None 유지
                     "top_k": TOP_K
                 })
             except Exception as e:
-                print(f"[WARN] retrieve 실패(user_q='{user_q}' → '{user_q_clean}'): {e}")
+                logger.warning("retrieve 실패(user_q='%s' → '%s'): %s", user_q, user_q_clean, e)
                 retrieved_docs = []
 
             accum_queries.append(user_q_clean)
             accum_docs.extend(retrieved_docs)
-            ran_queries.add(user_key)  # ✅ set에 추가
+            ran_queries.add(user_key)
 
-        # state["references"] = merge_refs(references, accum_queries, accum_docs)
-        # references = state["references"]
         merged_dict = merge_refs(cast(dict[str, Any], references), accum_queries, accum_docs)
         references = _to_refs(merged_dict)
         cast(MutableMapping[str, Any], state)["references"] = references
 
-        print(f"[DEBUG] ns={ns} persist_dir={persist_dir} TOP_K={TOP_K} ALLOW_LOCAL_SUMMARY={os.getenv('ALLOW_LOCAL_SUMMARY')}")
-        print(f"[DEBUG] retrieved_docs={len(retrieved_docs)} for user_q_clean={user_q_clean!r}")
+        if os.getenv("AUTO_WRITE_DURING_RESEARCH", "0") == "1":
+            schedule_writer_if_needed(
+                cast(MutableMapping[str, Any], state),
+                tasks=tasks, messages=messages, outline_text=outline_text, debug=True
+            )
+
+        logger.debug("ns=%s persist_dir=%s TOP_K=%s ALLOW_LOCAL_SUMMARY=%s",
+                     ns, persist_dir, TOP_K, os.getenv('ALLOW_LOCAL_SUMMARY'))
+        logger.debug("retrieved_docs=%s for user_q_clean=%r", len(retrieved_docs), user_q_clean)
         for i, d in enumerate((retrieved_docs or [])[:2], 1):
             meta = getattr(d, "metadata", {}) or {}
             snip = (getattr(d, "page_content", "") or "")[:100].replace("\n", " ")
-            print(f"[DEBUG] ctx{i} source={meta.get('source')} snip={snip!r}")
+            logger.debug("ctx%s source=%s snip=%r", i, meta.get('source'), snip)
 
         if os.getenv("ALLOW_LOCAL_SUMMARY", "0") == "1":
             ctx_parts = []
@@ -258,12 +241,9 @@ def vector_search_agent(state: State):
                 try:
                     resp = llm.invoke(prompt)
                     reply_text = getattr(resp, "content", str(resp))
-                    messages.append(AIMessage(reply_text))
+                    messages.append(AIMessage(content=reply_text))
 
                     state["qa_direct_reply"] = True
-                    # for k in ("new_url_count", "new_url_count_round", "round_new_urls"):
-                    #     state[k] = int(state.get(k, 0) or 0)
-                    # 각 키를 리터럴로 직접 대입 + as_int로 안전 변환
                     state["new_url_count"] = as_int(state, "new_url_count", 0)
                     state["new_url_count_round"] = as_int(state, "new_url_count_round", 0)
                     state["round_new_urls"] = as_int(state, "round_new_urls", 0)
@@ -276,12 +256,10 @@ def vector_search_agent(state: State):
                     pending.done_at = _now_str()
                     return {"messages": messages, "task_history": tasks, "references": references}
                 except Exception as e:
-                    print(f"[WARN] QA 요약 생성 실패: {e}")
+                    logger.warning("QA 요약 생성 실패: %s", e)
             else:
-                messages.append(AIMessage("요청과 직접 매칭되는 로컬 문서를 찾지 못했어요. 파일 경로/패턴(LOCAL_RAG_GLOBS)을 확인해 주세요."))
+                messages.append(AIMessage(content="요청과 직접 매칭되는 로컬 문서를 찾지 못했어요. 파일 경로/패턴(LOCAL_RAG_GLOBS)을 확인해 주세요."))
                 state["qa_direct_reply"] = True
-                # for k in ("new_url_count", "new_url_count_round", "round_new_urls"):
-                #     state[k] = int(state.get(k, 0) or 0)
                 state["new_url_count"] = as_int(state, "new_url_count", 0)
                 state["new_url_count_round"] = as_int(state, "new_url_count_round", 0)
                 state["round_new_urls"] = as_int(state, "round_new_urls", 0)
@@ -292,10 +270,12 @@ def vector_search_agent(state: State):
                 pending.done_at = _now_str()
                 return {"messages": messages, "task_history": tasks, "references": references}
     else:
-        # ✅ 스킵 사유 디버깅 로그
-        print(f"[SKIP user] q='{user_q_clean}' "
-              f"empty={not bool(user_q_clean)} noise={_is_noise_query(user_q_clean)} "
-              f"ok={_ok_query(user_q_clean)} dup={user_key in ran_queries}")
+        logger.debug("[SKIP user] q='%s' empty=%s noise=%s ok=%s dup=%s",
+                     user_q_clean,
+                     not bool(user_q_clean),
+                     _is_noise_query(user_q_clean),
+                     _ok_query(user_q_clean),
+                     user_key in ran_queries)
 
     # ─────────────────────────────────────────────────────────────────────────
     # 2) 설계 질의/기보유 쿼리 실행 루틴
@@ -312,106 +292,116 @@ def vector_search_agent(state: State):
     search_plans = (vector_search_system_prompt | llm_with_retriever).invoke(inputs)
     preexisting_queries = list(references.get("queries", []))
 
-    # 3b) 기존 레퍼런스 질의 재조회 (정제/중복 가드 + 스킵 로그)
+    # 3b) 기존 레퍼런스 질의 재조회
     for q in preexisting_queries:
         raw = q
         q = _clean_seed(raw)
         q_for_retrieve = _strip_web_filters(q)
         key = q_for_retrieve.strip().lower()
 
-        # >>> ANCHOR: FILTER_PREEXISTING_QUERY_BEFORE_RETRIEVE >>>
         if _looks_like_local_glob(q_for_retrieve):
-            print(f"[FILTER] skip local/glob query: {q_for_retrieve}")
+            logger.debug("[FILTER] skip local/glob query: %s", q_for_retrieve)
             continue
-        # <<< ANCHOR: FILTER_PREEXISTING_QUERY_BEFORE_RETRIEVE <<<
 
         if (not q_for_retrieve) or _is_noise_query(q_for_retrieve) or (not _ok_query(q_for_retrieve)) or (key in ran_queries):
-            print(f"[SKIP preexisting] q='{q_for_retrieve}' "
-                  f"empty={not bool(q_for_retrieve)} noise={_is_noise_query(q_for_retrieve)} "
-                  f"ok={_ok_query(q_for_retrieve)} dup={key in ran_queries}")
+            logger.debug("[SKIP preexisting] q='%s' empty=%s noise=%s ok=%s dup=%s",
+                         q_for_retrieve,
+                         not bool(q_for_retrieve),
+                         _is_noise_query(q_for_retrieve),
+                         _ok_query(q_for_retrieve),
+                         key in ran_queries)
             continue
 
-        print("-----------------------------------", {
-            "name": "retrieve",
-            "args": {
-                "query_raw": q,
-                "query_retrieval": q_for_retrieve,
-                "top_k": TOP_K
-            }
+        logger.debug("retrieve.invoke args: %s", {
+            "query_raw": q,
+            "query_retrieval": q_for_retrieve,
+            "top_k": TOP_K
         })
 
         try:
             retrieved_docs = retrieve.invoke({
                 "query": q_for_retrieve,
                 "namespace": ns,
-                "persist_directory": persist_dir,
+                "persist_directory": persist_dir,   # ← None 유지
                 "top_k": TOP_K
             })
         except Exception as e:
-            print(f"[WARN] retrieve 실패(query='{q}' → '{q_for_retrieve}'): {e}")
+            logger.warning("retrieve 실패(query='%s' → '%s'): %s", q, q_for_retrieve, e)
             continue
 
         accum_queries.append(q_for_retrieve)
         accum_docs.extend(retrieved_docs)
-        ran_queries.add(key)  # ✅ set에 추가
+        ran_queries.add(key)
 
-    # 4) LLM 설계 질의 실행 (정제/중복 가드 + 스킵 로그)
+    # 4) LLM 설계 질의 실행
+    import json as _json
+
     for args in iter_tool_calls(search_plans, "retrieve"):
+        if isinstance(args, str):
+            try:
+                args = _json.loads(args)
+            except Exception:
+                args = {"query": str(args)}
+        elif not isinstance(args, dict):
+            logger.debug("retrieve tool args ignored (unsupported type): %r", type(args).__name__)
+            continue
+
         raw = (args.get("query") or "")
         query = _clean_seed(raw)
         q_for_retrieve = _strip_web_filters(query)
         key = q_for_retrieve.strip().lower()
 
-        # >>> ANCHOR: FILTER_PLAN_QUERY_BEFORE_RETRIEVE >>>
         if _looks_like_local_glob(q_for_retrieve):
-            print(f"[FILTER] skip local/glob query: {q_for_retrieve}")
+            logger.debug("[FILTER] skip local/glob query: %s", q_for_retrieve)
             continue
-        # <<< ANCHOR: FILTER_PLAN_QUERY_BEFORE_RETRIEVE <<<
 
         if (not q_for_retrieve) or _is_noise_query(q_for_retrieve) or (not _ok_query(q_for_retrieve)) or (key in ran_queries):
-            print(f"[SKIP plan] q='{q_for_retrieve}' "
-                  f"empty={not bool(q_for_retrieve)} noise={_is_noise_query(q_for_retrieve)} "
-                  f"ok={_ok_query(q_for_retrieve)} dup={key in ran_queries}")
+            logger.debug("[SKIP plan] q='%s' empty=%s noise=%s ok=%s dup=%s",
+                         q_for_retrieve,
+                         not bool(q_for_retrieve),
+                         _is_noise_query(q_for_retrieve),
+                         _ok_query(q_for_retrieve),
+                         key in ran_queries)
             continue
 
-        print("-----------------------------------", {
-            "name": "retrieve",
-            "args": {
-                "query_raw": query,
-                "query_retrieval": q_for_retrieve,
-                "top_k": TOP_K
-            }
+        logger.debug("retrieve.invoke args: %s", {
+            "query_raw": query,
+            "query_retrieval": q_for_retrieve,
+            "top_k": TOP_K
         })
 
         try:
             retrieved_docs = retrieve.invoke({
                 "query": q_for_retrieve,
                 "namespace": ns,
-                "persist_directory": persist_dir,
+                "persist_directory": persist_dir,   # ← None 유지
                 "top_k": TOP_K
             })
         except Exception as e:
-            print(f"[WARN] retrieve 실패(query='{query}' → '{q_for_retrieve}'): {e}")
+            logger.warning("retrieve 실패(query='%s' → '%s'): %s", query, q_for_retrieve, e)
             continue
 
         accum_queries.append(q_for_retrieve)
         accum_docs.extend(retrieved_docs)
-        ran_queries.add(key)  # ✅ set에 추가
+        ran_queries.add(key)
 
-    # state["references"] = merge_refs(references, accum_queries, accum_docs)
-    # references = state["references"]
     merged_dict = merge_refs(cast(dict[str, Any], references), accum_queries, accum_docs)
     references = _to_refs(merged_dict)
     cast(MutableMapping[str, Any], state)["references"] = references
 
-    # (선택) 숫자 포함 스니펫을 facts_ctx로 구성하여 후속 Writer에 힌트 제공
+    if os.getenv("AUTO_WRITE_DURING_RESEARCH", "0") == "1":
+        schedule_writer_if_needed(
+            cast(MutableMapping[str, Any], state),
+            tasks=tasks, messages=messages, outline_text=outline_text, debug=True
+        )
+
+    # 숫자 포함 스니펫 facts_ctx 구성
     try:
         snips = []
         for d in (references.get("docs") or [])[:20]:
             txt = (getattr(d, "page_content", "") or "")
-            # 숫자 + 단위/기호가 보이는 라인만 추출
             lines = [ln.strip() for ln in txt.splitlines()
-                    if re.search(r"(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(?:%|조|억|만대|GWh|kWh|원|달러|bn|trn)\b", ln)]
+                     if re.search(r"(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(?:%|조|억|만대|GWh|kWh|원|달러|bn|trn)\b", ln)]
             for ln in lines[:2]:
                 snips.append(ln[:300])
             if len(snips) >= 5:
@@ -420,18 +410,17 @@ def vector_search_agent(state: State):
     except Exception:
         state["facts_ctx"] = ""
 
-    print("\n\nQueries:--------------------------")
-     # >>> ANCHOR: PRINT_EXECUTED_QUERIES_ONLY >>>
-    for q in accum_queries:   # 기존: references["queries"]
-        print(q)
-    # <<< ANCHOR: PRINT_EXECUTED_QUERIES_ONLY <<<
-    # for q in references["queries"]:
-    #     print(q)
+    logger.info("Queries executed: %s", len(accum_queries))
+    for q in accum_queries[:10]:
+        logger.debug("  - %s", q)
+    if len(accum_queries) > 10:
+        logger.debug("  ... (+%s more)", len(accum_queries) - 10)
 
-    print("\n\nReferences:--------------------------")
-    for i, doc in enumerate(references["docs"][:20], start=1):
-        print(f"[{i:02d}] " + _plain_snip(getattr(doc, "page_content", "") or "", 160))
-        print("--------------------------")
+    logger.info("References collected: %s", len(references["docs"]))
+    for i, doc in enumerate(references["docs"][:10], start=1):
+        logger.debug("[%02d] %s", i, _plain_snip(getattr(doc, "page_content", "") or "", 160))
+    if len(references["docs"]) > 10:
+        logger.debug("  ... (+%s more)", len(references["docs"]) - 10)
 
     pending.done = True
     pending.done_at = _now_str()
@@ -439,12 +428,33 @@ def vector_search_agent(state: State):
     role = (state.get("agent_role") or "").strip().lower()
     rounds_done = as_int(state, "research_round", 0)
     max_iter = as_int(state, "iteration_count", 0)
-    research_loop_active = (role == "research analyst") and bool(state.get("research_objectives")) and (rounds_done < max_iter)
+
+    def _has_research_pipeline(tsk_list) -> bool:
+        return any(
+            (getattr(t, "done", True) is False)
+            and getattr(t, "agent", "") in (
+                "research_planner", "web_search_agent", "vector_search_agent", "research_synthesizer"
+            )
+            for t in (tsk_list or [])
+        )
+    explicit_flag = state.get("research_loop_active")
+    if isinstance(explicit_flag, bool):
+        research_loop_active = explicit_flag
+    else:
+        has_objective = bool(state.get("research_objectives"))
+        has_plan = bool((state.get("research_plan") or {}).get("objective"))
+        pipeline_on = _has_research_pipeline(tasks)
+        research_loop_active = (
+            (role == "research analyst")
+            and (max_iter > 0)
+            and (rounds_done < max_iter)
+            and (has_objective or has_plan or pipeline_on)
+        )
 
     writer_agent = WRITER_AGENT
     AUTO_WRITE_DURING_RESEARCH = os.getenv("AUTO_WRITE_DURING_RESEARCH", "0") == "1"
-    
-    print("[DEBUG writer_guard]", {
+
+    logger.debug("[writer_guard] %s", {
         "DOC_MODE": DOC_MODE,
         "WRITER_AGENT": writer_agent,
         "AUTO_WRITE_AFTER_RAG": os.getenv("AUTO_WRITE_AFTER_RAG"),
@@ -456,26 +466,46 @@ def vector_search_agent(state: State):
         "research_round": state.get("research_round"),
     })
 
-    print("[DEBUG tasklist ids]", id(tasks), id(state.get("task_history")))
+    logger.debug("[tasklist ids] tasks=%s, state.task_history=%s", id(tasks), id(state.get("task_history")))
 
-    # not 연구 모드이거나, 연구 모드여도 AUTO_WRITE_DURING_RESEARCH=1이면 writer 예약 시도
+    # ======== ANCHOR: RESEARCH_LOOP_HANDOFF_FROM_VECTOR ========
+    if research_loop_active:
+        logger.info("[HANDOFF] scheduling research_synthesizer (research_loop_active=True)")
+        try:
+            round_new = None
+            for k in ("new_url_count_round", "round_added_urls", "round_new_urls", "new_urls", "new_url_count"):
+                v = state.get(k)
+                if v is not None and str(v).strip() != "":
+                    round_new = max(0, int(str(v)))
+                    break
+            if round_new is not None:
+                state["new_url_count"] = round_new
+                state["new_url_count_round"] = round_new
+                state["round_new_urls"] = round_new
+        except Exception:
+            pass
+
+        if not has_pending(tasks, "research_synthesizer"):
+            tasks.append(Task(agent="research_synthesizer", done=False, description="synthesize:auto", done_at=""))
+
+        messages.append(AIMessage(content="[VECTOR SEARCH AGENT] 연구 라운드 진행 중 → 합성 단계(Research Synthesizer)로 이동"))
+        return {"messages": messages, "task_history": tasks, "references": references}
+    # ======== END: RESEARCH_LOOP_HANDOFF_FROM_VECTOR ========
+
     if (not research_loop_active) or AUTO_WRITE_DURING_RESEARCH:
         did = schedule_writer_if_needed(
             cast(MutableMapping[str, Any], state),
             tasks=tasks,
             messages=messages,
             outline_text=outline_text,
-            debug=True,  # 필요 시
+            debug=True,
         )
-        # writer 예약 실패 시 안내 태스크(communicator)만 보조로 추가
         if (not did) and not has_pending(tasks, "communicator"):
             tasks.append(Task(agent="communicator", done=False, description="검색/인덱싱 완료 보고 및 다음 집필 대상 확인", done_at=""))
     else:
-        # 연구 루프 진행 중이며 writer 자동 예약도 비활성화면 안내 메시지만
-        messages.append(AIMessage("[VECTOR SEARCH AGENT] 연구 라운드 진행 중 → 합성 단계(Research Synthesizer)로 이동"))
-
+        pass
 
     _qs = references.get("queries", [])
     _qs_view = _qs[:8] + (["..."] if len(_qs) > 8 else [])
-    messages.append(AIMessage(f"[VECTOR SEARCH AGENT] 검색 완료 (질의 {len(_qs)}건, 예시): { _qs_view }"))
+    messages.append(AIMessage(content=f"[VECTOR SEARCH AGENT] 검색 완료 (질의 {len(_qs)}건, 예시): { _qs_view }"))
     return {"messages": messages, "task_history": tasks, "references": references}

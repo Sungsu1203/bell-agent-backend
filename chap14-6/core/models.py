@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Literal
 from pydantic import BaseModel, Field
 
+import logging
+logger = logging.getLogger(__name__)
+
 # 프로젝트에서 쓰는 에이전트 이름을 Literal로 고정 (필요 시 여기에만 추가)
 AgentName = Literal[
     "content_strategist",

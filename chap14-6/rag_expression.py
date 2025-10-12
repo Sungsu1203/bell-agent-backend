@@ -1,12 +1,16 @@
 # rag_expression.py
 import re
-from typing import Any, Optional, Pattern
+from typing import Any, Optional
+from re import Pattern  # 3.12+ 호환
+
+import logging
+logger = logging.getLogger(__name__)
 
 __all__ = [
     # compiled regexes
-    "RE_WRITE_LINE", "RE_WRITE_INLINE", "RE_SHOW_OUTLINE", "RE_NEW_TOPIC",
+    "RE_WRITE_LINE", "RE_WRITE_INLINE", "RE_SHOW_OUTLINE", "RE_NEW_TOPIC", "RE_RENAME_CHAPTER",
     # helpers
-    "extract_write_title", "is_outline_creation", "is_outline_display", "extract_new_topic_title",
+    "extract_write_title", "is_outline_creation", "is_outline_display", "extract_new_topic_title","extract_rename_chapter",
     "RE_QUANT_NUMBER", "RE_QUANT_SENT_HINTS", "split_sentences_ko_en",
     "coerce_message_content_to_str",
 ]
@@ -68,7 +72,8 @@ RE_WRITE_LINE: Pattern[str] = re.compile(
 
 # 인라인형: 문장 중간의 "write: ..."도 포착
 RE_WRITE_INLINE: Pattern[str] = re.compile(
-    r"(?:^|[\s().,;])(?:write|작성|집필)\s*[:：]\s*(.+)", re.IGNORECASE
+    r"(?:^|[\s().,;])(?:write|작성|집필)\s*[:：]\s*(.+?)\s*(?=$|[\r\n)\]]|[.;])",
+    re.IGNORECASE
 )
 
 # "목차 보여줘/보기/출력/display/show" 등
@@ -96,7 +101,8 @@ RE_RENAME_CHAPTER = re.compile(
 # Helpers
 
 def _strip_smart_quotes(s: str) -> str:
-    return s.strip(' \t\'"“”‘’')
+    # 따옴표 + 괄호/대괄호/마침표/세미콜론까지 정리
+    return s.strip(' \t\'"“”‘’()[];。．.;')
 
 def extract_write_title(text_like: Any) -> Optional[str]:
     """문자열/멀티모달 입력에서 write/작성/집필 명령의 타이틀을 추출."""
@@ -110,6 +116,7 @@ def extract_write_title(text_like: Any) -> Optional[str]:
     if not m:
         return None
     title = _strip_smart_quotes(m.group(1))
+    logger.debug("extract_write_title hit: %s", title)
     return title or None
 
 def is_outline_creation(text_like: Any) -> bool:
@@ -164,7 +171,7 @@ if __name__ == "__main__":
         ],
     ]
     for s in samples:
-        print(">", s)
-        print("  write:", extract_write_title(s))
-        print("  show_outline:", is_outline_display(s))
-        print("  new_topic:", extract_new_topic_title(s))
+        logger.info("> %s", s)
+        logger.info("  write: %s", extract_write_title(s))
+        logger.info("  show_outline: %s", is_outline_display(s))
+        logger.info("  new_topic: %s", extract_new_topic_title(s))

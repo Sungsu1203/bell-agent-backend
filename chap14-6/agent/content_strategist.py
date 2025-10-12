@@ -2,6 +2,9 @@ from __future__ import annotations
 from langchain_core.output_parsers.string import StrOutputParser
 from utils.tasks import AIMessage
 
+import logging
+logger = logging.getLogger(__name__)
+
 from core.config import DOC_MODE
 from core.paths import current_path, now_str as _now_str
 from core.state_types import State
@@ -20,7 +23,7 @@ import re
 
 
 def content_strategist(state: State):
-    print("\n\n============ CONTENT STRATEGIST ============")
+    logger.info("============ CONTENT STRATEGIST ============")
     llm = get_llm()
     state = sanitize_state(state)
 
@@ -34,8 +37,6 @@ def content_strategist(state: State):
 
     # ─────────────────────────────────────────────────────────
     # FAST-PATH: 장 제목 리네임 (LLM 건너뛰고 즉시 수정/저장)
-    # Task.description 예: "rename_heading:{idx}:{new_title}" 또는
-    #                      "rename_heading:{idx}:{new_title}:{fname}"
     desc = next(
         (t.description for t in reversed(tasks)
          if (not getattr(t, "done", False)) and getattr(t, "agent", "") == "content_strategist"),
@@ -65,9 +66,9 @@ def content_strategist(state: State):
 
         # 안전한 패턴 컴파일 (멀티라인): "## {idx}. 기존제목" → "## {idx}. new_title"
         idx_escaped = re.escape(idx)
-        pattern: Pattern[str] = re.compile(rf'^(##\s*{idx_escaped}\.\s*)(.+)$', flags=re.M)
+        pattern: re.Pattern[str] = re.compile(rf'^(##\s*{idx_escaped}\.\s*)(.+)$', flags=re.M)
 
-        def _repl(m: Match[str]) -> str:
+        def _repl(m: re.Match[str]) -> str:
             return f"{m.group(1)}{new_title}"
 
         updated: str = pattern.sub(_repl, current_outline)
@@ -81,7 +82,8 @@ def content_strategist(state: State):
             backup=True,
         )
 
-        messages.append(AIMessage(f"[Content Strategist] {idx}장 제목을 '{new_title}'로 변경 → {out_path}"))
+        messages.append(AIMessage(content=f"[Content Strategist] {idx}장 제목을 '{new_title}'로 변경 → {out_path}"))
+        logger.info("[Content Strategist] heading %s renamed → %s", idx, out_path)
 
         # 해당 content_strategist 펜딩 완료 처리
         for t in reversed(tasks):
@@ -107,6 +109,7 @@ def content_strategist(state: State):
 
     outline_text = get_topic_outline_text(state)
     gathered = ""
+    logger.info("[Content Strategist] outline generation started (fname=%s, mode=%s)", fname, DOC_MODE)
     for chunk in chain.stream(
         {
             "messages": messages,
@@ -115,9 +118,9 @@ def content_strategist(state: State):
             "topic_title": state.get("topic_title") or "",
         }
     ):
-        print(chunk, end="")
+        # 화면 실시간 출력 대신 버퍼에만 모으고, 필요 시 디버그로 일부만 남깁니다.
         gathered += chunk
-    print()
+    logger.debug("[Content Strategist] streamed outline length=%s chars", len(gathered))
 
     # H2 헤딩 정규화
     gathered = _normalize_outline_headings(gathered)
@@ -131,7 +134,8 @@ def content_strategist(state: State):
         mode=DOC_MODE,
         backup=True,
     )
-    messages.append(AIMessage(f"[Content Strategist] 목차 작성 완료 → {out_path}"))
+    messages.append(AIMessage(content=f"[Content Strategist] 목차 작성 완료 → {out_path}"))
+    logger.info("[Content Strategist] outline saved → %s", out_path)
 
     # 가장 최근 미완료 content_strategist 펜딩 마킹
     pending = next(
@@ -140,7 +144,7 @@ def content_strategist(state: State):
         None
     )
     if pending is None:
-        print("[WARN] pending 'content_strategist' task가 없습니다. edge pass.")
+        logger.warning("[WARN] pending 'content_strategist' task가 없습니다. edge pass.")
     else:
         pending.done = True
         pending.done_at = _now_str()

@@ -7,6 +7,9 @@ from langchain_core.documents import Document
 import os
 import re
 
+import logging
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "attach_auto_citations",
     "merge_refs",
@@ -66,25 +69,37 @@ def _canonicalize_src_for_dedup(src: str | None) -> str:
     """
     URL/파일경로를 디듀프용 키로 표준화.
     - URL: scheme/netloc/path만 유지 (query/fragment 제거, 끝슬래시 정리)
+           + www 제거, 기본포트(:80,:443) 제거, 추적 파라미터(utm_*, fbclid 등) 제거
     - 파일경로: 소문자 + 슬래시 통일
     - "__v_xxx" 같은 버전 접미사 제거(가능할 때)
     """
     if not src:
         return ""
     s = str(src).strip()
-    s = re.sub(r"__v_\d+_\d+$", "", s)  # 버전 접미사 제거
+    s = re.sub(r"__v_\d+_\d+$", "", s)
 
     try:
         pu = urlparse(s)
         if pu.scheme and pu.netloc:
+            host = pu.netloc.lower()
+            # 기본 포트 제거
+            if host.endswith(":80"): host = host[:-3]
+            if host.endswith(":443"): host = host[:-4]
+            # www 제거
+            if host.startswith("www."): host = host[4:]
+            # path 정리
             path = pu.path or ""
             if path != "/" and path.endswith("/"):
                 path = path[:-1]
-            return urlunparse((pu.scheme.lower(), pu.netloc.lower(), path, "", "", ""))
-        # 로컬 경로로 간주
+            # 추적 파라미터 제거
+            drop_keys = {"utm_source","utm_medium","utm_campaign","utm_term","utm_content","fbclid","gclid","igshid","mc_cid","mc_eid"}
+            # 쿼리는 버리되, 일부 보존이 필요하면 여기서 화이트리스트 처리
+            return urlunparse((pu.scheme.lower(), host, path, "", "", ""))
+        # 로컬 경로
         return str(Path(s)).replace("\\", "/").lower()
     except Exception:
         return s.lower()
+
 
 
 def _auto_footnote_label(meta: dict, url: str) -> str:
@@ -109,14 +124,21 @@ def _auto_footnote_label(meta: dict, url: str) -> str:
 
 def _collect_reference_urls_from_refs(refs: list, max_refs: int = 20) -> list[str]:
     urls: list[str] = []
+    seen_keys: set[str] = set()
     for d in refs:
         meta = _extract_meta(d)
-        src = (meta.get("source") or meta.get("url"))
-        if src and (src not in urls):
-            urls.append(src)
+        raw = (meta.get("url") or meta.get("source") or "").strip()
+        if not raw:
+            continue
+        key = _canonicalize_src_for_dedup(raw)
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        urls.append(raw)
         if len(urls) >= max_refs:
             break
     return urls
+
 
 
 def _collect_footnotes_from_refs(refs: list, max_n: int):
@@ -165,45 +187,70 @@ def merge_refs(existing: dict | None, new_queries: list[str] | None, new_docs: l
     if new_docs:
         merged_d.extend([d for d in new_docs if d is not None])
 
+    # queries dedup
     seen_q, dedup_q = set(), []
     for q in merged_q:
         qq = (q or "").strip()
         if qq and qq not in seen_q:
-            dedup_q.append(qq)
-            seen_q.add(qq)
+            dedup_q.append(qq); seen_q.add(qq)
 
-    def _doc_sig(d: Document) -> str:
-        pc = (getattr(d, "page_content", "") or "")
-        pc_head = " ".join(pc.split())[:500]
-        meta = getattr(d, "metadata", {}) or {}
+    def _doc_sig(d: Any) -> str:
+        # meta
+        meta = _extract_meta(d)
         src = (meta.get("source") or meta.get("url") or "").strip()
-        return _hh.sha1(f"{src}|{pc_head}".encode("utf-8", "ignore")).hexdigest()
+        key = _canonicalize_src_for_dedup(src) or src.lower()
+        # content head
+        pc = ""
+        if hasattr(d, "page_content"):
+            pc = getattr(d, "page_content") or ""
+        elif isinstance(d, dict):
+            pc = (d.get("page_content") or d.get("content") or "") or ""
+        pc_head = " ".join(str(pc).split())[:500]
+        return _hh.sha1(f"{key}|{pc_head}".encode("utf-8","ignore")).hexdigest()
 
     seen_sig, dedup_docs = set(), []
     for d in merged_d:
         try:
             sig = _doc_sig(d)
         except Exception:
+            logger.debug("merge_refs: _doc_sig failed; fallback repr", exc_info=True)
             sig = repr(d)[:120]
         if sig not in seen_sig:
-            dedup_docs.append(d)
-            seen_sig.add(sig)
+            dedup_docs.append(d); seen_sig.add(sig)
+
+    logger.debug("merge_refs: queries %d->%d, docs %d->%d",
+                 len(merged_q), len(dedup_q), len(merged_d), len(dedup_docs))
     return {"queries": dedup_q, "docs": dedup_docs}
 
 
+
 def refs_preview_text(state: Mapping[str, Any], max_q: int = 5, max_docs: int = 8, snippet_len: int = 350) -> str:
-    refs = state.get("references", {"queries": [], "docs": []})
-    qs = refs.get("queries", [])[:max_q]
-    docs = refs.get("docs", [])[:max_docs]
+    # 환경변수 우선
+    max_q = int(os.getenv("REFS_PREVIEW_MAX_Q", str(max_q)))
+    max_docs = int(os.getenv("REFS_PREVIEW_MAX_DOCS", str(max_docs)))
+    snippet_len = int(os.getenv("REFS_PREVIEW_SNIPPET", str(snippet_len)))
+
+    refs = state.get("references", {"queries": [], "docs": []}) or {}
+    qs = (refs.get("queries") or [])[:max_q]
+    docs = (refs.get("docs") or [])[:max_docs]
+
     lines = []
     for d in docs:
-        meta = getattr(d, "metadata", {}) or {}
-        src = meta.get("source") or meta.get("url") or "unknown"
-        snip = (d.page_content or "")[:snippet_len].replace("\n", " ")
+        meta = _extract_meta(d)
+        src = (meta.get("source") or meta.get("url") or "unknown").strip() or "unknown"
+        if hasattr(d, "page_content"):
+            txt = getattr(d, "page_content") or ""
+        elif isinstance(d, dict):
+            txt = (d.get("page_content") or d.get("content") or "") or ""
+        else:
+            txt = ""
+        snip = str(txt).replace("\n", " ")[:snippet_len]
         lines.append(f"- [{src}] {snip}")
-    q_block = "\n".join([f"- {q}" for q in qs])
+
+    q_block = "\n".join([f"- {q}" for q in qs]) if qs else "(none)"
     d_block = ("\n\nDocs:\n" + "\n".join(lines)) if lines else ""
     return "Queries:\n" + q_block + d_block
+
 
 
 def facts_block(state: Mapping[str, Any]) -> str:
@@ -220,25 +267,22 @@ def facts_block(state: Mapping[str, Any]) -> str:
 
 
 def attach_auto_citations(gathered: str, state: Mapping[str, Any] | None = None) -> str:
-    """
-    AUTO_FOOTNOTE_MODE:
-      - "quant"   : 정량 문장 감지 → 본문 인라인 [^n] + footer
-      - "domain"  : 본문에 도메인/키워드가 보이면 [^n] 인라인 + footer
-      - "footer"  : (기본) 인라인 없이 footer만 생성
-    """
     if not gathered:
         return gathered
 
     state_map = dict(state or {})
     refs = (state_map.get("references") or {}).get("docs") or []
     if not refs:
+        logger.debug("attach_auto_citations: no refs; skipping")
         return gathered
 
     if FOOTNOTE_DEF_RE.search(gathered):
+        logger.debug("attach_auto_citations: existing footnotes detected; skipping")
         return gathered
 
     mode = os.getenv("AUTO_FOOTNOTE_MODE", "footer").strip().lower()
     max_n = int(os.getenv("AUTO_FOOTNOTE_MAX", "12"))
+    logger.debug("attach_auto_citations: mode=%s, max_n=%d, refs=%d", mode, max_n, len(refs))
 
     # ── quant 모드 ─────────────────────────────────────────────
     if mode == "quant":

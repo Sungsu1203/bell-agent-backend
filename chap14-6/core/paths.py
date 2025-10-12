@@ -1,4 +1,8 @@
 from __future__ import annotations
+
+import logging
+logger = logging.getLogger(__name__)
+
 import os, re, hashlib
 from pathlib import Path
 from datetime import datetime
@@ -168,53 +172,6 @@ def read_outline(
                 pass
 
     return "", None
-
-# def read_outline(
-#     filename: str,
-#     *,
-#     root_dir: str,
-#     topic_slug: str | None,
-#     mode: str = "book",
-#     allow_fallbacks: bool = True,
-# ) -> Tuple[str, Optional[Path]]:
-#     """
-#     메인 코드 기대 시그니처:
-#       (filename, *, root_dir, topic_slug, mode="book", allow_fallbacks=True) -> (text, Path|None)
-#     우선순위:
-#       topic/outlines/<filename?> → topic/outline_<mode>.md → topic/outline.md
-#       → root/outlines/<same 순서>
-#     """
-#     tried: List[Path] = []
-#     m = mode or _doc_mode()
-#     candidates: List[Path] = []
-
-#     # 1) topic 우선
-#     if filename:
-#         candidates.append(outline_path(filename, root_dir=root_dir, topic_slug=topic_slug, mode=m))
-#     if allow_fallbacks:
-#         candidates.extend([
-#             outline_path(_default_outline_name(m), root_dir=root_dir, topic_slug=topic_slug, mode=m),
-#             outline_path("outline.md", root_dir=root_dir, topic_slug=topic_slug, mode=m),
-#         ])
-
-#     # 2) root 폴백
-#     if filename:
-#         candidates.append(outline_path(filename, root_dir=root_dir, topic_slug=None, mode=m))
-#     if allow_fallbacks:
-#         candidates.extend([
-#             outline_path(_default_outline_name(m), root_dir=root_dir, topic_slug=None, mode=m),
-#             outline_path("outline.md", root_dir=root_dir, topic_slug=None, mode=m),
-#         ])
-
-#     for p in candidates:
-#         tried.append(p)
-#         if p.exists():
-#             try:
-#                 return p.read_text(encoding="utf-8"), p
-#             except Exception:
-#                 pass
-
-#     return "", None
 
 def is_written(
     title: str,

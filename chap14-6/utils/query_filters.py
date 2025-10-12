@@ -3,6 +3,9 @@ from __future__ import annotations
 import re
 from typing import Final
 
+import logging
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "strip_web_filters",
     "looks_like_local_glob",

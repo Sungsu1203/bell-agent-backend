@@ -1,6 +1,9 @@
 # smoke_auto_footnote.py
 import os, re
 
+import logging
+logger = logging.getLogger(__name__)
+
 # ⬇️ 실제 함수가 있는 모듈 경로로 변경하세요!
 # 예) from utils.auto_footnote import attach_auto_citations
 from utils.refs import attach_auto_citations  # <-- 수정
