@@ -5,6 +5,8 @@ from utils.tasks import HumanMessage, AIMessage
 
 import logging
 logger = logging.getLogger(__name__)
+import time
+
 
 from core.config import DOC_MODE
 from core.paths import now_str as _now_str, current_path
@@ -28,11 +30,41 @@ def communicator(state: State):
     ECHO_OUTLINE = _truthy_env("ECHO_OUTLINE")
 
     logger.info("============ COMMUNICATOR ============")
+    # [ADD] rate-limit verbose summary if dashboard was just printed
+    DASH_ON = (os.getenv("LOG_DASHBOARD", "1").strip().lower() in ("1","true","yes","on"))
+    DASH_RATE = float(os.getenv("DASH_RATE_SEC", "6"))  # 최근 N초 안에 대시보드가 찍혔으면 요약 최소화
+
     llm = get_llm()
     state = sanitize_state(state)
 
+    _flags = dict(state.get("flags") or {})
+    last_dash = float(_flags.get("dash_last_ts") or 0.0)
+    recent = (DASH_ON and (time.time() - last_dash) < DASH_RATE)
+
+    if recent:
+        logger.info("[Communicator] (dashboard recently printed) 최소 메시지만 표시합니다.")
+
     messages = state.get("messages", [])
     tasks = state.get("task_history", [])
+    # [ADD] show section progress if available (from state.flags)
+    try:
+        f = state.get("flags") or {}
+        done = int(f.get("sections_done") or 0)
+        total = int(f.get("sections_total") or 0)
+        if total > 0:
+            logger.info("[Communicator] 진행률: %d / %d", done, total)
+    except Exception:
+        pass
+
+    try:
+        f = state.get("flags") or {}
+        c_done = int(f.get("chapters_done") or 0)
+        c_total = int(f.get("chapters_total") or 0)
+        if c_total:
+            logger.info("[Communicator] 챕터 진행률: %d / %d", c_done, c_total)
+    except Exception:
+        pass
+
     if not tasks:
         raise ValueError("작업 이력이 없습니다.")
 
@@ -160,6 +192,15 @@ def communicator(state: State):
 
     # 일반 커뮤니케이션
     fallback_outline = get_topic_outline_text(state)
+    # [ADD] Minimal mode: if dashboard was printed very recently, avoid verbose summary
+    if recent:
+        minimal = "[Communicator] 최신 진행상황만 간단히 안내합니다. 자세한 내용은 대시보드 로그를 참고하세요."
+        messages.append(AIMessage(content=minimal))
+
+        if pending:
+            pending.done = True
+            pending.done_at = _now_str()
+        return {"messages": messages, "task_history": tasks}
     doc_label = "보고서" if DOC_MODE == "report" else "책"
     communicator_prompt = get_communicator_prompt()
     system_chain = communicator_prompt | llm

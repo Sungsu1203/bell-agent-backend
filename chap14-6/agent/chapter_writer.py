@@ -1,6 +1,9 @@
 from __future__ import annotations
 from typing import Any
 import sys
+import os
+import re
+from os import path, makedirs
 
 from utils.tasks import HumanMessage, AIMessage
 from langchain_core.output_parsers.string import StrOutputParser
@@ -20,9 +23,9 @@ from utils.outline import next_unwritten_title
 from rag_expression import is_outline_creation
 from utils.tasks import has_pending, get_last_write_target
 from utils.outline import get_topic_outline_text
-import os
 
 from core.llm import get_llm
+
 
 def _truthy_env(name: str) -> bool:
     """'1/true/yes/on' → True 로 처리"""
@@ -31,6 +34,36 @@ def _truthy_env(name: str) -> bool:
 
 # 섹션/챕터 공용 에코 스위치 지원
 ECHO_CHAPTERS = _truthy_env("ECHO_CHAPTERS") or _truthy_env("ECHO_SECTIONS")
+
+
+def _safe_slug(s: str) -> str:
+    """폴백 저장에 쓰는 간단 슬러그."""
+    s = (s or "").strip().lower()
+    s = re.sub(r"[^\w\s\-]+", "", s, flags=re.UNICODE)
+    s = re.sub(r"\s+", "-", s)
+    s = re.sub(r"-{2,}", "-", s)
+    return s[:120] or "chapter"
+
+
+def _guess_total_chapters(outline_text: str, fallback: int) -> int:
+    """
+    아웃라인에서 '챕터 수'를 대략 추정:
+    - Markdown heading(예: '^# ' 또는 '^## ') 개수
+    - 또는 불릿(예: '^- ' '* ' '+ ') 개수
+    둘 다 없으면 fallback 반환.
+    """
+    if not outline_text:
+        return fallback
+    lines = [ln.rstrip() for ln in outline_text.splitlines()]
+    # 1) 헤더 기반
+    heads = [ln for ln in lines if re.match(r"^\s*#{1,2}\s+\S", ln)]
+    if len(heads) >= 2:  # 헤더가 2개 이상이면 그 수를 우선 채택
+        return len(heads)
+    # 2) 불릿 기반
+    bullets = [ln for ln in lines if re.match(r"^\s*[-*+]\s+\S", ln)]
+    if len(bullets) >= 3:
+        return len(bullets)
+    return fallback
 
 
 def chapter_writer(state: State):
@@ -127,14 +160,57 @@ def chapter_writer(state: State):
         except Exception as e:
             logger.warning("[CHAPTER WRITER] auto-citation 실패: %s", e)
 
-    # 저장 + 상태 기록(반환값엔 포함 X — 필요 시 유지)
-    out_path = save_md_draft(
-        target_title, gathered, mode="book", root_dir=current_path, topic_slug=state.get("topic_slug")
-    )
-    state["last_saved_path"] = out_path
-    messages.append(AIMessage(content=f"[Chapter Writer] '{target_title}' 초안 작성 완료 → {out_path}"))
-    logger.info("[CHAPTER WRITER] draft saved → %s", out_path)
+    # 저장 시도 (save_md_draft 우선, 실패 시 폴백)
+    slug = str(state.get("topic_slug") or "default")
+    out_dir = path.join(current_path, "content", slug)
+    out_path = None
+    try:
+        out_path = save_md_draft(
+            target_title, gathered, mode="book",
+            root_dir=current_path, topic_slug=slug
+        )
+        if not out_path or not path.isfile(out_path):
+            raise RuntimeError("save_md_draft returned empty or file not found")
+        logger.info("[CHAPTER WRITER] saved via save_md_draft → %s", out_path)
+    except Exception as e:
+        try:
+            makedirs(out_dir, exist_ok=True)
+            fname = f"{_safe_slug(target_title)}.md"
+            out_path = path.join(out_dir, fname)
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(gathered or "")
+            logger.warning("[CHAPTER WRITER fallback] saved → %s  (reason: %s)", out_path, e)
+        except Exception as e2:
+            logger.exception("[CHAPTER WRITER] failed to save draft (both primary and fallback): %s", e2)
+            # 저장 실패 시에도 후속 로직은 진행(파일 경로 None일 수 있음)
 
+    state["last_saved_path"] = out_path or ""
+    messages.append(AIMessage(content=f"[Chapter Writer] '{target_title}' 초안 작성 완료 → {out_path or '(save failed)'}"))
+    if out_path:
+        logger.info("[CHAPTER WRITER] draft saved → %s", out_path)
+
+    # [ADD] 진행 카운트: flags에만 저장(TypedDict 경고 회피) + 중복 카운트 방지
+    try:
+        f = dict(state.get("flags") or {})
+        seen_raw = (f.get("chapters_seen") or "").strip()
+        seen: set[str] = set(filter(None, (x.strip() for x in seen_raw.split(",")))) if seen_raw else set()
+        key = target_title.strip()
+
+        # 총 챕터 수 추정(아웃라인 기반 → 없으면 ENV → 디폴트 12)
+        total_default = int(os.getenv("CHAPTERS_TOTAL_DEFAULT", "12"))
+        guessed_total = _guess_total_chapters(outline_text, fallback=total_default)
+
+        if key not in seen:
+            f["chapters_done"] = int(f.get("chapters_done") or 0) + 1
+            seen.add(key)
+            f["chapters_seen"] = ",".join(sorted(seen))
+        # 항상 최신 total 유지(아웃라인 변경 시 반영)
+        f["chapters_total"] = int(f.get("chapters_total") or 0) or guessed_total
+
+        state["flags"] = f
+        logger.info("[Chapter Writer] 진행률: %d / %d", int(f.get("chapters_done") or 0), int(f.get("chapters_total") or 0))
+    except Exception as _e:
+        logger.debug("[CHAPTER WRITER] progress flag update skipped: %s", _e)
 
     # (NEW) 콘솔 에코: 저장된 챕터 초안 원문을 바로 출력 (옵션)
     #  - app.py 의 --echo-sections 플래그가 ECHO_SECTIONS=1 로 설정되어 있으면 이것도 동작
@@ -142,7 +218,7 @@ def chapter_writer(state: State):
     if ECHO_CHAPTERS:
         try:
             box_title = f"CHAPTER DRAFT: {target_title}"
-            src_tag   = f"saved → {out_path}"
+            src_tag   = f"saved → {out_path or '(save failed)'}"
             hdr_line  = "=" * max(len(box_title), len(src_tag), 24)
             sys.stdout.write("\n" + hdr_line + "\n")
             sys.stdout.write(box_title + "\n")

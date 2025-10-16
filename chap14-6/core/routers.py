@@ -10,7 +10,7 @@ from core.state_types import State
 from utils.sanitize import as_int
 from utils.outline import get_topic_outline_text
 
-from utils.tasks import schedule_writer_if_needed
+from utils.tasks import has_pending, schedule_writer_if_needed
 
 
 def tail_task_router(state: State):
@@ -55,31 +55,42 @@ def tail_task_router(state: State):
 
 def after_vector_router(state: State):
     """벡터검색 이후 라우팅."""
+
+    tasks = state.get("tasks") or []
+
+    # 0) 연구 루프 활성 + synthesizer 펜딩이면 → 최우선
+    if bool(state.get("research_loop_active")) and has_pending(tasks, "research_synthesizer"):
+        logger.info("[router.after_vector] research_loop_active & synthesizer pending → research_synthesizer")
+        return "research_synthesizer"
+
+    # 1) (옵션) 집필 예약 — 연구 중 허용 플래그로 제어
     schedule_writer_if_needed(
         state,
-        tasks=state.get("tasks"),
+        tasks=tasks,
         messages=state.get("messages"),
         outline_text=state.get("outline_text"),
-        allow_during_research=os.getenv("AUTO_WRITE_DURING_RESEARCH","0")=="1",
+        allow_during_research=os.getenv("AUTO_WRITE_DURING_RESEARCH", "0") == "1",
     )
-    
+
+    # 2) QA 직답 모드면 → 커뮤니케이터
     if state.get("qa_direct_reply"):
         logger.info("[router.after_vector] qa_direct_reply=True → communicator")
         return "communicator"
 
+    # 3) 연구 루프 조건 충족 시 → synthesizer (펜딩이 없더라도 루프 계속)
     role = (state.get("agent_role") or "").strip().lower()
     rounds_done = int(state.get("research_round") or 0)
     max_iter = as_int(state, "iteration_count", 0)
     has_objs = bool(state.get("research_objectives"))
 
-    if role == "research analyst" and has_objs and rounds_done < max_iter:
+    if (role == "research analyst") and has_objs and (rounds_done < max_iter):
         logger.info("[router.after_vector] research loop continues → research_synthesizer")
         return "research_synthesizer"
 
+    # 4) 그 외 → tail router
     nxt = tail_task_router(state)
     logger.info("[router.after_vector] fallback → %s", nxt)
     return nxt
-
 
 def after_planner_router(state: State):
     """

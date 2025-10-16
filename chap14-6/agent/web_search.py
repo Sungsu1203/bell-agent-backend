@@ -6,39 +6,35 @@ logger = logging.getLogger(__name__)
 
 # (외부 타입/설정/유틸)
 from core.state_types import State
-from core.config import WRITER_AGENT            # ← main.py의 전역 상수 대신 여기서 import
-from core.paths import current_path, topic_dir as _topic_dir, now_str as _now_str
-#from utils.sanitize import sanitize_numeric_state_generic
-from core.models import Task, AgentName
+from core.config import WRITER_AGENT
+from core.paths import current_path, now_str as _now_str
+from core.models import Task
 from utils.sanitize import sanitize_state
 
-from utils.rag_utils import merge_refs, vector_count          # ← main.py의 merge_refs 대신 utils 경로
+from utils.rag_utils import merge_refs, vector_count
 from prompts import get_web_search_prompt
 
-from utils.tasks import has_pending, get_last_write_target, iter_tool_calls
-from utils.outline import pick_outline_filename, get_topic_outline_text
-from core.config import DOC_MODE, PROJECT_ROOT  # (또는 여러분이 쓰는 설정 모듈)
+from utils.tasks import has_pending, iter_tool_calls
+from utils.outline import get_topic_outline_text
+from core.config import DOC_MODE, PROJECT_ROOT
 from utils.forced_queries import extract_forced_queries_from_messages
 
 from settings_gatekeep import gatekeep_enabled, get_allowed_domains
 from settings_gatekeep import url_allowed as _allowed
 
 from tools.web_rag import (
-    retrieve,
     web_search,
     add_web_pages_json_to_chroma,
     web_page_json_to_documents,
     _default_chroma_dir,
-    clear_vector_store,
-
 )
 
-from utils.query_filters import looks_like_local_glob, clean_seed as _clean_seed, ok_query
+from utils.query_filters import clean_seed as _clean_seed
 from tools.local_rag import ingest_local_files
 
+import json as _json
 from core.llm import get_llm
 
-# (main.py 안에서 쓰던 나머지 import 들은 함수 안 'late import' 그대로 둬도 됩니다)
 
 def web_search_agent(state: State):
     # ────────────────────────────────────────────────────────────────────────────
@@ -49,11 +45,42 @@ def web_search_agent(state: State):
     from langchain_core.documents import Document
     from urllib.parse import urlparse
     import re as _re
-    from typing import Iterable, Set
+    from typing import Iterable, Set, MutableMapping, Any, cast
     # ────────────────────────────────────────────────────────────────────────────
     logger.info("============ WEB SEARCH AGENT ============")
+
+    # (3) 키/환경 점검 로그 (DEBUG)
+    try:
+        logger.debug(
+            "[web_search][env] backends=%s | GOOGLE_API_KEY=%s CSE_ID=%s | SERPAPI=%s | TAVILY=%s",
+            os.getenv("SEARCH_BACKENDS"),
+            "Y" if (os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_CSE_API_KEY")) else "N",
+            "Y" if (os.getenv("GOOGLE_CSE_ID") or os.getenv("GOOGLE_CSE_CX")) else "N",
+            "Y" if os.getenv("SERPAPI_API_KEY") else "N",
+            "Y" if os.getenv("TAVILY_API_KEY") else "N",
+        )
+    except Exception:
+        pass
+
     llm = get_llm()
     state = sanitize_state(state)
+
+    # === NS + Persist Dir (vector_search와 동일 규칙으로 '한 번만' 계산) ===
+    topic_slug = (state.get("topic_slug") or os.getenv("TOPIC_SLUG") or "default").strip()
+    env_ns = (os.getenv("CHROMA_NAMESPACE") or "").strip()
+    ns = env_ns or f"{topic_slug}-default"
+
+    # 단일 진실 persist_dir: 항상 ns로부터 해석
+    persist_dir = _default_chroma_dir(ns)
+
+    # 상태에도 기록(타입 안전: flags.chroma.* 사용)
+    flags = cast(MutableMapping[str, Any], state.setdefault("flags", {}))
+    chroma = cast(MutableMapping[str, Any], flags.setdefault("chroma", {}))
+    chroma["ns"] = ns
+    chroma["dir"] = persist_dir
+
+    logger.info("[web_search] ns=%s (CHROMA_NAMESPACE=%r, topic_slug=%r)", ns, env_ns, topic_slug)
+    logger.info("[web_search] persist_dir(default_resolve)=%s", persist_dir)
 
     # --- (1) 태스크 확보 ------------------------------------------------------
     tasks = state.get("task_history", [])
@@ -64,8 +91,8 @@ def web_search_agent(state: State):
         raise ValueError(f"web_search_agent pending task 없음. 현재 마지막 태스크: {tasks[-1]}")
 
     web_search_system_prompt = get_web_search_prompt()
-
     messages = state.get("messages", [])
+
     # ✅ 이전 라운드까지의 refs를 그대로 이어받기
     references: dict[str, list] = state.get("references", {"queries": [], "docs": []})
     _existing_qs = set(q.strip().lower() for q in (references.get("queries") or []) if q and q.strip())
@@ -79,11 +106,17 @@ def web_search_agent(state: State):
         "messages": messages,
         "outline": outline_text,
         "current_time": _now_str(),
-        "topic_title": state.get("topic_title") or state.get("topic") or "(untitled)",
+        "topic_title": (
+            state.get("topic_title")
+            or (state.get("flags") or {}).get("topic_title")
+            or state.get("topic")
+            or state.get("topic_slug")
+            or "(untitled)"
+        ),
     }
 
-    queries: list[str] = []         # 이번 라운드 실제 실행/추가된 질의 목록
-    json_paths: list[str] = []      # 저장된 웹검색 JSON 경로
+    queries: list[str] = []             # 이번 라운드 실제 실행/추가된 질의 목록
+    json_paths: list[str] = []          # 저장된 웹검색 JSON 경로
     new_docs_preview: list[Document] = []  # 미리보기용 문서 샘플
 
     MAX_INDEXED_PER_ROUND = int(os.getenv("MAX_INDEXED_PER_ROUND", "0"))  # 0=제한없음
@@ -91,10 +124,6 @@ def web_search_agent(state: State):
     SKIP_WEB = os.getenv("SKIP_WEB_SEARCH", "0") == "1"
     if SKIP_WEB:
         logger.info("[WEB SEARCH AGENT] SKIP_WEB_SEARCH=1 → 외부 웹검색 건너뜀(로컬 RAG만).")
-
-    ns = state.get("chroma_ns") or os.getenv("CHROMA_NAMESPACE") or "default"
-    slug = state.get("topic_slug")
-    persist_dir = _topic_dir(slug) if slug else None
 
     chunk_total = 0  # 이번 라운드 인덱싱된 청크 수
 
@@ -184,10 +213,9 @@ def web_search_agent(state: State):
         out = p.with_name(p.stem + "_filtered" + p.suffix)
         out.write_text(json.dumps(filtered, ensure_ascii=False), encoding="utf-8")
         return str(out)
-    
+
     # [ANCHOR: ROUND_URL_TALLY_INIT]
-    flags = state.setdefault("flags", {})
-    topic_key = (slug or "default")
+    topic_key = (topic_slug or "default")
 
     _seen_by_topic = flags.setdefault("seen_sources_by_topic", {})
     _seen_sources = set(_seen_by_topic.get(topic_key) or [])
@@ -242,6 +270,10 @@ def web_search_agent(state: State):
 
     # --- (3) 실제 검색/적재 실행 유틸 -----------------------------------------
     def _run_web_search_with_guard(q: str, preview_limit: int = 5, retries: int = 2) -> bool:
+        """
+        (2) Google식 연산자 감지 시 Google 우선 엔진으로 강제:
+            site:, 괄호, OR/AND 가 포함되면 engine='google_cse'로 호출
+        """
         nonlocal chunk_total
         if SKIP_WEB:
             logger.info("[WEB SEARCH AGENT] SKIP_WEB_SEARCH=1 → web search skipped.")
@@ -251,16 +283,23 @@ def web_search_agent(state: State):
         if not q:
             return False
 
+        # (2) Google-ish 판별
+        googleish = any(tok in q for tok in ("site:", " OR ", " AND ", "(", ")"))
+
         ok = False
         for attempt in range(retries + 1):
             try:
-                # 1) 검색 호출
-                _, json_path = web_search.invoke({"query": q})
+                # 1) 검색 호출 (googleish면 google_cse 우선)
+                payload = {"query": q}
+                if googleish:
+                    payload["engine"] = "google_cse"
+
+                _, json_path = web_search.invoke(payload)
                 json_paths.append(json_path)
 
                 # 2) 결과 JSON 이동(옵션)
                 try:
-                    res_dir = os.path.join(current_path, "resources", state.get("topic_slug") or "default")
+                    res_dir = os.path.join(current_path, "resources", topic_slug or "default")
                     Path(res_dir).mkdir(parents=True, exist_ok=True)
                     new_json_path = os.path.join(res_dir, os.path.basename(json_path))
                     if os.path.abspath(json_path) != os.path.abspath(new_json_path):
@@ -275,10 +314,13 @@ def web_search_agent(state: State):
                 filtered_json = _filter_json_by_domain(json_path)
                 _tally_new_urls_from_json(filtered_json)
 
-                # 4) 인덱싱
+                # 4) 인덱싱 (항상 업서트만: clear=False) — ★ 동일 ns + persist_dir 사용
                 try:
                     _orig_count, chunk_count = add_web_pages_json_to_chroma(
-                        filtered_json, namespace=ns, persist_directory=persist_dir
+                        json_file=filtered_json,
+                        namespace=ns,
+                        clear=False,
+                        persist_directory=persist_dir
                     )
                     chunk_total += int(chunk_count or 0)
                 except Exception as idx_e:
@@ -332,7 +374,7 @@ def web_search_agent(state: State):
     seen_norm = set()
     for q in raw_planner_qs:
         nq = re.sub(r"\s+", " ", _normalize_planner_q(q))
-        if not nq: 
+        if not nq:
             continue
         lk = nq.lower()
         if lk in seen_norm or lk in _existing_qs:
@@ -399,6 +441,21 @@ def web_search_agent(state: State):
         for args in iter_tool_calls(search_plans, "web_search"):
             if ran >= MAX_SEARCH_QUERIES_PER_ROUND:
                 break
+            # 1) str → dict로 정규화 (JSON 문자열이면 파싱, 아니면 {"query": str}로 감싸기)
+            if isinstance(args, str):
+                try:
+                    args = _json.loads(args)  # '{"query": "..."}' 형태일 수 있음
+                except Exception:
+                    args = {"query": args}
+            # 2) list/tuple 등 예외 타입 가드
+            elif isinstance(args, (list, tuple)):
+                args = {"query": " ".join(map(str, args))}
+            # 3) dict가 아니면 스킵
+            elif not isinstance(args, dict):
+                logger.debug("web_search tool args ignored (unsupported type): %r",
+                            type(args).__name__)
+                continue
+
             q = (args.get("query") or "").strip()
             if not q:
                 continue
@@ -448,54 +505,93 @@ def web_search_agent(state: State):
         else:
             logger.info("[WEB SEARCH AGENT] (skip) auto-fallback web queries suppressed.")
 
-    # --- (5) 로컬 파일 인덱싱 (토픽당 1회, TypedDict-safe) --------------------
-    env_globs = [g.strip() for g in (os.getenv("LOCAL_RAG_GLOBS", "") or "").split("|") if g.strip()]
-    slug_or_wildcard = slug if slug else "**"
+    # --- (5) 로컬 파일 인덱싱 (토픽당 1회) ------------------------------------
+    # [ANCHOR: LOCAL_RAG_GLOBS_LOAD] ──────────────────────────────────────────────
+    # 1) ENV 파싱: |, ;, , , 개행 모두 구분자로 지원
+    _raw = os.getenv("LOCAL_RAG_GLOBS", "")
+    _tokens = [t.strip() for t in re.split(r"[|;, \n]+", _raw) if t.strip()]
 
-    def _normalize_and_expand(p: str) -> str:
-        p = p.replace("<topic-slug>", slug_or_wildcard)
-        p = p.replace("\\", os.sep).replace("/", os.sep)
-        return p
-
-    local_globs: list[str] = [_normalize_and_expand(p) for p in env_globs]
-
+    # 2) 사용자 메시지로 추가한 글롭(add_local, local_rag, 내부자료/내부문서)도 병합
     last_human = next((m for m in reversed(messages) if isinstance(m, HumanMessage)), None)
     if last_human and isinstance(last_human.content, str):
         m = re.search(r"(?:add_local|local_rag|내부자료|내부문서)\s*:\s*(.+)", last_human.content, flags=re.I)
         if m:
-            arg = m.group(1)
-            for token in re.split(r"[|;,]", arg):
-                t = token.strip()
-                if t:
-                    local_globs.append(_normalize_and_expand(t))
+            for tok in re.split(r"[|;, \n]+", m.group(1)):
+                if tok.strip():
+                    _tokens.append(tok.strip())
 
-    # 중복 제거
-    seen = set(); dedup_globs = []
-    for g in local_globs:
-        key = g.lower() if os.name == "nt" else g
-        if key in seen:
-            continue
-        seen.add(key); dedup_globs.append(g)
+    slug_or_wildcard = topic_slug if topic_slug else "**"
 
-    # 스캔 로그
+    def _normalize_token(p: str) -> str:
+        # 플레이스홀더 치환
+        p = p.replace("<topic-slug>", slug_or_wildcard)
+        # 슬래시 정규화(윈도/유닉스 공통)
+        return p.replace("\\", "/").strip()
+
+    tokens_norm = [_normalize_token(t) for t in _tokens]
+
+    # 3) 기준 디렉터리 후보:
+    # - current_path (chap14-6)
+    # - 그 상위 폴더(프로젝트 루트: D:\GPT_AGENT_2025_BOOK)
+    # - CWD, 그리고 이 파일 기준 상위
+    from pathlib import Path
+    _base_candidates = []
+    try:
+        _cp = Path(current_path).resolve()
+        _base_candidates.extend([_cp, _cp.parent])
+    except Exception:
+        pass
+    _base_candidates.extend([Path.cwd().resolve(), Path(__file__).resolve().parents[1]])
+
+    # 중복 제거(윈도우는 대소문자/구분자 차이를 줄이기 위해 소문자 비교)
+    def _dedup_keep_order(seq):
+        seen = set(); out = []
+        for s in seq:
+            key = s.lower() if os.name == "nt" else s
+            if key not in seen:
+                seen.add(key); out.append(s)
+        return out
+
+    tokens_norm = _dedup_keep_order(tokens_norm)
+
+    def _resolve_to_abs(pattern: str) -> list[str]:
+        """여러 기준 디렉터리 후보에 대해 glob을 시도하고, 결과가 없으면 마지막 후보 기준 절대경로 패턴도 반환."""
+        found_abs = []
+        for base in _base_candidates:
+            patt_abs = str((base / pattern).as_posix())
+            hits = list(glob.iglob(patt_abs, recursive=True))
+            if hits:
+                found_abs.extend(hits)
+        if found_abs:
+            return sorted(_dedup_keep_order([str(Path(h).resolve()) for h in found_abs]))
+        # 매칭이 전혀 없을 경우: 마지막 후보 기준의 '절대 패턴'을 만들어, ingest 단계에서 다시 평가되도록 넘김
+        return [str((_base_candidates[-1] / pattern).resolve())]
+
+    # 스캔 로그(패턴별로 무엇을 어디서 찾는지 보여줌)
+    dedup_globs: list[str] = []
     debug_matches_total = 0
-    if not dedup_globs:
+    if not tokens_norm:
         logger.info("[LOCAL SCAN] 구성된 글롭이 없습니다. LOCAL_RAG_GLOBS 또는 add_local 명령을 확인하세요.")
     else:
-        for pattern in dedup_globs:
-            pattern_abs = pattern if pattern.startswith(os.sep) or (":" in pattern) else os.path.join(current_path, pattern)
-            found = list(glob.iglob(pattern_abs, recursive=True))
-            logger.info("[LOCAL SCAN] %s  -> %s file(s)", pattern, len(found))
-            if len(found) == 0:
-                logger.info("[LOCAL SCAN]   ↳ 경로 확인: %s", pattern_abs)
-            debug_matches_total += len(found)
+        logger.info("[LOCAL SCAN] base candidates = %s", [str(p) for p in _base_candidates])
+        for patt in tokens_norm:
+            hits = _resolve_to_abs(patt)
+            # hits 원소가 '실제 파일'이거나 '절대 패턴'(존재 X)일 수 있음 → 존재하는 것만 카운트
+            hit_files = [h for h in hits if os.path.isfile(h)]
+            logger.info("[LOCAL SCAN] %s  -> %d file(s)", patt, len(hit_files))
+            if len(hit_files) == 0:
+                # 디버그용: 우리가 시도한 절대경로/패턴 하나 표시
+                logger.info("[LOCAL SCAN]   ↳ 시도 기준(예): %s", hits[-1] if hits else "(none)")
+            debug_matches_total += len(hit_files)
+            # ingest 함수에는 '패턴'이 아닌 **패스/패턴 문자열**을 그대로 넘길 수 있으므로, 원본 패턴을 유지
+            dedup_globs.append(patt)
+
         if debug_matches_total == 0:
             logger.info("[LOCAL SCAN] 모든 글롭이 0개 매칭입니다. 경로/패턴 점검 필요.")
+    # ──────────────────────────────────────────────────────────────────────────────
 
     # ✅ 토픽별 1회 인덱싱 가드
-    flags = state.setdefault("flags", {})
     li = flags.setdefault("local_ingested", {})
-    topic_key = (slug or "default")
     skip_local_ingest = bool(li.get(topic_key))
     if skip_local_ingest:
         logger.info("[LOCAL SCAN] already ingested for topic '%s' → skip ingest", topic_key)
@@ -504,8 +600,8 @@ def web_search_agent(state: State):
         l_jsons, l_docs, l_chunks = ingest_local_files(
             dedup_globs,
             namespace=ns,
-            persist_directory=persist_dir,
-            topic_slug=slug or "default",
+            persist_directory=persist_dir,   # ★ 동일 persist_dir 유지
+            topic_slug=topic_slug or "default",
             root_dir=current_path,
             add_web_pages_json_to_chroma=add_web_pages_json_to_chroma,
             web_page_json_to_documents=web_page_json_to_documents,
@@ -531,10 +627,7 @@ def web_search_agent(state: State):
 
     # [ANCHOR: VECTOR_COUNT_AFTER_LOCAL_INGEST]
     try:
-        if persist_dir:
-            logger.debug("[DEBUG] after local ingest, doc_count=%s", vector_count(ns, persist_dir))
-        else:
-            logger.debug("[DEBUG] after local ingest, doc_count skipped (persist_dir=None)")
+        logger.debug("[DEBUG] after local ingest, doc_count=%s", vector_count(ns, persist_dir))
     except Exception as e:
         logger.debug("[DEBUG] after local ingest, doc_count check failed: %s", e)
 
@@ -576,8 +669,6 @@ def web_search_agent(state: State):
         actual, capped, chunk_total, len(queries)
     )
 
-    n = actual
-
     pending.done = True
     pending.done_at = _now_str()
 
@@ -602,10 +693,10 @@ def web_search_agent(state: State):
         "references": state.get("references", {"queries": [], "docs": []}),
         "research_loop_active": bool(state.get("research_loop_active")),
         "research_plan": state.get("research_plan"),
-        "new_url_count": int(state.get("new_url_count") or n),
-        "new_url_count_round": int(state.get("new_url_count_round") or n),
-        "round_new_urls": int(state.get("round_new_urls") or n),
-        "round_added_urls": int(state.get("round_added_urls") or n),
+        "new_url_count": int(state.get("new_url_count") or actual),
+        "new_url_count_round": int(state.get("new_url_count_round") or actual),
+        "round_new_urls": int(state.get("round_new_urls") or actual),
+        "round_added_urls": int(state.get("round_added_urls") or actual),
         "flags": flags,
         "local_ingested_once": bool(state.get("local_ingested_once")),
     }

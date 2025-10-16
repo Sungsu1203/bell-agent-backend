@@ -3,42 +3,44 @@ from __future__ import annotations
 import logging
 logger = logging.getLogger(__name__)
 
-import os,re
-from typing import TypedDict, List, Any, Mapping, cast, MutableMapping, Iterable 
+import os, re
+from typing import TypedDict, List, Any, Mapping, cast, MutableMapping, Iterable
 from utils.tasks import HumanMessage, AIMessage
 from core.llm import get_llm
 from core.config import DOC_MODE, WRITER_AGENT
-from core.paths import current_path, now_str as _now_str, topic_dir as _topic_dir
+from core.paths import current_path, now_str as _now_str
 from core.state_types import State
-from core.models import Task, AgentName
+from core.models import Task
 from utils.sanitize import sanitize_state, as_int
-from utils.rag_utils import merge_refs, refs_preview_text
-from utils.query_filters import strip_web_filters as _strip_web_filters, looks_like_local_glob as _looks_like_local_glob, clean_seed as _clean_seed, ok_query as _ok_query
+from utils.rag_utils import merge_refs
+from utils.query_filters import (
+    strip_web_filters as _strip_web_filters,
+    looks_like_local_glob as _looks_like_local_glob,
+    clean_seed as _clean_seed,
+    ok_query as _ok_query,
+)
 
 from prompts import get_vector_search_prompt
-from core.paths import read_outline
-from utils.outline import next_unwritten_title
-from utils.tasks import has_pending, get_last_write_target, iter_tool_calls
+from utils.tasks import has_pending, iter_tool_calls
 from utils.outline import get_topic_outline_text
 from tools.web_rag import (
     retrieve,
     add_web_pages_json_to_chroma,
     web_page_json_to_documents,
-    _default_chroma_dir,
     ensure_vector_store_cleared_once,
+    _default_chroma_dir,
 )
 from tools.local_rag import ingest_local_files
 from utils.text_utils import plain_snip as _plain_snip
 from utils.tasks import schedule_writer_if_needed
 
-# types_refs.py (예: vector_search.py 상단에 넣어도 됨)
 
+# ── Refs 타입 도우미 ──────────────────────────────────────────────────────────
 class Refs(TypedDict):
     queries: List[str]
-    docs: List[Any]           # <- 간단/안전: Document 대신 Any
+    docs: List[Any]           # 안전을 위해 Any
 
 def _to_refs(raw: Mapping[str, Any] | None) -> Refs:
-    """merge_refs(dict)->dict 결과나 임의 매핑을 안전하게 Refs로 정규화."""
     if not isinstance(raw, Mapping):
         return {"queries": [], "docs": []}
     return {
@@ -51,10 +53,66 @@ _DEFAULT_REFS: Refs = {"queries": [], "docs": []}
 def get_refs(state: Mapping[str, Any]) -> Refs:
     return _to_refs(cast(Mapping[str, Any] | None, state.get("references")))
 
+
+# ── logging helpers ───────────────────────────────────────────────────────────
+_LOG_TOPK = int(os.getenv("LOG_TOPK", "3") or "3")
+_LOG_WRAP = int(os.getenv("LOG_WRAP", "88") or "88")
+
+def _ell(s: str, n: int = _LOG_WRAP) -> str:
+    s = (s or "").replace("\n", " ").strip()
+    return (s[:n-1] + "…") if len(s) > n else s
+
+def _host(u: str) -> str:
+    try:
+        from urllib.parse import urlparse
+        return (urlparse(u).netloc or "").lower()
+    except Exception:
+        return ""
+
+def _doc_title(d: Any) -> str:
+    meta = getattr(d, "metadata", {}) or {}
+    t = meta.get("title") or ""
+    if not t:
+        t = (getattr(d, "page_content", "") or "").split("\n", 1)[0]
+    return _ell(t or "(no title)")
+
+def _doc_url(d: Any) -> str:
+    meta = getattr(d, "metadata", {}) or {}
+    return meta.get("source") or meta.get("url") or ""
+
+def _doc_score(d: Any):
+    s = getattr(d, "score", None)
+    if s is None:
+        meta = getattr(d, "metadata", {}) or {}
+        s = meta.get("score")
+    return s
+
+def _log_retrieval(query: str, docs: list[Any], tag: str = "vector_search") -> None:
+    try:
+        logger.info("[%(tag)s][query] %(q)s", {"tag": tag, "q": _ell(query)})
+        if not docs:
+            logger.info("[%(tag)s] no hits", {"tag": tag})
+            return
+        lines = []
+        topn = min(_LOG_TOPK, len(docs))
+        for i, d in enumerate(docs[:topn], start=1):
+            u = _doc_url(d)
+            h = _host(u)
+            sc = _doc_score(d)
+            t = _doc_title(d)
+            if sc is not None:
+                lines.append(f"  {i:>2}. {t}\n      └─ {h} :: {u}  (score={sc})")
+            else:
+                lines.append(f"  {i:>2}. {t}\n      └─ {h} :: {u}")
+        logger.info("[%(tag)s][top%(n)d]\n%(body)s", {"tag": tag, "n": topn, "body": "\n".join(lines)})
+    except Exception:
+        pass
+
+
+# ── 메인 에이전트 ─────────────────────────────────────────────────────────────
 def vector_search_agent(state: State):
     logger.info("============ VECTOR SEARCH AGENT ============")
     llm = get_llm()
-
     state = sanitize_state(state)
 
     tasks = state.get("task_history", []) or []
@@ -75,16 +133,24 @@ def vector_search_agent(state: State):
     references: Refs = get_refs(state)
     outline_text = get_topic_outline_text(state)
 
-    # === 네임스페이스 & 퍼시스트 디렉터리 규칙 ===
-    topic_slug: str = state.get("topic_slug") or "default"
-    session_suffix: str = (state.get("session_tag") or state.get("topic_ts") or "default")
-    ns: str = f"{topic_slug}-{session_suffix}"
+    # === 네임스페이스 & 퍼시스트 디렉터리 (A안: 단일 진실) ====================
+    topic_slug: str = (state.get("topic_slug") or os.getenv("TOPIC_SLUG") or "default").strip()
+    env_ns = (os.getenv("CHROMA_NAMESPACE") or "").strip()
+    ns: str = env_ns or f"{topic_slug}-default"
 
-    # persist_directory는 None으로 두고, web_rag._resolve_persist_dir 규칙을 따름
-    persist_dir = None
+    # 단일 persist_dir: 항상 ns 기준 디렉터리 사용
+    persist_dir = _default_chroma_dir(ns)
 
-    # ✅ 첫 라운드에만 clear (옵션) — 내부에서 CLEAR_ON_FIRST_VECTOR/CLEAR_CHROMA_ON_START 체크
-    #    동일 (persist_dir, ns) 키에 대해서는 1회만 클리어
+    # 상태에 기록(타입 안전: flags.chroma.* 사용)
+    flags = cast(MutableMapping[str, Any], state.setdefault("flags", {}))
+    chroma = cast(MutableMapping[str, Any], flags.setdefault("chroma", {}))
+    chroma["ns"] = ns
+    chroma["dir"] = persist_dir
+
+    logger.info("[vector_search] ns=%s (CHROMA_NAMESPACE=%r, topic_slug=%r)", ns, env_ns, topic_slug)
+    logger.info("[vector_search] persist_dir(default_resolve)=%s", persist_dir)
+
+    # ✅ 첫 라운드에만 clear (내부에서 CLEAR_ON_FIRST_VECTOR/CLEAR_CHROMA_ON_START 체크)
     try:
         ensure_vector_store_cleared_once(namespace=ns, persist_directory=persist_dir)
     except Exception as e:
@@ -92,6 +158,7 @@ def vector_search_agent(state: State):
 
     TOP_K = int(os.getenv("RAG_TOP_K", "6"))
 
+    # ── (옵션) 웹 검색을 건너뛴 세션에서 로컬만 인덱싱 요청이 있을 때 1회 수행 ──
     l_chunks = 0
     try:
         ensure_local = os.getenv("SKIP_WEB_SEARCH", "0") == "1"
@@ -119,7 +186,7 @@ def vector_search_agent(state: State):
                 l_jsons, l_docs, l_chunks = ingest_local_files(
                     dedup,
                     namespace=ns,
-                    persist_directory=persist_dir,   # ← None 유지 (클리어 X, 업서트만)
+                    persist_directory=persist_dir,   # ★ 통일된 persist_dir 사용
                     topic_slug=slug,
                     root_dir=current_path,
                     add_web_pages_json_to_chroma=add_web_pages_json_to_chroma,
@@ -136,15 +203,6 @@ def vector_search_agent(state: State):
     ran_queries: set[str] = set()
     accum_queries: list[str] = []
     accum_docs: list[Any] = []
-
-    def _skip_reason(q: str, key: str) -> str:
-        if not (q or "").strip():
-            return "empty=True"
-        r = []
-        if _is_noise_query(q): r.append("noise=True")
-        if not _ok_query(q):   r.append("ok=False")
-        if key in ran_queries: r.append("dup=True")
-        return " ".join(r) if r else ""
 
     def _extract_user_query(s: str) -> str:
         if not isinstance(s, str):
@@ -168,9 +226,7 @@ def vector_search_agent(state: State):
         if len(ql) <= 2:
             return True
         bad_markers = ["gtm.js", "function(", "<meta", "<script", "@media", "var ", "cookieconsent", "usercentrics"]
-        if any(b in ql for b in bad_markers):
-            return True
-        return False
+        return any(b in ql for b in bad_markers)
 
     # ─────────────────────────────────────────────────────────────────────────
     # 1) 사용자 질의 우선 검색
@@ -194,12 +250,14 @@ def vector_search_agent(state: State):
                 retrieved_docs: list[Any] = retrieve.invoke({
                     "query": user_q_clean,
                     "namespace": ns,
-                    "persist_directory": persist_dir,   # ← None 유지
+                    "persist_directory": persist_dir,   # ★ 통일
                     "top_k": TOP_K
                 })
             except Exception as e:
                 logger.warning("retrieve 실패(user_q='%s' → '%s'): %s", user_q, user_q_clean, e)
                 retrieved_docs = []
+
+            _log_retrieval(user_q_clean, retrieved_docs, tag="vector_search")
 
             accum_queries.append(user_q_clean)
             accum_docs.extend(retrieved_docs)
@@ -322,12 +380,14 @@ def vector_search_agent(state: State):
             retrieved_docs = retrieve.invoke({
                 "query": q_for_retrieve,
                 "namespace": ns,
-                "persist_directory": persist_dir,   # ← None 유지
+                "persist_directory": persist_dir,   # ★ 통일
                 "top_k": TOP_K
             })
         except Exception as e:
             logger.warning("retrieve 실패(query='%s' → '%s'): %s", q, q_for_retrieve, e)
             continue
+
+        _log_retrieval(q_for_retrieve, retrieved_docs, tag="vector_search")
 
         accum_queries.append(q_for_retrieve)
         accum_docs.extend(retrieved_docs)
@@ -374,12 +434,14 @@ def vector_search_agent(state: State):
             retrieved_docs = retrieve.invoke({
                 "query": q_for_retrieve,
                 "namespace": ns,
-                "persist_directory": persist_dir,   # ← None 유지
+                "persist_directory": persist_dir,   # ★ 통일
                 "top_k": TOP_K
             })
         except Exception as e:
             logger.warning("retrieve 실패(query='%s' → '%s'): %s", query, q_for_retrieve, e)
             continue
+
+        _log_retrieval(q_for_retrieve, retrieved_docs, tag="vector_search")
 
         accum_queries.append(q_for_retrieve)
         accum_docs.extend(retrieved_docs)
@@ -422,6 +484,11 @@ def vector_search_agent(state: State):
     if len(references["docs"]) > 10:
         logger.debug("  ... (+%s more)", len(references["docs"]) - 10)
 
+    try:
+        _log_retrieval(f"(summary) total {len(accum_queries)} queries", references["docs"], tag="vector_search")
+    except Exception:
+        pass
+
     pending.done = True
     pending.done_at = _now_str()
 
@@ -437,6 +504,7 @@ def vector_search_agent(state: State):
             )
             for t in (tsk_list or [])
         )
+
     explicit_flag = state.get("research_loop_active")
     if isinstance(explicit_flag, bool):
         research_loop_active = explicit_flag
@@ -466,9 +534,6 @@ def vector_search_agent(state: State):
         "research_round": state.get("research_round"),
     })
 
-    logger.debug("[tasklist ids] tasks=%s, state.task_history=%s", id(tasks), id(state.get("task_history")))
-
-    # ======== ANCHOR: RESEARCH_LOOP_HANDOFF_FROM_VECTOR ========
     if research_loop_active:
         logger.info("[HANDOFF] scheduling research_synthesizer (research_loop_active=True)")
         try:
@@ -490,7 +555,6 @@ def vector_search_agent(state: State):
 
         messages.append(AIMessage(content="[VECTOR SEARCH AGENT] 연구 라운드 진행 중 → 합성 단계(Research Synthesizer)로 이동"))
         return {"messages": messages, "task_history": tasks, "references": references}
-    # ======== END: RESEARCH_LOOP_HANDOFF_FROM_VECTOR ========
 
     if (not research_loop_active) or AUTO_WRITE_DURING_RESEARCH:
         did = schedule_writer_if_needed(
@@ -502,8 +566,6 @@ def vector_search_agent(state: State):
         )
         if (not did) and not has_pending(tasks, "communicator"):
             tasks.append(Task(agent="communicator", done=False, description="검색/인덱싱 완료 보고 및 다음 집필 대상 확인", done_at=""))
-    else:
-        pass
 
     _qs = references.get("queries", [])
     _qs_view = _qs[:8] + (["..."] if len(_qs) > 8 else [])

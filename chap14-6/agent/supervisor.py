@@ -35,6 +35,60 @@ from core.topic import start_new_topic, sanitize_title as _sanitize_title
 
 from core.llm import get_llm
 
+# [ADD] ── Dashboard helpers (human-friendly progress)
+_DASH_ON = str(os.getenv("SHOW_DASHBOARD", "0")).strip().lower() in ("1","true","on","yes")
+_WRAP = int(os.getenv("DASH_WRAP", "88"))
+
+def _ell(s: str, n: int = _WRAP) -> str:
+    s = (s or "").replace("\n", " ").strip()
+    return (s[:n-1] + "…") if len(s) > n else s
+
+def _tcount(tasks) -> dict:
+    d = {"plan":0,"web":0,"vec":0,"synth":0,"writer":0,"comm":0,"other":0}
+    for t in (tasks or []):
+        if getattr(t, "done", False): 
+            continue
+        a = (getattr(t, "agent", "") or "")
+        if a == "research_planner": d["plan"] += 1
+        elif a == "web_search_agent": d["web"] += 1
+        elif a == "vector_search_agent": d["vec"] += 1
+        elif a == "research_synthesizer": d["synth"] += 1
+        elif a in ("chapter_writer","section_writer"): d["writer"] += 1
+        elif a == "communicator": d["comm"] += 1
+        else: d["other"] += 1
+    return d
+
+def _dash_emit(state, *, where: str, picked: str | None = None, reason: str | None = None):
+    if not _DASH_ON:
+        return
+    tasks = state.get("task_history", []) or []
+    d = _tcount(tasks)
+    last_human = next((m for m in reversed(state.get("messages", [])) if getattr(m, "type", "").lower()=="human"), None)
+    last_text = _ell(getattr(last_human, "content", "") if last_human else "")
+    refs = state.get("references") or {}
+    refs_n = len(refs.get("docs") or [])
+    topic = state.get("topic_title") or state.get("topic_slug") or "untitled"
+    bar = "─" * 30
+    lines = [
+        f"[DASH/{where}] topic='{topic}'  refs={refs_n}  picked={picked or '-'}",
+        f"  plan={d['plan']}  web={d['web']}  vec={d['vec']}  synth={d['synth']}  writer={d['writer']}  comm={d['comm']}  other={d['other']}",
+        f"  last_user: {last_text}",
+    ]
+    if reason:
+        lines.append(f"  reason: {reason}")
+
+    # [ADD] keep last dashboard timestamp in state.flags (for communicator rate-limit)
+    try:
+        import time as _t
+        f = dict(state.get("flags") or {})
+        f["dash_last_ts"] = float(_t.time())
+        f["dash_count"] = int(f.get("dash_count") or 0) + 1
+        state["flags"] = f
+    except Exception:
+        pass
+    logger.info("\n" + bar + "\n" + "\n".join(lines) + "\n" + bar)
+
+
 def _env_str(name: str, default: str = "") -> str:
     v = os.getenv(name)
     return v.strip() if isinstance(v, str) else default
@@ -102,7 +156,9 @@ def _seed_objectives(state: MutableMapping[str, Any]) -> None:
 def supervisor(state: State):
 
     logger.info("============ SUPERVISOR ============")
-    # print("\n\n============ SUPERVISOR ============")
+    # [ADD] DASH: supervisor entry
+    _dash_emit(state, where="supervisor.enter")
+
     llm=get_llm()
 
     state = sanitize_state(state)
@@ -158,6 +214,7 @@ def supervisor(state: State):
         messages.append(AIMessage(content=msg))
         logger.info(msg)
         # print(msg)
+        _dash_emit(state, where="supervisor", picked="web_search_agent", reason="force_queries")
         return {"messages": messages, "task_history": tasks}
     # ==========================================================
 
@@ -175,6 +232,7 @@ def supervisor(state: State):
         if not has_pending(tasks, "vector_search_agent"):
             tasks.append(Task(agent="vector_search_agent", done=False, description="사용자 질의 기반 RAG 검색을 수행한다.", done_at=""))
         logger.info("[Supervisor fast-path] QA-like → vector_search_agent pending")
+        _dash_emit(state, where="supervisor", picked="vector_search_agent", reason="qa_like")
         return {"messages": messages, "task_history": tasks}
 
     # 새 토픽 (rag_expression 헬퍼 사용)
@@ -191,6 +249,7 @@ def supervisor(state: State):
         msg = f"[Supervisor] 새 주제 세션 시작: '{state.get('topic_title','')}' (ns={state.get('chroma_ns','')})"
         messages.append(AIMessage(msg))
         logger.info(msg)
+        _dash_emit(state, where="supervisor", picked="content_strategist/web_search_agent", reason="new_topic_boot")
         # print(msg)
 
         # 1) 목차 생성 예약 (중복 방지)
@@ -236,6 +295,7 @@ def supervisor(state: State):
             msg = "[Supervisor fast-path] 연구 라운드 모드 시작 → research_planner"
             messages.append(AIMessage(content=msg))
             logger.info(msg)
+            _dash_emit(state, where="supervisor", picked="research_planner", reason="research_mode_bootstrap")
             # print(msg)
             return {"messages": messages, "task_history": tasks}
 
@@ -252,6 +312,7 @@ def supervisor(state: State):
             tasks.append(Task(agent="communicator", done=False, description=f"show_outline:{fname}", done_at=""))
         messages.append(AIMessage(content=f"[Supervisor fast-path] → communicator (show_outline:{fname})"))
         logger.info("[Supervisor fast-path] show_outline → communicator (target=%s)", fname)
+        _dash_emit(state, where="supervisor", picked="communicator", reason="show_outline")
         return {"messages": messages, "task_history": tasks}
     
     # [ANCHOR] research-mode preemption (insert BEFORE communicator fast-path)
@@ -280,6 +341,7 @@ def supervisor(state: State):
             tasks = state.get("task_history", [])
             tasks.append(Task(agent="research_planner", done=False, description="plan: auto", done_at=""))
             logger.info("[Supervisor fast-path] research_mode preemption → research_planner")
+            _dash_emit(state, where="supervisor", picked="research_planner", reason="research_mode_preempt")
             return {"messages": state.get("messages", []), "task_history": tasks}
 
     # 목차 생성 pending 우선 처리
@@ -336,6 +398,7 @@ def supervisor(state: State):
         messages.append(AIMessage(content=msg))
         logger.info(msg)
         # print(msg)
+        _dash_emit(state, where="supervisor", picked="web_search_agent", reason="rag_update_fastpath")
         return {"messages": messages, "task_history": tasks}
 
     # fast-path: write: ...
@@ -350,6 +413,7 @@ def supervisor(state: State):
             msg = "[Supervisor fast-path] 레퍼런스 비어있음/진행중 → RAG 먼저(web_search_agent)."
             messages.append(AIMessage(content=msg))
             logger.info(msg)
+            _dash_emit(state, where="supervisor", picked="web_search_agent", reason="write_but_refs_empty")
             # print(msg)
             return {"messages": messages, "task_history": tasks}
 
@@ -367,6 +431,7 @@ def supervisor(state: State):
             msg = f"[Supervisor fast-path] → {WRITER_AGENT} (mode={DOC_MODE}, write: {target_from_line})"
             messages.append(AIMessage(content=msg))
             logger.info(msg)
+            _dash_emit(state, where="supervisor", picked=WRITER_AGENT, reason="write_with_refs")
         else:
             messages.append(AIMessage(content="[Supervisor] writer 예약이 생략되었습니다(조건 부적합 또는 중복)."))
         return {"messages": messages, "task_history": tasks}
@@ -386,6 +451,7 @@ def supervisor(state: State):
         messages.append(AIMessage(
             content=f"[Supervisor fast-path] → content_strategist (rename_heading:{idx}→{new_title})"
         ))
+        _dash_emit(state, where="supervisor", picked="content_strategist", reason="rename_heading")
         return {"messages": messages, "task_history": tasks}
 
     # 기존 미완료 태스크가 있으면 새로 만들지 않음
@@ -395,6 +461,7 @@ def supervisor(state: State):
         # print(f"[Supervisor short-circuit] pending='{pending_undone.agent}' 유지 → 새 태스크 생성 생략")
         logger.debug("tasks tail = %s", [(getattr(t,'agent',None), getattr(t,'done',None), getattr(t,'description',None)) for t in tasks][-3:])
         # print("tasks tail =", [(getattr(t,'agent',None), getattr(t,'done',None), getattr(t,'description',None)) for t in tasks][-3:])
+        _dash_emit(state, where="supervisor", picked=pending_undone.agent, reason="pending_short_circuit")
         return {
             "messages": messages,
             "task_history": tasks,
@@ -460,6 +527,7 @@ def supervisor(state: State):
         else:
             messages.append(AIMessage(content="[Supervisor] writer 예약 불필요/중복으로 생략됨."))
             logger.info("[Supervisor] writer scheduling skipped.")
+            _dash_emit(state, where="supervisor", picked="communicator", reason="writer_skipped")
             return {
                 "messages": messages,
                 "task_history": tasks,
@@ -475,6 +543,8 @@ def supervisor(state: State):
     msg = f"[Supervisor] {task}"
     messages.append(AIMessage(content=msg))
     logger.info(msg)
+    _dash_emit(state, where="supervisor", picked=task.agent, reason="supervisor_fallback_route")
+
 
     return {
         "messages": messages,
@@ -525,6 +595,7 @@ def supervisor_router(state: State) -> str:
     if new_topic:
         ret = "web_search_agent" if refs_empty else "communicator"
         logger.info("[supervisor_router] picked=%s  (new_topic='%s', refs_empty=%s)", ret, new_topic, refs_empty)
+        _dash_emit(state, where="router", picked=ret, reason=f"new_topic refs_empty={refs_empty}")
         logger.debug(
             "cs=%s, wr_pref=%s, wr_alt=%s, plan=%s, synth=%s, vec=%s, web=%s, comm=%s",
             _has('content_strategist'), _has(preferred,'write:'), _has(alt,'write:'),
@@ -537,6 +608,7 @@ def supervisor_router(state: State) -> str:
     if is_outline_display(last_text):
         ret = "communicator"
         logger.info("[supervisor_router] picked=%s  (show_outline)", ret)
+        _dash_emit(state, where="router", picked=ret, reason="show_outline")
         logger.debug("cs=%s, comm=True", _has('content_strategist'))
         # print(f"[supervisor_router] picked={ret}  (show_outline, cs={_has('content_strategist')}, comm=True)")
         return ret
@@ -545,6 +617,7 @@ def supervisor_router(state: State) -> str:
     if is_outline_creation(last_text):
         ret = "content_strategist"
         logger.info("[supervisor_router] picked=%s  (create_outline)", ret)
+        _dash_emit(state, where="router", picked=ret, reason="create_outline")
         logger.debug("cs=True")
         # print(f"[supervisor_router] picked={ret}  (create_outline, cs=True)")
         # logger.info("[supervisor_router] picked=%s  (create_outline, cs=True)", ret)
@@ -556,10 +629,12 @@ def supervisor_router(state: State) -> str:
         if refs_empty:
             ret = "web_search_agent"
             logger.info("[supervisor_router] picked=%s  (fastpath write, title='%s', refs_empty=True → RAG first)", ret, write_title)
+            _dash_emit(state, where="router", picked=ret, reason="write_refs_empty")
             # print(f"[supervisor_router] picked={ret}  (fastpath write, title='{write_title}', refs_empty=True → RAG first)")
             return ret
         ret = preferred
         logger.info("[supervisor_router] picked=%s  (fastpath write, title='%s', refs_empty=False)", ret, write_title)
+        _dash_emit(state, where="router", picked=ret, reason="write_refs_present")
         # print(f"[supervisor_router] picked={ret}  (fastpath write, title='{write_title}', refs_empty=False)")
         return ret
 
@@ -571,12 +646,12 @@ def supervisor_router(state: State) -> str:
         ret = alt
     elif _has("research_planner"):
         ret = "research_planner"
-    elif _has("research_synthesizer"):
-        ret = "research_synthesizer"
-    elif _has("vector_search_agent"):
-        ret = "vector_search_agent"
     elif _has("web_search_agent"):
         ret = "web_search_agent"
+    elif _has("vector_search_agent"):
+        ret = "vector_search_agent"
+    elif _has("research_synthesizer"):
+        ret = "research_synthesizer"
     elif _has(preferred, prefix="write:"):
         ret = preferred
     elif _has("communicator"):
@@ -586,6 +661,7 @@ def supervisor_router(state: State) -> str:
         ret = "vector_search_agent" if any(k in last_text for k in ("요약","정리","무엇","왜","비교","?")) else "communicator"
 
     logger.info("[supervisor_router] picked=%s", ret)
+    _dash_emit(state, where="router", picked=ret, reason="default_route")
     logger.debug(
         "cs=%s, wr_pref=%s, wr_alt=%s, plan=%s, synth=%s, vec=%s, web=%s, comm=%s",
         _has('content_strategist'), _has(preferred,'write:'), _has(alt,'write:'),

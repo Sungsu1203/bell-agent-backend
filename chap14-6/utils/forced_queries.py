@@ -6,7 +6,27 @@ from typing import List
 import logging
 logger = logging.getLogger(__name__)
 
-__all__ = ["extract_forced_queries_from_messages"]
+__all__ = ["extract_forced_queries_from_messages", "normalize_forced_query"]
+
+def normalize_forced_query(q: str) -> list[str]:
+    """강제쿼리 전처리: 범위표현/다중 site 분할."""
+    if not isinstance(q, str):
+        return []
+    q = q.strip()
+    if not q:
+        return []
+
+    # 1) 연도 범위 표현 보정
+    q = q.replace("2023..2025", "(2023 OR 2024 OR 2025)")
+
+    # 2) 다중 site 분할: '... site:a OR site:b' → ['... site:a', '... site:b']
+    if "site:" in q and " OR site:" in q:
+        sites = [s.strip() for s in re.findall(r"site:([^\s)]+)", q)]
+        base = re.sub(r"\s*OR\s*site:[^\s)]+", "", q)
+        base = re.sub(r"site:[^\s)]+", "", base).strip()
+        return [f"{base} site:{s}" for s in sites if s]
+
+    return [q]
 
 BULLET = r"^[\-\*\u2022\u2013]\s*"  # -, *, •, – 지원
 
@@ -115,6 +135,13 @@ def extract_forced_queries_from_messages(messages, lookback: int = 15) -> List[s
     # 2) 블록형/불릿형 파싱 (항상 수행해서 합치되, 라인형이 먼저)
     block_hits = _parse_force_queries_block(big)
 
-    # 3) 병합 + 중복 제거(순서 보존: 라인형 → 블록형)
-    merged = _dedupe(line_hits + block_hits)
-    return merged
+    # 3) 병합 (순서 보존: 라인형 → 블록형)
+    raw_merged = line_hits + block_hits
+
+    # 4) 정규화(범위 보정/다중 site 분할) → 평탄화
+    expanded: list[str] = []
+    for q in raw_merged:
+        expanded.extend(normalize_forced_query(q))
+
+    # 5) 중복 제거 후 반환
+    return _dedupe(expanded)

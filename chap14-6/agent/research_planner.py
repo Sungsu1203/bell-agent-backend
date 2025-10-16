@@ -25,6 +25,20 @@ def research_planner(state: State):
     llm = get_llm()
     state = sanitize_state(state)
 
+    # ── topic_title 통합 헬퍼 & 로깅 ───────────────────────────────
+    def _get_topic_title(st) -> str:
+        flags = (st.get("flags") or {})
+        return (
+            flags.get("topic_title")
+            or st.get("topic_title")
+            or os.getenv("TOPIC_TITLE")
+            or st.get("topic_slug")
+            or "untitled"
+        ).strip()
+
+    topic_title = _get_topic_title(state)
+    logger.info("[Planner] topic_title=%r", topic_title)
+
     # 연구 루프 시작 표식 (writer 자동 기동 가드와 연동)
     cast(MutableMapping[str, Any], state)["research_loop_active"] = True
 
@@ -98,12 +112,14 @@ def research_planner(state: State):
         pending.done_at = _now_str()
 
     current_obj = objs[min(rnd, len(objs) - 1)]
+
+
     planner_prompt = get_research_planner_prompt()
     chain = planner_prompt | llm | StrOutputParser()
 
     queries_text = chain.invoke(
         {
-            "topic_title": state.get("topic_title") or "(untitled)",
+            "topic_title": topic_title,  # ← state/flags/env에서 통합 확보한 값
             "objective": current_obj,
             "references": _refs_preview_text(state, max_q=10, max_docs=6),
         }
@@ -149,7 +165,106 @@ def research_planner(state: State):
         deduped_normed.append(q)
     normed = deduped_normed
 
+    # ======== [SEARCH-ANCHOR: NORMALIZE_AFTER_LLM] ========
+    # LLM이 남긴 플레이스홀더([…], {…})를 주제/목표로 치환하고,
+    # 한국 타깃을 가볍게 강화하는 보정 단계. (normed가 이미 만들어진 뒤 실행!)
+    topic_title = _get_topic_title(state)  # ← 통합 헬퍼 사용
+
+    # (안전망) LLM이 만든 문장 내 (untitled) 잔존 시 즉시 치환
+    normed = [q.replace("(untitled)", topic_title) for q in normed]
+
+    def _core_subst(q: str, *, topic: str, objective: str) -> str:
+        s = q
+
+        # 불릿/번호/따옴표 정리
+        s = re.sub(r"^\s*[\-\•]\s*", "", s)
+        s = re.sub(r"^\s*\d+\.\s*", "", s)
+        s = s.strip().strip('"').strip("'")
+
+        # 대표 플레이스홀더 → 주제/목표/지역 치환
+        repls = [
+            (r"\[(?:specific\s+industry/sector|specific\s+industry|industry/sector|industry|sector)\]", objective or topic),
+            (r"\{(?:industry|sector|vertical|market)\}", objective or topic),
+            (r"\[(?:product|brand|company)\]", topic),
+            (r"\{(?:product|brand|company)\}", topic),
+            (r"\[(?:region|country|market)\]", "한국"),
+            (r"\{(?:region|country|market)\}", "한국"),
+        ]
+        for pat, val in repls:
+            s = re.sub(pat, val, s, flags=re.I)
+
+        # 남은 대괄호/중괄호 블럭 제거
+        s = re.sub(r"\[[^\]]+\]", "", s)
+        s = re.sub(r"\{[^}]+\}", "", s)
+
+        # 공백 정규화
+        s = re.sub(r"\s+", " ", s).strip()
+
+        # 한국 타깃 강화(옵션)
+        if os.getenv("PLANNER_FORCE_KR", "1") == "1":
+            if not any(tok.lower() in s.lower() for tok in ("한국", "국내", "korea", "kr", "site:kr")):
+                s = f"{s} 한국 시장"
+
+        # 최소 길이/노이즈 필터
+        if len(s) < 3:
+            return ""
+        bad = ("<script", "gtm.js", "function(", "@media")
+        if any(b in s.lower() for b in bad):
+            return ""
+        return s
+
+    # 핵심 치환 적용(중복 제거 포함)
+    _normed_core: list[str] = []
+    _seen_keys = set()
+    for q in normed:
+        qq = _core_subst(q, topic=topic_title, objective=current_obj)
+        k = _strip_web_filters(qq).strip().lower()
+        if qq and k and k not in _seen_keys:
+            _seen_keys.add(k)
+            _normed_core.append(qq)
+
+    normed = _normed_core
+    # ======== [END NORMALIZE_AFTER_LLM] ========
+
     state["planner_queries"] = normed
+
+    # ======== [SEARCH-ANCHOR: INJECT_FORCED_QUERIES] ========
+    # 메시지에서 강제 질의 추출 → 최우선 주입
+    try:
+        forced = extract_forced_queries_from_messages(messages)  # e.g., "force_query: ..." 형식
+        forced = [q.strip() for q in forced if q and q.strip()]
+    except Exception:
+        forced = []
+
+    if forced:
+        # 강제 질의에도 핵심 치환 적용
+        forced_fixed = []
+        _fk_seen = set()
+        for q in forced:
+            qq = _core_subst(q, topic=topic_title, objective=current_obj)
+            k = _strip_web_filters(qq).strip().lower()
+            if qq and k and k not in _fk_seen:
+                _fk_seen.add(k)
+                forced_fixed.append(qq)
+
+        # 강제 질의가 앞, LLM 질의가 뒤 (중복 제거)
+        merged = []
+        _all_seen = set()
+        for q in forced_fixed + normed:
+            k = _strip_web_filters(q).strip().lower()
+            if q and k and k not in _all_seen:
+                _all_seen.add(k)
+                merged.append(q)
+        normed = merged
+
+    # 개수 상한(옵션)
+    try:
+        max_q = int(os.getenv("RESEARCH_PLANNER_MAX_Q", "7"))
+    except Exception:
+        max_q = 7
+    if max_q > 0 and len(normed) > max_q:
+        normed = normed[:max_q]
+    # ======== [END INJECT_FORCED_QUERIES] ========
 
     # ======== [SEARCH-ANCHOR: PLAN_PERSIST] ========
     state["research_plan"] = {

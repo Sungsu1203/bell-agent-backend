@@ -1,5 +1,6 @@
 from __future__ import annotations
-import os,sys
+import os, sys, re
+from os import path, makedirs
 from langchain_core.output_parsers.string import StrOutputParser
 from utils.tasks import AIMessage, HumanMessage, SystemMessage
 
@@ -15,21 +16,47 @@ from utils.rag_utils import refs_preview_text
 from utils.refs import attach_auto_citations
 from prompts import get_section_writer_prompt
 from core.paths import read_outline
-from content_utils import save_md_draft 
+from content_utils import save_md_draft
 from utils.outline import get_topic_outline_text, next_unwritten_title
 from utils.tasks import get_last_write_target, has_pending
 from utils.text_utils import section_slugify
 
 from core.llm import get_llm
 
-import re
-import os
 
 def _truthy_env(name: str) -> bool:
-    """'1/true/yes/on' → True 로 처리하는 간단한 헬퍼"""
+    """'1/true/yes/on' → True"""
     v = (os.getenv(name) or "").strip().lower()
     return v in ("1", "true", "yes", "on")
+
 ECHO_SECTIONS = _truthy_env("ECHO_SECTIONS")
+
+
+def _guess_total_sections(outline_text: str, fallback: int = 8) -> int:
+    """
+    아웃라인에서 '총 섹션 수'를 추정:
+    - 보고서 모드 가정으로 '## ' 헤더 개수 우선
+    - 없으면 체크박스(- [ ], - [x]) 개수
+    - 없으면 일반 불릿(-, *, +) 개수
+    - 그래도 없으면 fallback(기본 8)
+    """
+    if not outline_text:
+        return fallback
+    lines = [ln.rstrip() for ln in outline_text.splitlines()]
+    # 1) 섹션 헤더
+    h2 = [ln for ln in lines if re.match(r"^\s*##\s+\S", ln)]
+    if len(h2) >= 1:
+        return len(h2)
+    # 2) 체크박스 항목
+    checks = [ln for ln in lines if re.match(r"^\s*-\s*\[(?: |x|X)\]\s+\S", ln)]
+    if len(checks) >= 1:
+        return len(checks)
+    # 3) 일반 불릿
+    bullets = [ln for ln in lines if re.match(r"^\s*[-*+]\s+\S", ln)]
+    if len(bullets) >= 3:
+        return len(bullets)
+    return fallback
+
 
 def section_writer(state: State):
     llm = get_llm()
@@ -103,38 +130,60 @@ def section_writer(state: State):
             logger.warning("[SECTION WRITER] auto-citation 실패: %s", e)
 
     # 저장 시도 (save_md_draft 우선, 실패 시 폴백)
-    from os import path, makedirs
     slug = str(state.get("topic_slug") or "default")
     out_dir = path.join(current_path, "content", slug)
-
+    out_path = None
     try:
         out_path = save_md_draft(
             target_title, gathered, mode="report",
             root_dir=current_path, topic_slug=slug
         )
-        if not out_path or not os.path.isfile(out_path):
+        if not out_path or not path.isfile(out_path):
             raise RuntimeError("save_md_draft returned empty or file not found")
         logger.info("[SECTION WRITER] saved via save_md_draft → %s", out_path)
     except Exception as e:
-        makedirs(out_dir, exist_ok=True)
-        # 공용 유틸 슬러그 사용
-        fname = f"{section_slugify(target_title)}.md"
-        out_path = path.join(out_dir, fname)
-        with open(out_path, "w", encoding="utf-8") as f:
-            f.write(gathered)
-        logger.warning("[SECTION WRITER fallback] saved → %s  (reason: %s)", out_path, e)
+        try:
+            makedirs(out_dir, exist_ok=True)
+            fname = f"{section_slugify(target_title)}.md"
+            out_path = path.join(out_dir, fname)
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(gathered or "")
+            logger.warning("[SECTION WRITER fallback] saved → %s  (reason: %s)", out_path, e)
+        except Exception as e2:
+            logger.exception("[SECTION WRITER] failed to save draft (both primary and fallback): %s", e2)
+            # 저장 실패여도 후속 로직은 진행
 
-    state["last_saved_path"] = out_path
-    messages.append(AIMessage(content=f"[SECTION WRITER] '{target_title}' 초안 저장 완료 → {out_path}"))
+    state["last_saved_path"] = out_path or ""
+    messages.append(AIMessage(content=f"[SECTION WRITER] '{target_title}' 초안 저장 완료 → {out_path or '(save failed)'}"))
 
+    # [ADD] 진행 카운트: flags에만 저장(TypedDict 경고 회피) + 중복 카운트 방지 + 총 섹션 수 추정
+    try:
+        f = dict(state.get("flags") or {})
+        seen_raw = (f.get("sections_seen") or "").strip()
+        seen = set(filter(None, (x.strip() for x in seen_raw.split(",")))) if seen_raw else set()
+        key = target_title.strip()
+
+        # 총 섹션 수 추정(아웃라인 기반 → 없으면 ENV 또는 기본 8)
+        total_default = int(os.getenv("SECTIONS_TOTAL_DEFAULT", "8"))
+        guessed_total = _guess_total_sections(outline_text, fallback=total_default)
+
+        if key not in seen:
+            f["sections_done"] = int(f.get("sections_done") or 0) + 1
+            seen.add(key)
+            f["sections_seen"] = ",".join(sorted(seen))
+        # 항상 최신 total 유지(아웃라인 변경 시 반영)
+        f["sections_total"] = int(f.get("sections_total") or 0) or guessed_total
+
+        state["flags"] = f
+        logger.info("[Section Writer] 진행률: %d / %d", int(f.get("sections_done") or 0), int(f.get("sections_total") or 0))
+    except Exception as e:
+        logger.debug("[SECTION WRITER] progress flag update skipped: %s", e)
 
     # (NEW) 콘솔 에코: 저장된 섹션 초안 원문을 바로 출력 (옵션)
-    #  - app.py 의 --echo-sections 플래그가 ECHO_SECTIONS=1 로 설정
-    #  - JSON 로깅과 무관하게 사람이 읽기 쉽게 stdout 직출
     if ECHO_SECTIONS:
         try:
             box_title = f"SECTION DRAFT: {target_title}"
-            src_tag   = f"saved → {out_path}"
+            src_tag   = f"saved → {out_path or '(save failed)'}"
             hdr_line  = "=" * max(len(box_title), len(src_tag), 24)
             sys.stdout.write("\n" + hdr_line + "\n")
             sys.stdout.write(box_title + "\n")

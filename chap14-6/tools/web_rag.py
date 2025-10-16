@@ -23,6 +23,7 @@ from settings_gatekeep import (
 )
 
 from collections import defaultdict as _dd
+import re as _re  # ← (ADD) Naver 쿼리 간소화용
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HTTPS 세션 (검증 ON)
@@ -114,9 +115,70 @@ def _save_results(items, out_dir: Optional[Path | str] = None, *, query: Optiona
     logger.info("[web_search] results saved → %s (items=%d)", path, len(items or []))
     return str(path)
 
+# [#ADD_CONSTS_BEFORE_LOG_HELPERS] ─────────────────────────────────────────────
+# 백엔드 폴백 임계치: 결과 개수가 이 값 미만이면 다음 백엔드로 넘어감
+_MIN_RESULTS_OK = int(os.getenv("WEB_MIN_RESULTS_OK", "3") or "3")
+
+# 백엔드 선택 정책: 'first_ok' | 'best_of_chain'
+#  - first_ok: 체인 순서대로 보다가 처음으로 임계치 이상 나오면 채택
+#  - best_of_chain: 전부 시도 후 가장 많은 결과를 낸 백엔드 채택
+_BACKEND_PICK_POLICY = (os.getenv("WEB_BACKEND_PICK_POLICY", "first_ok") or "first_ok").lower()
+
+# [ADD] ────────────────────────────────────────────────────────────────────────
+# Human-readable logging helpers (TopK/줄바꿈 등)
+_LOG_TOPK = int(os.getenv("LOG_TOPK", "3") or "3")
+_LOG_WRAP = int(os.getenv("LOG_WRAP", "88") or "88")
+
+def _ell(s: str, n: int = _LOG_WRAP) -> str:
+    s = (s or "").replace("\n", " ").strip()
+    return (s[:n-1] + "…") if len(s) > n else s
+
+def _host_of(u: str) -> str:
+    try:
+        # settings_gatekeep._normalize_host가 이미 import 돼 있으면 우선 사용
+        return (_normalize_host(u) or "").lower()
+    except Exception:
+        try:
+            from urllib.parse import urlparse
+            return (urlparse(u).netloc or "").lower()
+        except Exception:
+            return ""
+# [ADD END]
+
 # =============================================================================
 # Common helpers
 # =============================================================================
+
+# [#NAVER_NEG_HELPERS] ─────────────────────────────────────────────────────────
+def _strip_minus_tokens(q: str) -> str:
+    if not q:
+        return q
+    # -토큰만 제거 (문장 중간/앞뒤 모두)
+    return _re.sub(r"(^|\s)-\S+", " ", q).strip()
+
+def _cap_minus_tokens(q: str, cap: int) -> str:
+    """
+    마이너스 토큰을 cap개까지만 남기고 나머지 제거.
+    cap<=0 이면 전부 제거.
+    """
+    if not q:
+        return q
+    if cap <= 0:
+        return _strip_minus_tokens(q)
+
+    toks = q.split()
+    negs = [t for t in toks if t.startswith("-")]
+    if len(negs) <= cap:
+        return q
+    # 앞에서 cap개만 유지, 나머지는 제거
+    keep = set(negs[:cap])
+    kept = []
+    for t in toks:
+        if t.startswith("-") and t not in keep:
+            continue
+        kept.append(t)
+    return " ".join(kept).strip()
+
 
 def _normalize_results(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -172,6 +234,41 @@ def _looks_like_serialized_blob(txt: str) -> bool:
         return True
     brace_ratio = (txt.count("{") + txt.count("}")) / max(1, len(txt))
     return brace_ratio > 0.02  # 경험치 임계값
+
+def _append_default_negatives(q: str) -> str:
+    """
+    전역 기본 네거티브를 쿼리에 중복 없이 덧붙인다.
+    단, 짧은/브랜드성 질의(토큰<=min_tok)나 네이버 친화 질의는 부착을 피한다.
+    ENV:
+      WEB_APPLY_DEFAULT_NEGATIVES=1/0
+      WEB_DEFAULT_NEGATIVES="-행사 -세미나 -박람회"
+      WEB_DEFAULT_NEGATIVES_MIN_TOKENS=3   # 이 값보다 토큰이 적으면 부착하지 않음
+    """
+    if not q or not _truthy("WEB_APPLY_DEFAULT_NEGATIVES", default="1"):
+        return q
+
+    # (NEW) 짧은 질의 가드
+    try:
+        min_tok = int(os.getenv("WEB_DEFAULT_NEGATIVES_MIN_TOKENS", "3"))
+    except Exception:
+        min_tok = 3
+    if min_tok and len(q.split()) < min_tok:
+        return q
+
+    # (NEW) 네이버 친화 질의면 부착 회피
+    if _is_naver_safe(q):
+        return q
+
+    base = (os.getenv("WEB_DEFAULT_NEGATIVES", "-행사 -세미나 -박람회") or "").strip()
+    if not base:
+        return q
+
+    existing = set(q.split())
+    to_add = [tok for tok in base.split() if tok and tok not in existing]
+    if not to_add:
+        return q
+
+    return (q.rstrip() + " " + " ".join(to_add)).strip()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 게이트키핑: 검색 결과 URL에 대한 허용/차단 적용
@@ -364,16 +461,19 @@ def _search_google_cse(query: str, *, num: int = 10, timeout: int = 20) -> List[
     if not (api_key and cse_id):
         return []
     try:
+        # 우선순위: GOOGLE_CSE_* → SEARCH_* → 기본
+        gl = os.getenv("GOOGLE_CSE_GL") or os.getenv("SEARCH_GL") or "us"
+        # Google CSE는 lr 파라미터(예: 'lang_ko')도 지원
+        lr = os.getenv("GOOGLE_CSE_LR") or ""
         hl = os.getenv("SEARCH_HL", "en")
-        gl = os.getenv("SEARCH_GL", "us")
         num = max(1, min(int(num or 10), 10))
 
         url = "https://www.googleapis.com/customsearch/v1"
-        r = http_get(
-            url,
-            params={"key": api_key, "cx": cse_id, "q": query, "num": num, "hl": hl, "gl": gl},
-            timeout=timeout,
-        )
+        params = {"key": api_key, "cx": cse_id, "q": query, "num": num, "hl": hl, "gl": gl}
+        if lr:
+            params["lr"] = lr
+
+        r = http_get(url, params=params, timeout=timeout)
         r.raise_for_status()
         data = r.json() or {}
         items = data.get("items") or []
@@ -393,6 +493,7 @@ def _search_google_cse(query: str, *, num: int = 10, timeout: int = 20) -> List[
     except Exception as e:
         logger.warning("Google CSE search failed: %s", e)
         return []
+
 
 def _search_serpapi(query: str, *, num: int = 10, timeout: int = 20) -> List[Dict[str, Any]]:
     api_key = os.getenv("SERPAPI_API_KEY")
@@ -428,6 +529,275 @@ def _search_serpapi(query: str, *, num: int = 10, timeout: int = 20) -> List[Dic
         logger.warning("SerpAPI search failed: %s", e)
         return []
 
+# ───────── Query Sanitizer (A 제안) ─────────
+def _sanitize_query(q: str) -> str:
+    """
+    검색 쿼리 전처리:
+      - 접두 라벨 '(untitled)' 제거
+      - 'YYYY..YYYY' 연도 범위를 '(YYYY OR ... OR YYYY)'로 변환
+      - 중복 공백 제거
+    """
+    if not q:
+        return q
+    s = q.strip()
+
+    # 1) 접두 라벨 제거: (untitled) , (UNTITLED) 등
+    s = _re.sub(r"^\(\s*untitled\s*\)\s*", "", s, flags=_re.I)
+
+    # 2) 연도 범위 '2023..2025' → '(2023 OR 2024 OR 2025)'
+    # 기존 버그: (19|20)로 캡처하여 '20'만 들어옴 → '20' 하나로 붕괴
+    year_span_pat = r"\b((?:19|20)\d{2})\.\.((?:19|20)\d{2})\b"
+
+    def _expand_years(m):
+        y1, y2 = int(m.group(1)), int(m.group(2))  # 이제 '2023','2025' 전체가 들어옴
+        if y2 < y1:
+            y1, y2 = y2, y1
+        return "(" + " OR ".join(str(y) for y in range(y1, y2 + 1)) + ")"
+
+    s = _re.sub(year_span_pat, _expand_years, s)
+
+    # 3) 중복 공백 축소
+    s = _re.sub(r"\s{2,}", " ", s).strip()
+    return s
+
+# ====== (MOD) Naver용 질의 간소화 ============================================
+def _simplify_for_naver(q: str) -> str:
+    """
+    Naver(SerpAPI) 엔진 호환을 위해 Google식 연산자/괄호/site: 등을 제거/단순화.
+    ENV:
+      NAVER_TRIM_OPERATORS=1     # site:, filetype:, OR/AND, 괄호, '..' 제거
+      NAVER_NEGATIVE_CAP=0       # -토큰 허용 개수 (기본 0=전부 제거)
+    """
+    if not q:
+        return q
+
+    s = q
+    if _truthy("NAVER_TRIM_OPERATORS", default="1"):
+        # 1) 고급 연산자/패턴 제거
+        s = _re.sub(r"site:\S+", " ", s, flags=_re.I)
+        s = _re.sub(r"filetype:\S+", " ", s, flags=_re.I)
+        s = _re.sub(r"\b(OR|AND|NOT)\b", " ", s, flags=_re.I)
+        s = _re.sub(r"[()]", " ", s)
+        s = s.replace("..", " ")  # 2023..2025 → 공백
+        # 2) 영어 노이즈(선택) 약간 정리
+        s = _re.sub(r"\b(event|exhibition|tickets)\b", " ", s, flags=_re.I)
+
+    # 3) -토큰 개수 제한 (기본 0 = 모두 제거)
+    try:
+        cap = int(os.getenv("NAVER_NEGATIVE_CAP", "0"))
+    except Exception:
+        cap = 0
+    s = _cap_minus_tokens(s, cap)
+
+    # 4) 공백/길이 정리
+    s = _re.sub(r"\s+", " ", s).strip()
+    if len(s) > 200:
+        s = s[:200].rstrip()
+    return s
+
+# ====== (MOD) Naver 스킵 판단 ================================================
+def _should_skip_naver(q: str) -> bool:
+    """
+    네이버 SerpAPI 안전성 휴리스틱.
+    ※ 반드시 _simplify_for_naver(q) 이후의 문자열로 판정할 것.
+    ENV:
+      NAVER_MAX_LEN=120
+      NAVER_MAX_TOKENS=8
+    """
+    s = _simplify_for_naver(q or "")
+    if not s:
+        logger.debug("[naver.skip] reason=empty-after-simplify")
+        return True
+
+    try:
+        max_len = int(os.getenv("NAVER_MAX_LEN", "120"))
+    except Exception:
+        max_len = 120
+    try:
+        max_toks = int(os.getenv("NAVER_MAX_TOKENS", "8"))
+    except Exception:
+        max_toks = 8
+
+    if len(s) > max_len:
+        logger.debug("[naver.skip] reason=too_long len=%d max=%d q=%r", len(s), max_len, s)
+        return True
+    tokc = len(s.split())
+    if tokc > max_toks:
+        logger.debug("[naver.skip] reason=too_many_tokens tok=%d max=%d q=%r", tokc, max_toks, s)
+        return True
+
+    # 구글식/특수연산자 잔존 여부(보수적)
+    bad = [
+        r"\b(site:|filetype:|ext:|intitle:|inurl:|cache:)\S*",
+        r"[\"{}|\[\]]",
+        r"\.\.",  # 2020..2022
+    ]
+    for pat in bad:
+        if _re.search(pat, s, flags=_re.I):
+            logger.debug("[naver.skip] reason=bad_pattern pattern=%r q=%r", pat, s)
+            return True
+    return False
+
+def _is_naver_safe(q: str) -> bool:
+    """네이버 SerpAPI가 잘 받아줄만한 단순 질의인지 휴리스틱 체크"""
+    if not q: 
+        return False
+    # 길이/토큰 제한
+    if len(q) > 80: 
+        return False
+    toks = q.split()
+    if len(toks) > 6:
+        return False
+
+    # 금지 패턴 (구글식/특수연산자)
+    bad = [
+        r"\b(site:|filetype:|ext:|intitle:|inurl:|cache:)\S*",
+        r"[()\"{}|\[\]]",
+        r"\b(AND|OR|NOT)\b",
+    ]
+    for pat in bad:
+        if _re.search(pat, q, flags=_re.I):
+            return False
+    return True
+
+# ====== SerpAPI(Naver) 백엔드 구현 ===========================================
+def _search_serpapi_naver(query: str) -> list[dict]:
+    api_key = (os.getenv("SERPAPI_API_KEY") or "").strip()
+    if not api_key:
+        return []
+    
+    # (변경) 우선 네이버용 질의 생성
+    q_naver = _simplify_for_naver(query)
+    if not q_naver or len(q_naver) < 2:
+        logger.info("[SerpAPI(Naver)] skipped (empty after simplify)")
+        return []
+
+    # (변경) 스킵 판정은 단순화 후 문자열로 수행
+    if _should_skip_naver(q_naver):
+        logger.info("[SerpAPI(Naver)] skipped (complex after simplify): %s", _ell(q_naver))
+        return []
+
+    num = int(os.getenv("SERPAPI_NAVER_NUM", "10"))
+    hl  = (os.getenv("SERPAPI_NAVER_HL") or "ko").strip()
+    gl  = (os.getenv("SERPAPI_NAVER_GL") or "kr").strip()
+    where = (os.getenv("SERPAPI_NAVER_WHERE") or "web").strip()
+    try_others = (os.getenv("SERPAPI_NAVER_TRY_OTHERS") or "0").strip().lower() in ("1","true","yes","on")
+
+    url = "https://serpapi.com/search.json"
+    logger.debug("[SerpAPI(Naver)][query] %s", _ell(q_naver))
+
+    def _collect(data, sink: list):
+        def _push(lst):
+            for r in lst or []:
+                link = r.get("link") or r.get("url") or ""
+                if not link:
+                    continue
+                title = r.get("title") or ""
+                snippet = r.get("snippet") or r.get("snippet_highlighted_words") or ""
+                if isinstance(snippet, list):
+                    snippet = " ".join(snippet)
+                sink.append({"title": title, "url": link, "source": link, "snippet": snippet or ""})
+        _push(data.get("organic_results"))
+        if not sink: _push(data.get("web_results"))
+        if not sink: _push(data.get("news_results"))
+        if not sink: _push(data.get("blog_results"))
+
+    def _req(params: dict) -> tuple[list, dict]:
+        try:
+            resp = requests.get(url, params=params, timeout=30)
+            if resp.status_code >= 400:
+                logger.warning("SerpAPI(Naver) HTTP %s (where=%s)", resp.status_code, params.get("where"))
+                return [], {}
+            data = resp.json() if resp.text else {}
+        except Exception as e:
+            logger.warning("SerpAPI(Naver) request failed: %s", e.__class__.__name__)
+            return [], {}
+
+        items: list[dict] = []
+        if data.get("error"):
+            logger.warning("SerpAPI(Naver) error: %s (where=%s)", data.get("error"), params.get("where"))
+        sm = data.get("search_metadata") or {}
+        if sm:
+            logger.debug("SerpAPI(Naver) metadata: id=%s status=%s where=%s",
+                         sm.get("id"), sm.get("status"), params.get("where"))
+        _collect(data, items)
+        return items, data
+
+    # 1차: query=
+    params = {"engine":"naver","query":q_naver,"api_key":api_key,"hl":hl,"gl":gl,"where":where,"num":num}
+    items, data = _req(params)
+    if items:
+        return items
+
+    # 2차: q=
+    params2 = dict(params); params2.pop("query", None); params2["q"] = q_naver
+    items, _ = _req(params2)
+    if items:
+        return items
+
+    # 3차: other where (옵션)
+    if try_others:
+        for w in ("news", "blog", "cafe"):
+            params3 = dict(params); params3["where"] = w
+            items, _ = _req(params3)
+            if items:
+                return items
+            params4 = dict(params2); params4["where"] = w
+            items, _ = _req(params4)
+            if items:
+                return items
+
+    logger.debug("SerpAPI(Naver) returned no parsable items for query=%r (where tried: %s%s)",
+                 q_naver, where, ", others" if try_others else "")
+    return []
+
+
+# ====== Backend router & helpers =============================================
+
+def _backend_call(backend_key: str, query: str, *, num: int = 10) -> List[Dict[str, Any]]:
+    """
+    backend_key에 따라 해당 검색 함수를 호출.
+    """
+    key = (backend_key or "").strip().lower()
+    if key in ("google", "google_cse"):
+        return _search_google_cse(query, num=num)
+    if key in ("serpapi", "serpapi_google"):
+        return _search_serpapi(query, num=num)
+    if key in ("naver", "serpapi_naver"):
+        # 호출 전 간소화(내부도 재검사하므로 안전)
+        return _search_serpapi_naver(query)
+    if key == "tavily":
+        return _search_tavily(query)
+    return []  # 알 수 없는 키 → 빈 결과
+
+
+def _normalize_backend_alias(b: str) -> str:
+    b = (b or "").strip().lower()
+    # 별칭·오타 보정
+    if b in {"google", "googlecse"}:
+        return "google_cse"
+    if b in {"naver", "serpapi_naver"}:
+        return "serpapi_naver"
+    if b in {"serpapi_google", "google_serpapi"}:
+        return "serpapi"  # SerpAPI의 구글 엔진
+    if b in {"tavily"}:
+        return "tavily"
+    return b
+
+def _resolve_backend_chain(engine_arg: Optional[str], *, num: int) -> list[str]:
+    eng = (engine_arg or os.getenv("WEB_SEARCH_ENGINE") or "auto").strip().lower()
+    if eng and eng != "auto":
+        fallback = (os.getenv("SEARCH_BACKENDS") or "google_cse,serpapi_naver,serpapi,tavily")
+        chain = [_normalize_backend_alias(eng)]
+        for b in fallback.split(","):
+            a = _normalize_backend_alias(b.strip())
+            if a and a not in chain:
+                chain.append(a)
+        return chain
+    env_list = (os.getenv("SEARCH_BACKENDS") or "").strip()
+    if env_list:
+        return [_normalize_backend_alias(s) for s in env_list.split(",") if s.strip()]
+    return ["google_cse", "serpapi_naver", "serpapi", "tavily"]
 
 # =============================================================================
 # Public Tool: web_search
@@ -437,59 +807,148 @@ def _search_serpapi(query: str, *, num: int = 10, timeout: int = 20) -> List[Dic
 def web_search(
     query: str,
     *,
-    engine: Optional[str] = None,  # "auto" | "tavily" | "google" | "serpapi"
+    engine: Optional[str] = None,  # "auto" | "tavily" | "google" | "serpapi" | "naver"
     num: int = 10,
 ) -> Tuple[List[Dict[str, Any]], str]:
     """
-    멀티 엔진 웹검색 (Tavily → Google CSE → SerpAPI 폴백)
+    멀티 엔진 웹검색 (Google CSE ↔ SerpAPI(Naver/Google) ↔ Tavily)
     반환: (results[list[dict]], json_path[str])
     - 결과 스키마: {title, url, content, raw_content, source}
     - ENV:
       TAVILY_API_KEY
       GOOGLE_API_KEY/GOOGLE_CSE_API_KEY, GOOGLE_CSE_ID/GOOGLE_CSE_CX
+      GOOGLE_CSE_GL, GOOGLE_CSE_LR, SEARCH_HL
       SERPAPI_API_KEY
-      SEARCH_HL, SEARCH_GL
-      WEB_SEARCH_ENGINE=auto|tavily|google|serpapi
-      WEB_SEARCH_RAW_FETCH_TOP (원문 로딩 상위 N, 기본 5)
-      WEB_RAG_DATA_DIR (검색 결과 JSON 저장 디렉터리)
+      SERPAPI_NAVER_HL, SERPAPI_NAVER_GL, SERPAPI_NAVER_WHERE   # where=web|news|blog 등
+      WEB_SEARCH_ENGINE=auto|tavily|google|google_cse|serpapi|serpapi_google|naver|serpapi_naver
+      SEARCH_BACKENDS=google_cse,serpapi_naver,serpapi,tavily
+      WEB_SEARCH_RAW_FETCH_TOP
+      WEB_RAG_DATA_DIR
     """
     engine = (engine or os.getenv("WEB_SEARCH_ENGINE") or "auto").strip().lower()
+
     results: List[Dict[str, Any]] = []
-    used = None
+    used: Optional[str] = None
 
-    # 1) Tavily
-    if engine in ("auto", "tavily"):
-        results = _search_tavily(query)
-        used = "tavily" if results else None
+    # [ADD] 사람이 읽기 좋은 시작 로그 (원본 질의 기준)
+    raw_query = query
+    logger.info("[web_search][query] %s", _ell(raw_query))
 
-    # 2) Google CSE
-    if not results and engine in ("auto", "google", "tavily"):
-        results = _search_google_cse(query, num=num)
-        used = "google_cse" if results else used
+    # (1) backend 지시어 먼저 파싱
+    forced_backend = None
+    m = _re.match(r"backend\s*:\s*([a-zA-Z0-9_]+)\s*;\s*(.*)", raw_query)
+    if m:
+        forced_backend = _normalize_backend_alias(m.group(1))
+        raw_query = m.group(2).strip()
+        logger.info("[backend.forced] %s (via query directive)", forced_backend)
 
-    # 3) SerpAPI
-    if not results and engine in ("auto", "serpapi", "google", "tavily"):
-        results = _search_serpapi(query, num=num)
-        used = "serpapi" if results else used
+    # (2) 표준 정규화
+    base_query = _sanitize_query(raw_query)
+    if base_query != raw_query:
+        logger.debug("[web_search][sanitized] %s", base_query)
 
-    # 간단 재시도(완전 빈 결과일 때만 1회)
+    # (3) 전역 네거티브는 '비-네이버' 백엔드용으로만 준비
+    neg_query = _append_default_negatives(base_query)
+
+    logger.debug(
+        "[web_search][env] backends=%s | GOOGLE_API_KEY=%s CSE_ID=%s | SERPAPI=%s | TAVILY=%s",
+        os.getenv("SEARCH_BACKENDS"),
+        "Y" if (os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_CSE_API_KEY")) else "N",
+        "Y" if (os.getenv("GOOGLE_CSE_ID") or os.getenv("GOOGLE_CSE_CX")) else "N",
+        "Y" if os.getenv("SERPAPI_API_KEY") else "N",
+        "Y" if os.getenv("TAVILY_API_KEY") else "N",
+    )
+
+    # [#RESOLVE_BACKEND_CHAIN_AND_FORCE] ──────────────────────────────────────
+    # 기본 체인 구성
+    chain = _resolve_backend_chain(engine, num=num)
+
+    # 강제 백엔드가 있다면 체인 맨 앞으로 이동(중복 제거)
+    if forced_backend:
+        chain = [forced_backend] + [b for b in chain if b != forced_backend]
+
+    try:
+        _chain_preview = " → ".join(chain)
+    except Exception:
+        _chain_preview = str(chain)
+    logger.debug("[web_search][chain] %s (policy=%s, min_ok=%d)",
+                 _chain_preview, _BACKEND_PICK_POLICY, _MIN_RESULTS_OK)
+    
+
+    # [#BACKEND_FALLBACK_LOOP] ────────────────────────────────────────────────
+    tried: list[tuple[str, int, list[dict]]] = []  # (backend, raw_count, results)
+
+    for bk in chain:
+        start = time.time()
+        try:
+            # (NEW) 백엔드별 쿼리 선택: 네이버는 기본쿼리, 그 외는 네거티브 부착본
+            if bk in ("naver", "serpapi_naver"):
+                q_use = base_query
+            else:
+                q_use = neg_query
+            _res = _backend_call(bk, q_use, num=num) or []
+        except Exception as e:
+            logger.warning("web_search backend '%s' failed: %s", bk, e)
+            _res = []
+        dur = time.time() - start
+        tried.append((bk, len(_res), _res))
+        logger.debug("[web_search][backend tried] %-14s got=%2d in %.2fs", bk, len(_res), dur)
+
+        # 정책: first_ok → 임계치 도달 시 즉시 채택
+        if _BACKEND_PICK_POLICY == "first_ok" and len(_res) >= _MIN_RESULTS_OK:
+            results, used = _res, bk
+            break
+
+    # 정책이 best_of_chain 이거나 first_ok에서 임계치 도달 못한 경우 → 최다결과 선택
+    if not results:
+        if tried:
+            best = max(tried, key=lambda t: t[1])
+            used, best_count, best_res = best[0], best[1], best[2]
+            results = best_res
+            logger.debug("[backend.pick] best_of_chain → %s (count=%d)", used, best_count)
+
+
+    # [#RETRY_BLOCK_IF_EMPTY] ────────────────────────────────────────────────
     if not results:
         time.sleep(1.0)
-        results = _search_tavily(query) or _search_google_cse(query, num=num) or _search_serpapi(query, num=num)
-        if results and not used:
-            used = "retry"
+        retried: list[tuple[str, int, list[dict]]] = []
+        for bk in chain:
+            try:
+                if bk in ("naver", "serpapi_naver"):
+                    q_use = base_query
+                else:
+                    q_use = neg_query
+                _res = _backend_call(bk, q_use, num=num) or []
+            except Exception:
+                _res = []
+            retried.append((bk, len(_res), _res))
+            if _BACKEND_PICK_POLICY == "first_ok" and len(_res) >= _MIN_RESULTS_OK:
+                results, used = _res, f"{bk}(retry)"
+                break
+        if not results and retried:
+            best = max(retried, key=lambda t: t[1])
+            used, _, results = f"{best[0]}(retry)", best[1], best[2]
 
-    if not results:
-        raise RuntimeError(
-            "web_search: Tavily/Google CSE/SerpAPI 모두 실패. "
-            "TAVILY_API_KEY 또는 GOOGLE_API_KEY/GOOGLE_CSE_ID 또는 SERPAPI_API_KEY를 확인하세요."
-        )
+    
+    # [#FINAL_PICKED_LOG] ────────────────────────────────────────────────────
+    if results:
+        logger.info("[web_search][backend] %s  | num=%s | got=%d (policy=%s, min_ok=%d)",
+                    used, num, len(results), _BACKEND_PICK_POLICY, _MIN_RESULTS_OK)
+        lines = []
+        for i, it in enumerate(results[:_LOG_TOPK], start=1):
+            t = _ell(it.get("title") or it.get("name") or "(no title)")
+            u = it.get("url") or it.get("source") or it.get("link") or ""
+            lines.append(f"  {i:>2}. {t}\n      └─ {_host_of(u)} :: {u}")
+        logger.info("[web_search][top%d]\n%s", min(_LOG_TOPK, len(results)), "\n".join(lines))
 
+
+    # 4) 정규화/중복제거/게이트키핑/원문 보강/저장
     results = _dedup_by_url(_normalize_results(results))
-    # 🔒 게이트키핑 적용 (ON일 때만)
     results = _apply_gatekeep_to_results(results)
     _enrich_raw_content(results)
-    path = _save_results(results, query=query)
+    # 저장 메타엔 원본 질의(raw_query)를 남겨 추적성 향상
+    path = _save_results(results, query=raw_query)
+
     logger.info("[web_search] backend=%s, results=%d, saved=%s", used, len(results), path)
     return results, path
 
@@ -497,6 +956,30 @@ def web_search(
 # =============================================================================
 # RAG: Documents conversion & Chroma ingestion/retrieval
 # =============================================================================
+
+# --- Namespace resolver (single source of truth) ------------------------------
+def _resolve_ns(
+    namespace: Optional[str] = None,
+    collection_name: Optional[str] = None,
+) -> str:
+    """
+    네임스페이스/컬렉션 이름을 일관되게 결정한다.
+    우선순위: collection_name > namespace > CHROMA_NAMESPACE > (TOPIC_SLUG or TOPIC) + '-default' > 'default'
+    """
+    if collection_name and collection_name.strip():
+        return collection_name.strip()
+    if namespace and namespace.strip():
+        return namespace.strip()
+
+    env_ns = (os.getenv("CHROMA_NAMESPACE") or "").strip()
+    if env_ns:
+        return env_ns
+
+    topic_slug = (os.getenv("TOPIC_SLUG") or os.getenv("TOPIC") or "").strip()
+    if topic_slug:
+        return f"{topic_slug}-default"
+
+    return "default"
 
 def web_results_to_documents(resources: List[Dict[str, Any]]) -> List[Document]:
     docs: List[Document] = []
@@ -576,7 +1059,8 @@ def clear_vector_store(namespace: Optional[str] = None, persist_directory: Optio
     import shutil, stat, gc, time
 
     env_ns = os.getenv("CHROMA_NAMESPACE")
-    ns = (namespace or (env_ns if env_ns is not None else "default")).strip()
+    # ns = _resolve_ns(namespace=namespace, collection_name=None)
+    ns = _resolve_ns(namespace=namespace, collection_name=None)
     pd = _resolve_persist_dir(ns, persist_directory)
 
     # 전역 클리어 안전 가드
@@ -668,7 +1152,7 @@ def ensure_vector_store_cleared_once(
         return False
 
     env_ns = os.getenv("CHROMA_NAMESPACE")
-    ns = (namespace or (env_ns if env_ns is not None else "default")).strip()
+    ns = _resolve_ns(namespace=namespace, collection_name=None)
     pd = _resolve_persist_dir(ns, persist_directory)
     key = (pd, ns)
 
@@ -709,33 +1193,30 @@ def split_documents(documents: List[Document], *, chunk_size: Optional[int] = No
 def _approx_tokens(s: str) -> int:
     return max(1, len(s or "") // 4)
 
+# 변경: 안전 배치 업서트(+격리)
 def _batched_add(
     vs: Chroma,
     splits: List[Document],
     ids: Optional[List[str]] = None,
+    *, 
+    quarantine_dir: Optional[Path] = None,
 ) -> int:
-    """
-    안전 업서트:
-      - 토큰/배치 예산으로 1차 배치 구성
-      - 예외 시 배치 반으로 축소 → 단건까지 이분탐색
-      - 단건도 실패하면 해당 청크를 격리(quarantine) JSON으로 기록하고 건너뜀
-    """
     MAX_TOKENS = int(os.getenv("RAG_TOKEN_BUDGET_PER_REQ", "250000"))
-    # 기존 RAG_EMBED_BATCH가 있으면 우선 사용, 없으면 CHROMA_MAX_BATCH, 없으면 64
     MAX_BATCH  = int(os.getenv("RAG_EMBED_BATCH", os.getenv("CHROMA_MAX_BATCH", "64")))
     total_added = 0
 
-    # 격리 폴더 준비
-    quarantine_dir = Path(
-        os.getenv("CHROMA_QUARANTINE_DIR", "")
-        or (Path(vs._persist_directory) / "quarantine")  # type: ignore[attr-defined]
-    )
-    try:
-        quarantine_dir.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
+    # ✅ 외부에서 전달받은 폴더 우선, 없으면 기본
+    if quarantine_dir is None:
+        try:
+            base = Path(os.getenv("CHROMA_QUARANTINE_DIR", "") or (DATA_DIR / "quarantine"))
+            base.mkdir(parents=True, exist_ok=True)
+            quarantine_dir = base
+        except Exception:
+            quarantine_dir = None  # 최악의 경우 기록 생략
 
     def _write_quarantine(doc: Document, doc_id: Optional[str], err: Exception) -> None:
+        if quarantine_dir is None:
+            return
         try:
             payload = {
                 "id": doc_id,
@@ -750,10 +1231,8 @@ def _batched_add(
         except Exception:
             logger.warning("[CHROMA] quarantine write failed")
 
-    # 메인 루프
     i = 0
     while i < len(splits):
-        # 토큰/배치 한도로 1차 배치 구성
         tok_sum, j = 0, i
         while j < len(splits) and (j - i) < MAX_BATCH:
             tok_sum += _approx_tokens(splits[j].page_content)
@@ -762,7 +1241,6 @@ def _batched_add(
             j += 1
 
         def _try_range(lo: int, hi: int) -> int:
-            """[lo, hi) 구간을 최대한 추가. 실패 시 이분 분해. 반환=성공 추가 개수"""
             n = hi - lo
             if n <= 0:
                 return 0
@@ -773,19 +1251,14 @@ def _batched_add(
                     vs.add_documents(splits[lo:hi])
                 return n
             except Exception as e:
-                # 배치를 절반으로 쪼개서 재귀 시도
                 if n >= 2:
                     mid = lo + n // 2
-                    left  = _try_range(lo, mid)
-                    right = _try_range(mid, hi)
-                    return left + right
-                # n == 1 인데도 실패 → 격리 후 스킵
+                    return _try_range(lo, mid) + _try_range(mid, hi)
                 _write_quarantine(splits[lo], ids[lo] if ids else None, e)
                 return 0
 
-        added_now = _try_range(i, j)
-        total_added += added_now
-        i = j  # 다음 배치로 진행
+        total_added += _try_range(i, j)
+        i = j
 
     logger.info("batched_add: added %d chunks", total_added)
     return total_added
@@ -814,7 +1287,7 @@ def documents_to_chroma(
     from chromadb.api.types import Where, Include
     from settings_gatekeep import url_allowed
 
-    ns = collection_name or namespace or os.getenv("CHROMA_NAMESPACE") or "default"
+    ns = _resolve_ns(namespace=namespace, collection_name=collection_name)
     pd = _resolve_persist_dir(ns, persist_directory)
     os.makedirs(pd, exist_ok=True)
 
@@ -840,7 +1313,7 @@ def documents_to_chroma(
 
     vs = _get_vs(ns, pd, embedding)
 
-    # --- 새(빈) 스토어 감지: 컬렉션 카운트/디렉터리 비어있음/강한 신호(FRESH_KEYS)
+    # --- 새(빈) 스토어 감지
     def _is_fresh_store() -> bool:
         if (pd, ns) in _FRESH_KEYS:  # 강한 신호
             return True
@@ -995,13 +1468,22 @@ def documents_to_chroma(
             raw_id = f"none-{counter['__none__']:06d}"
         ids.append(_cap_id(raw_id))
 
-    # 5) 배치 업서트(안전화된 _batched_add 사용)
+    # 5) 배치 업서트
     t0 = time.time()
+
+    qdir = Path(
+        os.getenv("CHROMA_QUARANTINE_DIR", "") or (Path(pd) / "quarantine")
+    )
     try:
-        added_chunks = _batched_add(vs, splits, ids)
+        qdir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    try:
+        added_chunks = _batched_add(vs, splits, ids, quarantine_dir=qdir)
     except Exception as e:
         logger.warning("documents_to_chroma: batched_add raised — forcing smaller path: %s", e)
-        # 비상 경로: 개별 업서트 시도(최소 손실)
+        # 비상 경로(단건 업서트)
         added_chunks = 0
         for k, doc in enumerate(splits):
             try:
@@ -1100,7 +1582,7 @@ def retrieve(
         logger.debug("[retrieve] skip glob-like query: %s", query)
         return []
 
-    ns = collection_name or namespace or os.getenv("CHROMA_NAMESPACE") or "default"
+    ns = _resolve_ns(namespace=namespace, collection_name=collection_name)
     pd = _resolve_persist_dir(ns, persist_directory)
     vs = _get_vs(ns, pd, embedding)
 

@@ -371,17 +371,61 @@ def get_communicator_prompt() -> PromptTemplate:
 # ─────────────────────────────────────────────────────────────────────────────
 # Research Planner / Synthesizer
 # ─────────────────────────────────────────────────────────────────────────────
+from langchain.prompts import PromptTemplate
+import logging
+logger = logging.getLogger(__name__)
+
 def get_research_planner_prompt() -> PromptTemplate:
-    tmpl = _tmpl("""
+    tmpl = _tmpl(r"""
         현재 주제: {topic_title}
-        역할: Research Analyst. 다음 목표를 달성하기 위한 **핵심 검색 질의 5~8개**를 설계.
+        역할: Research Analyst. 아래 목표를 달성하기 위해 **정밀 검색 질의 5~8개**만 작성한다.
+
         - 목표: {objective}
         - 기존 레퍼런스 개요: {references}
-        출력: 각 줄에 하나씩 "질의"만 나열 (불릿/번호/설명 금지)
+
+        엄격한 작성 규칙:
+        1) **반드시 한국어**로만 작성한다. 영어 단어/문장/관용 템플릿/라벨 금지.
+           (예: (untitled), draft, v1 같은 접두 라벨 **금지**)
+        2) 각 질의는 **주제어(정확히 '{topic_title}')**와 **국내 맥락 키워드(한국|국내|대한민국 중 1+)**를 반드시 포함한다.
+        3) **주제 범위 확장 금지**: 거시·범산업·글로벌 포괄 문구(예: '글로벌 시장 전망', '산업 전반 트렌드') 사용 금지.
+        4) 다음 **영어 템플릿 문구**는 절대 포함하지 않는다(완전 금지):
+           global market growth forecast, industry trends and market size projections, emerging markets and growth opportunities,
+           market analysis and future growth potential, sector-specific growth rate predictions, economic factors influencing market expansion,
+           competitive landscape and market share analysis
+        5) **권위 도메인 우선**으로 도메인 필터를 포함한다(가능하면 아래 조합 활용):
+            (site:mfds.go.kr OR site:khidi.or.kr OR site:hira.or.kr OR site:kosis.kr OR site:index.go.kr OR site:kpanet.or.kr OR site:go.kr OR site:re.kr)
+            **기본 네거티브(전역 적용)**는 최소화한다: `-행사 -세미나 -박람회`
+            그 외의 네거티브(예: -티켓 -채용 -광고, 특정 산업 키워드 등)는 **해당 질의에 진짜 필요할 때만 선택적으로 추가**한다.
+        6) **최신성 확보**: 가능하면 **연도 범위**를 포함한다(예: 2023..2025 또는 2024..2025).
+           - 연도는 4자리만 사용(‘24’처럼 축약 금지), 중복 연도·불필요한 텍스트 금지.
+        7) **정보 의도 분화**: 아래 중 최소 4가지를 고르게 반영한다
+           - 시장규모/판매액/점유율 (예: 시장규모, 판매액, 매출, 점유율, CAGR, 성장률)
+           - 분류/품목/성분 (예: OTC, 일반의약품, 제산제, 위장약, H2RA, PPI, 제품/브랜드, 벤포티아민)
+           - 유통/가격/규제 (예: 약국외판매, 안전상비의약품, 허가/신고, 급여/비급여, 가격)
+           - 경쟁/채널/소비행태 (예: 상위 브랜드, 유통채널, 소비자 조사)
+           - 리스크/정책/가이드라인 (예: 리스크, 규제 변화, 가이드/고시)
+           ※ {references}에 **브랜드/회사/성분 고유명사**가 보이면 해당 명사를 1~2개 질의에 포함한다(예: 종근당, 벤포벨, 벤포티아민 등).
+        8) **엔진 호환 작성**:
+           - 큰따옴표/작은따옴표/중괄호/각종 라벨 사용 금지.
+           - 괄호는 1단계만 사용하고, OR는 4개 이하 항목에서만 사용(중첩 금지).
+           - 와일드카드(*, ?)와 filetype:, inurl: 같은 특수 연산자 사용 금지.
+        9) **중복 억제/길이 제한**:
+           - 의미가 겹치는 질의 금지(단어만 바꾼 변형 금지).
+           - 각 질의는 60~160자 이내로 간결하게 작성.
+        10) **출력 형식**: 부호/번호/설명/머리말 없이, **한 줄에 쿼리 1개만**. 여분 텍스트 금지.
+                 
+        # 예시(참고용, 출력에 포함 금지):
+        # 한국 피로회복 비타민 시장규모 (2023 OR 2024 OR 2025)
+        # 벤포티아민 성분 품목/허가 현황 site:mfds.go.kr
+        # 벤포벨 매출/점유 관련 공시/보도자료 (2024 OR 2025) site:konex.or.kr OR site:dart.fss.or.kr
+
+        출력:
     """)
     pt = PromptTemplate.from_template(tmpl)
     logger.debug("Research planner prompt ready. vars=%s", pt.input_variables)
     return pt
+
+
 
 def get_research_synthesizer_prompt() -> PromptTemplate:
     tmpl = _tmpl("""
