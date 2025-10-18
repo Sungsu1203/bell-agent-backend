@@ -1,0 +1,218 @@
+폴더 PATH의 목록입니다.
+볼륨 일련 번호는 A6BD-DC85입니다.
+D:.
+|   app.py
+|   changelog.md
+|   content_utils.py
+|   graph.py
+|   md_autofix.py
+|   project_tree.txt
+|   prompts.py
+|   pyproject.toml
+|   pytest.ini
+|   quick_test.py
+|   rag_expression.py
+|   report_builder.py
+|   settings_gatekeep.py
+|   smoke_auto_footnote.py
+|   smoke_pptx_qa.py
+|   
++---.chroma
+|   |   chroma.sqlite3
+|   |   
+|   \---77542d5a-c242-440c-8c2c-99cc11acf0c0
+|           data_level0.bin
+|           header.bin
+|           length.bin
+|           link_lists.bin
+|           
++---.vscode
+|       settings.json
+|       
++---agent
+|   |   chapter_writer.py
+|   |   communicator.py
+|   |   content_strategist.py
+|   |   research_planner.py
+|   |   research_synthesizer.py
+|   |   section_writer.py
+|   |   supervisor.py
+|   |   vector_search.py
+|   |   web_search.py
+|   |   __init__.py
+|   |   
+|   \---__pycache__
+|           chapter_writer.cpython-312.pyc
+|           communicator.cpython-312.pyc
+|           content_strategist.cpython-312.pyc
+|           research_planner.cpython-312.pyc
+|           research_synthesizer.cpython-312.pyc
+|           section_writer.cpython-312.pyc
+|           supervisor.cpython-312.pyc
+|           vector_search.cpython-312.pyc
+|           web_search.cpython-312.pyc
+|           __init__.cpython-312.pyc
+|           
++---chapters
++---content
+|       api.py
+|       __init__.py
+|       
++---core
+|   |   config.py
+|   |   llm.py
+|   |   llm_legacy.py
+|   |   llm_old.py
+|   |   models.py
+|   |   paths.py
+|   |   routers.py
+|   |   state_io.py
+|   |   state_types.py
+|   |   topic.py
+|   |   __init__.py
+|   |   
+|   \---__pycache__
+|           config.cpython-312.pyc
+|           llm.cpython-312.pyc
+|           models.cpython-312.pyc
+|           paths.cpython-312.pyc
+|           routers.cpython-312.pyc
+|           state_io.cpython-312.pyc
+|           state_types.cpython-312.pyc
+|           topic.cpython-312.pyc
+|           __init__.cpython-312.pyc
+|           
++---data
+|   \---chroma_store
+|       \---kr-vitamin-venfobel-quick
+|           |   chroma.sqlite3
+|           |   
+|           \---a34e62e9-7e37-4af5-afc8-f8076257ccc9
+|                   data_level0.bin
+|                   header.bin
+|                   length.bin
+|                   link_lists.bin
+|                   
++---demo_data
++---docs
+|       0d639cb0-391b-49e9-b0ea-2741998bb4d6_운영_매뉴얼.pdf
+|       env_guide.md
+|       
++---local
+|   +---CASE_SPLIT
+|   |       compliance_guide.md
+|   |       policy_overview.md
+|   |       
+|   +---EMPTY
+|   \---ONE
+|           control_recycle.md
+|           
++---logs
+|       run_full.log
+|       
++---outlines
+|   \---default
+|           outline_report.md
+|           
++---refs
+|       일반_의약품_브랜드_마케팅_광고전략_분석.pdf
+|       종근당_전략가설(tmp).pdf
+|       종근당_팩트북.pdf
+|       
++---reports
++---research
++---resources
+|   \---default
+|           local_2025_10_16_095701.json
+|           resources_2025_10_16_095635_785434_b31f7cb8.json
+|           resources_2025_10_16_095645_676731_850e0d62.json
+|           resources_2025_10_16_095659_705930_450b0a70.json
+|           
++---sections
++---state
+|       last_state.json
+|       last_state.pkl
+|       
++---tests
+|   |   test_app_cli_smoke.py
+|   |   test_chroma_ingest_and_clear.py
+|   |   test_e2e_local_rag.py
+|   |   test_gatekeep.py
+|   |   test_gatekeep_edges.py
+|   |   test_gatekeep_pipeline_integration.py
+|   |   test_last_saved_path.py
+|   |   test_logging.py
+|   |   test_outline_and_content.py
+|   |   test_outline_rename.py
+|   |   test_progress_and_communicator_minimal.py
+|   |   test_rag_expression.py
+|   |   test_refs.py
+|   |   test_research_auto_write_policy.py
+|   |   test_research_loop_to_writer.py
+|   |   test_retrieve_quality.py
+|   |   test_sanitize.py
+|   |   test_supervisor_write_fastpath.py
+|   |   test_webjson_loader.py
+|   |   test_web_rag_naver_unit.py
+|   |   test_web_rag_router_smoke.py
+|   |   test_writer_auto_schedule.py
+|   |   test_writer_dedup.py
+|   |   test_writer_schedule_equivalence.py
+|   |   
+|   \---__pycache__
+|           test_app_cli_smoke.cpython-312-pytest-8.4.2.pyc
+|           test_chroma_ingest_and_clear.cpython-312-pytest-8.4.2.pyc
+|           test_gatekeep.cpython-312-pytest-8.4.2.pyc
+|           test_gatekeep_edges.cpython-312-pytest-8.4.2.pyc
+|           test_gatekeep_pipeline_integration.cpython-312-pytest-8.4.2.pyc
+|           test_logging.cpython-312-pytest-8.4.2.pyc
+|           test_progress_and_communicator_minimal.cpython-312-pytest-8.4.2.pyc
+|           test_research_loop_to_writer.cpython-312-pytest-8.4.2.pyc
+|           test_retrieve_quality.cpython-312-pytest-8.4.2.pyc
+|           test_webjson_loader.cpython-312-pytest-8.4.2.pyc
+|           test_writer_auto_schedule.cpython-312-pytest-8.4.2.pyc
+|           test_writer_schedule_equivalence.cpython-312-pytest-8.4.2.pyc
+|           
++---tools
+|   |   local_rag.py
+|   |   web_rag.py
+|   |   __init__.py
+|   |   
+|   \---__pycache__
+|           local_rag.cpython-312.pyc
+|           web_rag.cpython-312.pyc
+|           __init__.cpython-312.pyc
+|           
++---utils
+|   |   forced_queries.py
+|   |   outline.py
+|   |   query_filters.py
+|   |   rag_utils.py
+|   |   refs.py
+|   |   sanitize.py
+|   |   tasks.py
+|   |   text_utils.py
+|   |   writer_scheduler.py
+|   |   __init__.py
+|   |   
+|   \---__pycache__
+|           forced_queries.cpython-312.pyc
+|           outline.cpython-312.pyc
+|           query_filters.cpython-312.pyc
+|           rag_utils.cpython-312.pyc
+|           refs.cpython-312.pyc
+|           sanitize.cpython-312.pyc
+|           tasks.cpython-312.pyc
+|           text_utils.cpython-312.pyc
+|           writer_scheduler.cpython-312.pyc
+|           __init__.cpython-312.pyc
+|           
+\---__pycache__
+        app.cpython-312.pyc
+        content_utils.cpython-312.pyc
+        graph.cpython-312.pyc
+        prompts.cpython-312.pyc
+        rag_expression.cpython-312.pyc
+        report_builder.cpython-312.pyc
+        settings_gatekeep.cpython-312.pyc
+        

@@ -229,11 +229,30 @@ def supervisor(state: State):
 
     # QA/요약형 요청 → 벡터 검색 예약
     if last_text and _is_qa_like(last_text):
+        # 💡 [핵심 수정] vector_search_agent의 pending task가 없을 때만 생성/예약
         if not has_pending(tasks, "vector_search_agent"):
-            tasks.append(Task(agent="vector_search_agent", done=False, description="사용자 질의 기반 RAG 검색을 수행한다.", done_at=""))
-        logger.info("[Supervisor fast-path] QA-like → vector_search_agent pending")
-        _dash_emit(state, where="supervisor", picked="vector_search_agent", reason="qa_like")
-        return {"messages": messages, "task_history": tasks}
+            
+            # 1. 태스크 명시적 생성 (QA 쿼리를 description에 포함)
+            tasks.append(
+                Task(
+                    agent="vector_search_agent", 
+                    done=False, 
+                    description=f"qa_query:{last_text}", # 사용자 질문을 description에 명시
+                    done_at=""
+                )
+            )
+            
+            # 2. QA 답변을 communicator가 출력하도록 플래그 설정 (Communicator가 처리할 수 있도록)
+            state["qa_direct_reply"] = True 
+
+            logger.info("[Supervisor fast-path] QA-like → vector_search_agent scheduled")
+            _dash_emit(state, where="supervisor", picked="vector_search_agent", reason="qa_like_new_task")
+            
+        else:
+            logger.info("[Supervisor fast-path] vector_search_agent pending task already exists.")
+
+        # vector_search_agent로 라우팅
+        return {"messages": messages, "task_history": tasks, "qa_direct_reply": state.get("qa_direct_reply")}
 
     # 새 토픽 (rag_expression 헬퍼 사용)
     new_title = extract_new_topic_title(last_text)
@@ -404,6 +423,15 @@ def supervisor(state: State):
     # fast-path: write: ...
     target_from_line = extract_write_title(last_text)
     if target_from_line:
+        # 💡 [핵심 수정] 명확한 writer 요청이 들어왔을 때 communicator 태스크 자동 종료
+        now = _now_str()
+        for t in tasks:
+            # communicator가 대화 대기 중인 경우, 이를 완료 처리
+            if (not t.done) and t.agent == "communicator":
+                t.done = True
+                t.done_at = now
+                t.description = (t.description or "") + " [auto-closed: writer request]"
+                logger.info("[Supervisor fast-path] auto-closed pending communicator task.")
         refs = state.get("references", {})
         refs_empty = not (refs.get("docs") or [])
         has_pending_rag = any((not t.done) and t.agent in ("web_search_agent", "vector_search_agent") for t in tasks)
@@ -658,7 +686,21 @@ def supervisor_router(state: State) -> str:
         ret = "communicator"
     else:
         # 기본값: QA형이면 벡터검색, 아니면 communicator
-        ret = "vector_search_agent" if any(k in last_text for k in ("요약","정리","무엇","왜","비교","?")) else "communicator"
+        
+        # 💡 [수정 시작] last_text에 "작성", "써줘" 등의 writer 의도가 있는지 확인
+        is_writing_intent = any(k in last_text for k in ("작성","써줘","write"))
+        is_qa_intent = any(k in last_text for k in ("요약","정리","무엇","왜","비교","?"))
+        
+        if is_writing_intent:
+            # 작성 의도가 명확하면, 목차에서 다음 섹션을 찾아서 writer로 보냅니다.
+            # 이 로직은 0-3 fastpath가 write_title을 추출하지 못했을 때만 작동해야 합니다.
+            # 하지만 안전을 위해 preferred writer로 강제 라우팅합니다.
+            ret = preferred
+        elif is_qa_intent:
+            ret = "vector_search_agent"
+        else:
+            ret = "communicator"
+        # ──────────────────────────────────────────────────────────────
 
     logger.info("[supervisor_router] picked=%s", ret)
     _dash_emit(state, where="router", picked=ret, reason="default_route")

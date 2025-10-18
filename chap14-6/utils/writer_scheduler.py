@@ -57,6 +57,8 @@ def schedule_writer_if_needed(
     tasks: Optional[List[Task]] = None,
     messages: Optional[List[Any]] = None,
     outline_text: str = "",
+    # 💡 [핵심 수정] 이 인수가 누락되었을 가능성이 가장 높습니다. 추가해야 합니다.
+    requested_title: Optional[str] = None,
     allow_during_research: Optional[bool] = None,
     debug: bool = False,
 ) -> bool:
@@ -92,11 +94,21 @@ def schedule_writer_if_needed(
     writer_agent: str = WRITER_AGENT
     fallback_default = "Executive Summary" if DOC_MODE == "report" else "서문"
 
-    requested_title = get_last_write_target(msgs_seq, tasks_seq)
+    # requested_title = get_last_write_target(msgs_seq, tasks_seq)
     auto_title = next_unwritten_title(
         outline_text or "", mode=DOC_MODE, root_dir=current_path, topic_slug=state.get("topic_slug")
     )
-    target_title = (requested_title or auto_title or fallback_default) or fallback_default
+    target_title = requested_title 
+    if not target_title:
+        target_title = auto_title
+    if not target_title:
+        target_title = fallback_default # 최종 폴백
+    # target_title = (requested_title or auto_title or fallback_default) or fallback_default
+
+    # -------------------------------------------------------------------------
+    # 참고: get_last_write_target이 추출하는 제목이 섹션 번호가 포함된 전체 제목이어야 합니다.
+    #      (ex: "7. 예상 리스크 및 완화 방안")
+    # -------------------------------------------------------------------------
 
     # 3) 연구 루프 감지 (명시 플래그 우선 → 없으면 유도 판정)
     explicit_flag = state.get("research_loop_active")

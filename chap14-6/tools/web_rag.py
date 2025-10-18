@@ -1,4 +1,3 @@
-# tools/web_rag.py
 from __future__ import annotations
 
 import logging
@@ -16,10 +15,13 @@ from langchain_core.documents import Document
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+# 💡 중앙 LLM 관리 모듈에서 임베딩 함수 임포트
+from core.llm import get_embedding_model
+
 from settings_gatekeep import (
     gatekeep_enabled,
     url_allowed,
-    _normalize_host,   # 로그 요약용 (없으면 제거해도 무방)
+    _normalize_host,    # 로그 요약용 (없으면 제거해도 무방)
 )
 
 from collections import defaultdict as _dd
@@ -53,8 +55,8 @@ except Exception:
     _HAS_TAVILY = False
     logger.debug("Tavily client not available.")
 
-# ---- RAG (Chroma + OpenAI embeddings) ----
-from langchain_openai import OpenAIEmbeddings
+# ---- RAG (Chroma + Embeddings) ----
+# 💡 OpenAIEmbeddings 직접 임포트 대신 Chroma만 남김
 from langchain_chroma import Chroma
 
 
@@ -74,7 +76,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # 파일 상단 전역들 근처에 추가
 _RECENTLY_CLEARED: dict[str, float] = {}             # dir -> cleared_at epoch (부드러운 신호, 시간기반)
-_FRESH_KEYS: set[tuple[str, str]] = set()            # (persist_dir, namespace) 강한 신호(원샷)
+_FRESH_KEYS: set[tuple[str, str]] = set()           # (persist_dir, namespace) 강한 신호(원샷)
 
 def _now(fmt: str = "%Y_%m%d_%H%M%S") -> str:
     return datetime.now().strftime(fmt)
@@ -120,8 +122,8 @@ def _save_results(items, out_dir: Optional[Path | str] = None, *, query: Optiona
 _MIN_RESULTS_OK = int(os.getenv("WEB_MIN_RESULTS_OK", "3") or "3")
 
 # 백엔드 선택 정책: 'first_ok' | 'best_of_chain'
-#  - first_ok: 체인 순서대로 보다가 처음으로 임계치 이상 나오면 채택
-#  - best_of_chain: 전부 시도 후 가장 많은 결과를 낸 백엔드 채택
+#   - first_ok: 체인 순서대로 보다가 처음으로 임계치 이상 나오면 채택
+#   - best_of_chain: 전부 시도 후 가장 많은 결과를 낸 백엔드 채택
 _BACKEND_PICK_POLICY = (os.getenv("WEB_BACKEND_PICK_POLICY", "first_ok") or "first_ok").lower()
 
 # [ADD] ────────────────────────────────────────────────────────────────────────
@@ -565,13 +567,31 @@ def _simplify_for_naver(q: str) -> str:
     """
     Naver(SerpAPI) 엔진 호환을 위해 Google식 연산자/괄호/site: 등을 제거/단순화.
     ENV:
-      NAVER_TRIM_OPERATORS=1     # site:, filetype:, OR/AND, 괄호, '..' 제거
-      NAVER_NEGATIVE_CAP=0       # -토큰 허용 개수 (기본 0=전부 제거)
+      NAVER_TRIM_OPERATORS=1      # site:, filetype:, OR/AND, 괄호, '..' 제거
+      NAVER_NEGATIVE_CAP=0        # -토큰 허용 개수 (기본 0=전부 제거)
     """
     if not q:
         return q
 
     s = q
+
+    # LLM 쿼리에서 '종근당' 또는 '벤포벨'이 시작하는 위치를 찾습니다.
+    m = _re.search(r"(종근당|벤포벨)", s)
+    if m:
+        # '종근당' 또는 '벤포벨'이 시작하는 지점부터 쿼리를 잘라냅니다.
+        s = s[m.start():]
+
+    # 2. 영문 리서치 용어를 한글로 번역하여 SerpApi의 Naver 엔진 검색 품질 향상
+    s = _re.sub(r"\b(overview|summary|key trends|market size|supply chain risks|policy & regulation|Korea)\b", 
+                lambda m: {"overview": "개요", "summary": "요약", "key trends": "주요 동향", 
+                        "market size": "시장 규모", "supply chain risks": "공급망 위험", 
+                        "policy & regulation": "정책 규제", "Korea": "한국"}.get(m.group(1).lower(), m.group(1)), # <-- " " 대신 m.group(1)로 수정
+                s, flags=_re.I)
+    
+    # 3. 잔존하는 슬래시, 따옴표, 불필요한 문장 부호 제거 및 중복 공백 정리
+    s = s.replace('\'', ' ').replace('"', ' ').replace('/', ' ').replace('|', ' ')
+    s = _re.sub(r"\s+", " ", s).strip()
+
     if _truthy("NAVER_TRIM_OPERATORS", default="1"):
         # 1) 고급 연산자/패턴 제거
         s = _re.sub(r"site:\S+", " ", s, flags=_re.I)
@@ -595,7 +615,7 @@ def _simplify_for_naver(q: str) -> str:
         s = s[:200].rstrip()
     return s
 
-# ====== (MOD) Naver 스킵 판단 ================================================
+# ====== (MOD) Naver 스킵 판정 ================================================
 def _should_skip_naver(q: str) -> bool:
     """
     네이버 SerpAPI 안전성 휴리스틱.
@@ -661,6 +681,82 @@ def _is_naver_safe(q: str) -> bool:
     return True
 
 # ====== SerpAPI(Naver) 백엔드 구현 ===========================================
+
+# tools/web_rag.py 파일 내 _search_serpapi_naver 근처에 추가
+
+def _search_naver_direct(query: str, *, num: int = 10, timeout: int = 20) -> List[Dict[str, Any]]:
+    client_id = os.getenv("NAVER_CLIENT_ID")
+    client_secret = os.getenv("NAVER_CLIENT_SECRET")
+    if not (client_id and client_secret):
+        logger.warning("Naver direct search skipped: NAVER_CLIENT_ID or SECRET not set.")
+        return []
+
+    # (1) 네이버 쿼리 포맷 강제 클리닝 (기존 _simplify_for_naver 로직 재사용)
+    q_naver = _simplify_for_naver(query) 
+    
+    if not q_naver or len(q_naver) < 2:
+        logger.info("[Naver(Direct)] skipped (empty after simplify)")
+        return []
+
+    # (2) 쿼리 인코딩 (한글 필수)
+    from urllib.parse import quote
+    encoded_query = quote(q_naver)
+
+    # (3) API 설정
+    # 네이버는 검색 분야(뉴스, 블로그, 웹문서 등)별 엔드포인트가 분리되어 있음.
+    # 여기서는 가장 범용적인 '웹 문서(webkr)'를 기본으로 사용합니다.
+    # url = "https://openapi.naver.com/v1/search/webkr.json" 
+    url = "https://openapi.naver.com/v1/search/news.json"    # 뉴스 검색으로 변경
+    
+    num = max(1, min(int(num or 10), 100)) # 네이버 API 최대 100
+    
+    # HTTP 헤더에 Client ID/Secret을 포함해야 함 (SerpAPI와 가장 큰 차이)
+    headers = {
+        "X-Naver-Client-Id": client_id,
+        "X-Naver-Client-Secret": client_secret
+    }
+    
+    params = {
+        "query": encoded_query,
+        "display": num,
+        "start": 1, # 첫 페이지부터 시작
+        "sort": "sim" # 정확도순
+    }
+
+    logger.debug("[Naver(Direct)][query] %s (encoded: %s)", _ell(q_naver), encoded_query[:50] + "...")
+    
+    try:
+        r = http_get(url, headers=headers, params=params, timeout=timeout)
+        r.raise_for_status() 
+        data = r.json() or {}
+        
+        # (4) 결과 파싱 (네이버 API 응답 구조)
+        items = data.get("items") or []
+        parsed: List[Dict[str, Any]] = []
+        for it in items:
+            link = it.get("link") or it.get("url") or ""
+            if not link:
+                continue
+            parsed.append({
+                "title": it.get("title") or link,
+                "url": link,
+                "content": it.get("description") or "", # 네이버는 snippet 대신 description 사용
+                "raw_content": "",
+                "source": link,
+            })
+        
+        logger.debug("[Naver(Direct)] success. items=%d", len(parsed))
+        return parsed
+
+    except requests.exceptions.HTTPError as e:
+        # 인증 오류 (401) 또는 파라미터 오류 (400) 진단에 유용
+        logger.warning("Naver(Direct) HTTP Error %s: %s (query=%s)", e.response.status_code, e.response.text, _ell(q_naver))
+        return []
+    except Exception as e:
+        logger.warning("Naver(Direct) search failed: %s", e)
+        return []
+
+
 def _search_serpapi_naver(query: str) -> list[dict]:
     api_key = (os.getenv("SERPAPI_API_KEY") or "").strip()
     if not api_key:
@@ -766,6 +862,9 @@ def _backend_call(backend_key: str, query: str, *, num: int = 10) -> List[Dict[s
     if key in ("naver", "serpapi_naver"):
         # 호출 전 간소화(내부도 재검사하므로 안전)
         return _search_serpapi_naver(query)
+    # [수정] 네이버 직접 호출 백엔드 추가
+    elif key == "naver_direct":
+        return _search_naver_direct(query, num=num)
     if key == "tavily":
         return _search_tavily(query)
     return []  # 알 수 없는 키 → 빈 결과
@@ -1166,8 +1265,8 @@ def ensure_vector_store_cleared_once(
     return True
 
 def _get_embeddings(embedding=None):
-    model = os.getenv("RAG_EMBEDDING_MODEL", "text-embedding-3-large")
-    return embedding or OpenAIEmbeddings(model=model)
+    # 💡 core/llm에서 중앙 관리되는 임베딩 인스턴스를 사용
+    return embedding or get_embedding_model()
 
 def _get_vs(collection_name: str, persist_directory: str, embedding=None) -> Chroma:
     key = (persist_directory, collection_name)
@@ -1574,8 +1673,8 @@ def retrieve(
     if not q:
         return []
 
-    ql = q.lower()
-    if ql.startswith("local:"):
+    qL = q.lower()
+    if qL.startswith("local:"):
         logger.debug("[retrieve] skip local/glob query: %s", query)
         return []
     if any(tok in q for tok in ("**\\", "**/", "\\*.", "/*.", "\\**", "/**")):
@@ -1628,9 +1727,9 @@ def retrieve(
                 "Vector query failed due to a likely embedding model/dimension mismatch between "
                 "ingestion and retrieval.\n\n"
                 "How to fix:\n"
-                "  • Ensure the SAME embedding model is used for both ingestion and retrieval.\n"
-                "  • If you pass a custom `embedding=` here, it must match the one used to build this collection.\n"
-                "  • Otherwise, omit `embedding` so the vector store’s existing embedding function is reused."
+                "   • Ensure the SAME embedding model is used for both ingestion and retrieval.\n"
+                "   • If you pass a custom `embedding=` here, it must match the one used to build this collection.\n"
+                "   • Otherwise, omit `embedding` so the vector store’s existing embedding function is reused."
             ) from e
 
         # 그 외 예외는 디버그로 남기고 폴백 경로 시도

@@ -192,6 +192,38 @@ def communicator(state: State):
 
     # 일반 커뮤니케이션
     fallback_outline = get_topic_outline_text(state)
+    # 💡 [핵심 FIX] Direct QA 답변이 state에 있는지 확인 후, 있으면 즉시 출력하고 종료
+    # ----------------------------------------------------------------------------------
+    if state.get("qa_direct_reply"):
+        # 마지막 AI 메시지가 직전 vector_search_agent가 생성한 Q&A 답변일 것이다.
+        last_ai_msg = next((m for m in reversed(messages) if isinstance(m, AIMessage)), None)
+        
+        if last_ai_msg and getattr(last_ai_msg, "content", ""):
+            reply_text = _as_text(last_ai_msg.content)
+            
+            # [수정] 강제 출력 로직 (sys.stdout.write 사용)
+            try:
+                logger.info("\n--- [Q&A 답변] ---")
+                                # logger.info 대신 sys.stdout을 직접 사용하여 포맷팅된 텍스트를 출력
+                sys.stdout.write(reply_text.rstrip() + "\n")
+                sys.stdout.write("---------------------\n")
+                sys.stdout.flush() 
+            except Exception:
+                logger.warning("[COMMUNICATOR] Console write failed for QA answer.")
+
+            # 다음 Task 스케줄링 (Communicator 종료)
+            if pending:
+                pending.done = True
+                pending.done_at = _now_str()
+
+            # Q&A 플래그 제거 (상태 정리)
+            state["qa_direct_reply"] = False 
+
+            logger.info("[COMMUNICATOR] Delivered Direct QA Summary.")
+            
+            # 💡 [핵심] QA 답변 후 즉시 함수를 종료하고 상태를 반환
+            return {"messages": messages, "task_history": tasks, "qa_direct_reply": False}
+# ----------------------------------------------------------------------------------
     # [ADD] Minimal mode: if dashboard was printed very recently, avoid verbose summary
     if recent:
         minimal = "[Communicator] 최신 진행상황만 간단히 안내합니다. 자세한 내용은 대시보드 로그를 참고하세요."
@@ -228,6 +260,11 @@ def communicator(state: State):
     text_buf = _dedupe_consecutive_lines(text_buf)
     messages.append(AIMessage(content=text_buf))
     logger.debug("[Communicator] generated reply (%s chars)", len(text_buf))
+
+    # 💡 수정된 부분: LLM 답변을 콘솔에 직접 출력 (Q&A 가시성 확보)
+    # print("\n--- [AI 응답] ---\n" + text_buf.strip() + "\n-----------------")
+    # sys.stdout.flush()
+    # -----------------------------------------------------------
 
     # 마지막 저장 경로 힌트 부가
     try:

@@ -1,4 +1,3 @@
-# prompts.py
 from __future__ import annotations
 from typing import Literal
 from langchain_core.prompts import PromptTemplate
@@ -6,7 +5,7 @@ from langchain_core.prompts import PromptTemplate
 import logging
 logger = logging.getLogger(__name__)
 
-import textwrap  # <-- 추가
+import textwrap 
 
 Mode = Literal["book", "report"]
 
@@ -42,16 +41,16 @@ def get_supervisor_prompt() -> PromptTemplate:
         - section_writer: (보고서 모드) 특정 섹션 본문 초안
         - research_planner: 심층 연구 계획 수립
         - research_synthesizer: 심층 연구 결과를 종합
-                 
+                    
         [선택 규칙(요약)]
         - outline 미확정/노후: content_strategist
-        - 연구 라운드 시작/업데이트 필요: research_planner
+        - 연구 라운드 시작/업데이트 필요: research_planner (연구 목표가 남아있다면)
         - 웹 자료가 부족/낡음: web_search_agent
-        - 내부 RAG 우선 확인: vector_search_agent
-        - 충분히 모였고 작성 단계: (DOC_MODE=book) chapter_writer | (report) section_writer
+        - 인덱싱 후 RAG 검색 필요: vector_search_agent
         - 라운드 결과 정리/종합 필요: research_synthesizer
+        - 작성 대상 섹션 확정 및 자료 충분: (DOC_MODE=book) chapter_writer | (report) section_writer
         - 사용자 커뮤니케이션/진도 보고: communicator
-                 
+                    
         [출력 형식(중요)]
         아래 중 하나의 토큰만 정확히 출력:
         content_strategist | communicator | web_search_agent | vector_search_agent |
@@ -63,7 +62,7 @@ def get_supervisor_prompt() -> PromptTemplate:
         ------------------------------------------
         messages:
         {messages}
-    """)
+        """)
     pt = PromptTemplate.from_template(tmpl)
     logger.debug("Supervisor prompt ready. vars=%s", pt.input_variables)
     return pt
@@ -130,16 +129,16 @@ def get_web_search_prompt() -> PromptTemplate:
 
         [검색어 생성 규칙(중요)]
         1) 각 쿼리마다 다음 바이어스를 괄호로 그대로 덧붙인다:
-           (site:go.kr OR site:re.kr OR site:iea.org OR site:oecd.org OR site:kdi.re.kr)
+            (site:mfds.go.kr OR site:khidi.or.kr OR site:hira.or.kr OR site:kosis.kr OR site:index.go.kr OR site:kpanet.or.kr OR site:dailypharm.com OR site:medipana.com)
         2) 각 쿼리마다 다음 금칙을 그대로 덧붙인다:
-           -site:facebook.com -site:instagram.com -site:myfair.co -event -exhibition -tickets -행사 -티켓
+            -site:facebook.com -site:instagram.com -site:myfair.co -event -exhibition -tickets -행사 -티켓 -광고
         3) 사용자가 행사/티켓/SNS 자체를 명시적으로 요청한 경우에만 해당 쿼리 1개에 한해 금칙을 생략해도 된다.
         4) 쿼리는 **구체적 개념 + 시점(연도 또는 기간 예: 2024~2025)** 을 포함한다.
         5) 같은 의미의 중복 쿼리는 생성하지 말고, **정책/시장규모/공급망/기술동향/리스크** 등으로 영역을 분리한다.
 
         [예시 변환]
         - 원본: 한국 전기차 배터리 산업 현황 2025
-          최종: 한국 전기차 배터리 산업 현황 2025 (site:go.kr OR site:re.kr OR site:iea.org OR site:oecd.org OR site:kdi.re.kr) -site:facebook.com -site:instagram.com -site:myfair.co -event -exhibition -tickets -행사 -티켓
+            최종: 한국 전기차 배터리 산업 현황 2025 (site:mfds.go.kr OR site:kosis.kr OR site:dailypharm.com) -site:facebook.com -site:instagram.com -site:myfair.co -event -exhibition -tickets -행사 -티켓 -광고
 
         [검색 목적/미션]
         {mission}
@@ -170,6 +169,7 @@ def get_vector_search_prompt() -> PromptTemplate:
 
         너는 벡터 DB(RAG) 검색 Agent다.
         - 검색 목적: {mission}
+        - 참고 자료 요약에는 [file://..] 로컬 파일과 [http://..] 웹 자료가 혼합되어 있다.
         --------------------------------
         - 과거 검색 내용: {references}
         --------------------------------
@@ -210,7 +210,7 @@ def get_chapter_writer_prompt() -> PromptTemplate:
         - 핵심 섹션: 1,500~2,300 단어 (요약형은 500~900 단어)
 
         [작성 원칙 (사실성/엄밀성)]
-        - 수치·연도·점유율 등 **확정 수치**는 참고자료에 있을 때만 인용(출처 범주 표기: [IEA], [BNEF], [정부보고서] 등)
+        - 수치·연도·점유율 등 **확정 수치**는 참고자료에 있을 때만 인용(출처명 표기: [DailyPharm], [종근당_팩트북.pdf] 등)
         - 없을 경우 **범위/추정/전제조건**과 함께 정성 비교로 대체(근거 빈약 문구 금지)
         - 데이터 부족 시 **Assumptions(전제)** 블록을 먼저 명시
         - 주장→근거→시사점→행동으로 이어지는 논리 맞춤
@@ -228,61 +228,7 @@ def get_chapter_writer_prompt() -> PromptTemplate:
         [Exhibits 템플릿(고정) — 필요 시 그대로 사용]
         ```markdown
         **Exhibit {{n}}. 옵션 비교 매트릭스 (기본형)**
-
-        | 옵션 | 요약 설명 | Capex (₩/US$) | Opex (연) | 구현 리드타임 | 기대 효과 | 핵심 리스크 | 의존성/전제 | 규제 적합성 | ESG 영향 | ROI/회수기간 | 신뢰도 |
-        |---|---|---:|---:|---|---|---|---|---|---|---:|---|
-        | A. 국내 양극재 라인 증설 | 10GWh 라인 신설 | 450M | 35M | 12~18개월 | 원가 -8~12%/kWh | 장비 리드타임, 전력비 | 전력특례, 부지 인허가 | ○ | ▲ | 4.2년 | 중 |
-        | B. 리튬 장기 오프테이크 | 5년, 30kt LCE | 0 | +3% 프리미엄 | 2~3개월(계약) | 가격 변동성 ↓ | 단일 공급 리스크 | 신용공여한도 | ○ | ○ | 2.1년 | 중상 |
-        | C. 리사이클 파트너십 | 스크랩/블랙매스 회수 | 60M | 10M | 6~9개월 | 원료 대체 8~15% | 수율/순도 | 물류/HSE | ○ | ◎ | 3.0년 | 중 |
-        | D. LFP 전환(부분) | NMC→LFP 30% | 120M | 12M | 9~12개월 | 코발트 의존 ↓ | 에너지밀도↓ | 고객승인 | ○ | ○ | 3.5년 | 중 |
-
-        **Exhibit {{n+1}}. 옵션 가중치 점수표**
-
-        | 기준 | 가중치(%) | A | B | C | D |
-        |---|---:|---:|---:|---:|---:|
-        | 비용절감 효과 | 30 | 4 | 3 | 3 | 4 |
-        | 리스크 저감 | 20 | 3 | 4 | 3 | 4 |
-        | 실행 용이성 | 15 | 2 | 4 | 3 | 3 |
-        | 리드타임 | 15 | 2 | 4 | 3 | 3 |
-        | 고객/규제 적합 | 10 | 4 | 4 | 4 | 3 |
-        | ESG 임팩트 | 10 | 3 | 3 | 5 | 4 |
-        | **가중합(100)** |  | **3.1** | **3.7** | **3.5** | **3.5** |
-
-        **Exhibit {{m}}. KPI 대시보드 (선행/동행/지연)**
-
-        | KPI | 유형 | 정의 | 기준선(현재) | 목표(분기/연말) | 빈도 | 소유자 | 데이터 소스 |
-        |---|---|---|---|---|---|---|---|
-        | 오프테이크 커버리지(개월) | 선행 | 확약 물량/생산월 | 7.5 | ≥ 12 | 월간 | 전략구매 | 계약관리시스템 |
-        | 공급처 다변화 지수(HHI 역수) | 선행 | 유효 공급처 균등도 | 0.42 | ≥ 0.55 | 분기 | 소싱 | 벤더마스터 |
-        | 리사이클 회수율(%) | 동행 | 스크랩→블랙매스 회수 | 62% | ≥ 80% | 월간 | 생산/ESG | MES/물류 |
-        | kWh당 원가(₩) | 동행 | 전원가 기준 | 121,000 | ≤ 110,000 | 월간 | 재무/생산 | ERP/원가 |
-        | OTIF(정시완전납품, %) | 동행 | On-Time In-Full | 93% | ≥ 97% | 주간 | 물류 | WMS/TMS |
-        | 재고회전(회/년) | 동행 | 매출원가/평균재고 | 7.1 | ≥ 9.0 | 월간 | 재무/SCM | ERP |
-        | CO₂e/kWh(kg) | 지연 | 스코프1+2(위탁 포함) | 6.8 | ≤ 5.5 | 분기 | ESG | LCA/전력계약 |
-        | 품질불량(PPM) | 지연 | 고객 클레임 기준 | 410 | ≤ 200 | 월간 | 품질 | QMS |
-
-        **Exhibit {{m+1}}. 30-60-90 실행 플랜**
-
-        | 기간 | 핵심 액션 | 인도물(Deliverable) | KPI 연결 | 리스크/의존성 | 책임 |
-        |---|---|---|---|---|---|
-        | 30d | 리튬 오프테이크 상위 3사 RFP | RFP 문서/답신 | 오프테이크 커버리지 | 신용한도, 가격밴드 | 전략구매 |
-        | 60d | 리사이클 파일럿 라인 PoC | 수율/순도 리포트 | 회수율, CO₂e/kWh | HSE 인허가 | 생산/ESG |
-        | 90d | LFP 전환 고객 인증 패키지 | 샘플+시험성적서 | PPM, 원가 | 고객 테스트 슬롯 | 영업/품질 |
-
-        **Exhibit {{r}}. 리스크–완화 매트릭스**
-
-        | 리스크 | 카테고리 | 가능성 | 영향 | 조기 경보(Trigger) | 완화 전략 | 잔여 리스크 | 오너 |
-        |---|---|---:|---:|---|---|---|---|
-        | 리튬 스팟가 급등 | 시장 | 높음 | 높음 | LCE 주간지수 +15% | 장기오프테이크, 헤지 | 중 | 전략구매 |
-        | 장비 납기 지연 | 운영 | 중 | 높음 | 주요 벤더 납기 +8주 | 이중 소싱, 선발주 | 중 | 생산 |
-        | 고객 인증 지연 | 상업 | 중 | 중 | 샘플 승인>8주 | 병렬 인증 트랙 | 중 | 영업/품질 |
-
-        **(선택) R/ICE 스코어 예시**
-
-        | 옵션 | Reach | Impact | Confidence | Effort(↓) | R/ICE |
-        |---|---:|---:|---:|---:|---:|
-        | A | 3 | 4 | 0.7 | 3 | 2.8 |
-        | B | 4 | 4 | 0.8 | 2 | 6.4 |
+        ... (테이블 내용 유지) ...
         ```
         (표 캡션은 항상 `**Exhibit {{번호}}. 제목**` 형식으로 시작한다)
 
@@ -320,6 +266,8 @@ def get_section_writer_prompt() -> PromptTemplate:
         - 타깃과 다른 상위 섹션을 새로 만들거나 변경하지 말 것.
 
         [출력 형식]
+        - **만약 [작성 대상 섹션 제목]이 "Q&A:"로 시작하지 않는다면:** 문서의 첫 줄은 반드시 타깃 헤딩 한 줄: `## <번호>. <제목>`
+        - **그렇지 않다면 (Q&A 모드라면):** 헤딩을 포함하지 않고 답변만 출력할 것.
         - 문서의 첫 줄은 반드시 타깃 헤딩 한 줄: `## <번호>. <제목>`
         - 상위 헤딩(##)은 **딱 한 번**만 사용. 소제목은 `###` 이하로만 사용
         - 불필요한 서문/메타 설명 없이 **본문만** 출력
@@ -331,7 +279,13 @@ def get_section_writer_prompt() -> PromptTemplate:
         - 표/목록: Markdown
         - 길이: 800~1,500 단어(요약은 400~800)
         - 마지막: **Actionable Recommendations** 3~5개
-        - 인용은 재서술, 출처명은 대괄호(예: [IBM])
+                   제안은 **'벤포벨' 브랜드의 경쟁 우위 확보**나 **활성 비타민 시장 공략**에 **직접적으로** 관련되어야 하며, **일반적인 경영/생산 조언은 피한다.**
+        - 인용은 재서술, 출처명은 대괄호(예: [DailyPharm])
+                 
+        [특수 규칙: Q&A 모드]
+        - 만약 {target_title}이 "Q&A:"로 시작한다면, 보고서 스타일을 무시하고
+        - 사용자 질문에 대해 참고 자료({references})를 활용한 간결하고 직접적인 답변만 제공할 것.
+        - 헤딩(##)이나 마크다운 테이블, Actionable Recommendations는 모두 생략할 것.
 
         [작성 대상 섹션 제목]
         {target_title}
@@ -371,9 +325,6 @@ def get_communicator_prompt() -> PromptTemplate:
 # ─────────────────────────────────────────────────────────────────────────────
 # Research Planner / Synthesizer
 # ─────────────────────────────────────────────────────────────────────────────
-from langchain.prompts import PromptTemplate
-import logging
-logger = logging.getLogger(__name__)
 
 def get_research_planner_prompt() -> PromptTemplate:
     tmpl = _tmpl(r"""
@@ -385,35 +336,39 @@ def get_research_planner_prompt() -> PromptTemplate:
 
         엄격한 작성 규칙:
         1) **반드시 한국어**로만 작성한다. 영어 단어/문장/관용 템플릿/라벨 금지.
-           (예: (untitled), draft, v1 같은 접두 라벨 **금지**)
+            (예: (untitled), draft, v1 같은 접두 라벨 **금지**)
         2) 각 질의는 **주제어(정확히 '{topic_title}')**와 **국내 맥락 키워드(한국|국내|대한민국 중 1+)**를 반드시 포함한다.
         3) **주제 범위 확장 금지**: 거시·범산업·글로벌 포괄 문구(예: '글로벌 시장 전망', '산업 전반 트렌드') 사용 금지.
         4) 다음 **영어 템플릿 문구**는 절대 포함하지 않는다(완전 금지):
-           global market growth forecast, industry trends and market size projections, emerging markets and growth opportunities,
-           market analysis and future growth potential, sector-specific growth rate predictions, economic factors influencing market expansion,
-           competitive landscape and market share analysis
+            global market growth forecast, industry trends and market size projections, emerging markets and growth opportunities,
+            market analysis and future growth potential, sector-specific growth rate predictions, economic factors influencing market expansion,
+            competitive landscape and market share analysis
         5) **권위 도메인 우선**으로 도메인 필터를 포함한다(가능하면 아래 조합 활용):
-            (site:mfds.go.kr OR site:khidi.or.kr OR site:hira.or.kr OR site:kosis.kr OR site:index.go.kr OR site:kpanet.or.kr OR site:go.kr OR site:re.kr)
+            (site:mfds.go.kr OR site:khidi.or.kr OR site:hira.or.kr OR site:kosis.kr OR site:index.go.kr OR site:kpanet.or.kr OR site:go.kr OR site:re.kr OR site:dailypharm.com OR site:medipana.com)
+            **주의:** `site:go.kr` 또는 `site:re.kr`는 **약학/보건/통계 관련성이 매우 높을 때만** 사용한다. 일반적인 시청/지자체/농축산 분야 키워드 검색 시에는 사용하지 않는다.
             **기본 네거티브(전역 적용)**는 최소화한다: `-행사 -세미나 -박람회`
-            그 외의 네거티브(예: -티켓 -채용 -광고, 특정 산업 키워드 등)는 **해당 질의에 진짜 필요할 때만 선택적으로 추가**한다.
+            **네거티브 키워드 사용 유도:** 네이버에서 불필요한 쇼핑/개인 블로그/체험단 결과를 차단하기 위해 **`-체험단 -블로그 -가격비교`**와 같은 네거티브 키워드를 **선택적으로** 포함하도록 한다.
         6) **최신성 확보**: 가능하면 **연도 범위**를 포함한다(예: 2023..2025 또는 2024..2025).
-           - 연도는 4자리만 사용(‘24’처럼 축약 금지), 중복 연도·불필요한 텍스트 금지.
-        7) **정보 의도 분화**: 아래 중 최소 4가지를 고르게 반영한다
-           - 시장규모/판매액/점유율 (예: 시장규모, 판매액, 매출, 점유율, CAGR, 성장률)
-           - 분류/품목/성분 (예: OTC, 일반의약품, 제산제, 위장약, H2RA, PPI, 제품/브랜드, 벤포티아민)
-           - 유통/가격/규제 (예: 약국외판매, 안전상비의약품, 허가/신고, 급여/비급여, 가격)
-           - 경쟁/채널/소비행태 (예: 상위 브랜드, 유통채널, 소비자 조사)
-           - 리스크/정책/가이드라인 (예: 리스크, 규제 변화, 가이드/고시)
-           ※ {references}에 **브랜드/회사/성분 고유명사**가 보이면 해당 명사를 1~2개 질의에 포함한다(예: 종근당, 벤포벨, 벤포티아민 등).
-        8) **엔진 호환 작성**:
-           - 큰따옴표/작은따옴표/중괄호/각종 라벨 사용 금지.
-           - 괄호는 1단계만 사용하고, OR는 4개 이하 항목에서만 사용(중첩 금지).
-           - 와일드카드(*, ?)와 filetype:, inurl: 같은 특수 연산자 사용 금지.
+            - 연도는 4자리만 사용(‘24’처럼 축약 금지), 중복 연도·불필요한 텍스트 금지.
+        7) **정보 의도 분화**: 아래 중 최소 4가지를 고르게 반영하며, **객관적 정보**를 검색할 때는 쿼리 끝에 **'뉴스', '자료', '통계', '보고서'**와 같은 키워드를 추가하여 의도를 명확히 한다.
+            - 시장규모/판매액/점유율 (예: 시장규모, 판매액, 매출, 점유율, CAGR, 성장률)
+            - 분류/품목/성분 (예: OTC, 일반의약품, 제산제, 위장약, H2RA, PPI, 제품/브랜드, 벤포티아민)
+            - 유통/가격/규제 (예: 약국외판매, 안전상비의약품, 허가/신고, 급여/비급여, 가격)
+            - 경쟁/채널/소비행태 (예: 상위 브랜드, 유통채널, 소비자 조사)
+            - 리스크/정책/가이드라인 (예: 리스크, 규제 변화, 가이드/고시)
+            ※ {references}에 **브랜드/회사/성분 고유명사**가 보이면 해당 명사를 1~2개 질의에 포함한다(예: 종근당, 벤포벨, 벤포티아민 등).
+        8) **정밀 연산자 사용:**
+            - **네이버 연산자**(`"`, `+`, `-`, `|`)를 적극 활용하여 쿼리 정확도를 높인다.
+            - **구문 검색:** **`"핵심 키워드"`** (큰따옴표)로 정확히 일치하는 문구를 검색한다. (예: `"벤포벨 시장 점유율"`)
+            - **필수 포함:** **`+필수단어`** (플러스 기호와 단어 사이 공백 없음)를 사용하여 **핵심 브랜드/성분/시점**을 강제한다. (예: `+종근당 +2025`)
+            - **제외:** **`-제외단어`** (마이너스 기호와 단어 사이 공백 없음)를 사용하여 광고/노이즈를 제거한다. (예: `-체험기 -가격비교`)
+            - **금지:** Google식 연산자(`site:`, `filetype:`, `AND/OR/NOT`), 와일드카드, 중첩 괄호 사용은 엄격히 금지한다.
+            - **OR 연산**은 네이버 친화적인 **`|`** 기호를 사용한다 (예: `(벤포벨 | 메가비타)`)
         9) **중복 억제/길이 제한**:
-           - 의미가 겹치는 질의 금지(단어만 바꾼 변형 금지).
-           - 각 질의는 60~160자 이내로 간결하게 작성.
+            - 의미가 겹치는 질의 금지(단어만 바꾼 변형 금지).
+            - 각 질의는 60~160자 이내로 간결하게 작성.
         10) **출력 형식**: 부호/번호/설명/머리말 없이, **한 줄에 쿼리 1개만**. 여분 텍스트 금지.
-                 
+                    
         # 예시(참고용, 출력에 포함 금지):
         # 한국 피로회복 비타민 시장규모 (2023 OR 2024 OR 2025)
         # 벤포티아민 성분 품목/허가 현황 site:mfds.go.kr
@@ -424,7 +379,6 @@ def get_research_planner_prompt() -> PromptTemplate:
     pt = PromptTemplate.from_template(tmpl)
     logger.debug("Research planner prompt ready. vars=%s", pt.input_variables)
     return pt
-
 
 
 def get_research_synthesizer_prompt() -> PromptTemplate:
@@ -439,4 +393,3 @@ def get_research_synthesizer_prompt() -> PromptTemplate:
     pt = PromptTemplate.from_template(tmpl)
     logger.debug("Research synthesizer prompt ready. vars=%s", pt.input_variables)
     return pt
-

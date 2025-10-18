@@ -165,6 +165,25 @@ def web_search_agent(state: State):
     except Exception:
         pass
 
+    # ----------------------------------------------------------------------
+    # 💡 [여기에 로그 추가] 최종 적용된 화이트리스트 상태를 확인하는 진단 로그 💡
+    # ----------------------------------------------------------------------
+    try:
+        if GATE_KEEP_SOURCES:
+            domain_list = sorted(list(ALLOWED_DOMAINS))
+            # ENV 값도 함께 출력하여, ENV가 정상적으로 로드되었는지 확인
+            # logger.info(
+            #     "[GATEKEEP] Applied allowed domains (Total %d): %s | ENV raw=%r",
+            #     len(domain_list), 
+            #     ", ".join(domain_list),
+            #     _env_allowed_raw
+            # )
+        else:
+            logger.info("[GATEKEEP] Disabled. (GATE_KEEP_SOURCES=0)")
+    except Exception as e:
+        logger.warning("[GATEKEEP] Status logging failed: %s", e)
+    # ----------------------------------------------------------------------
+
     # --- (2b) JSON 로더/필터 ---------------------------------------------------
     def _load_items(json_path: str) -> list[dict]:
         txt = Path(json_path).read_text(encoding="utf-8")

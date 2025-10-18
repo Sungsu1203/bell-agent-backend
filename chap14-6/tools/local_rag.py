@@ -282,13 +282,26 @@ def _to_webjson_items(path: str) -> List[dict]:
 # 엔트리: globs → web.json 생성
 # ──────────────────────────────────────────────────────────────────────────────
 def build_webjson_from_local(globs: List[str], out_dir: str) -> str:
+    # 💡 디버깅 로그 추가: CWD 및 GLOB 인자 확인
+    logger.info("[LOCAL RAG] CWD: %s", os.getcwd()) 
+    logger.info("[LOCAL RAG] Received globs: %s", globs)
+
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     files: List[str] = []
+
     for g in globs:
         g = os.path.expandvars(os.path.expanduser(g))
-        files.extend(glob.glob(g, recursive=True))
-    files = sorted({f for f in files if os.path.isfile(f)})
+        # 💡 디버깅 로그 추가: 확장된 패턴 확인
+        logger.debug("[LOCAL RAG] Expanded glob pattern: %s", g)
 
+        # files.extend(glob.glob(g, recursive=True))
+        matched = glob.glob(g, recursive=True)
+        files.extend(matched)
+        logger.info("[LOCAL RAG] Pattern %s matched %d files.", g, len(matched))
+
+    files = sorted({f for f in files if os.path.isfile(f)})
+    logger.info("[LOCAL RAG] Total unique files found: %d", len(files)) # 최종 파일 수 로깅
+    
     items: List[dict] = []
     for f in files:
         try:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 # ── 환경 로드 ───────────────────────────────────────────────────────────────────
 from dotenv import load_dotenv, find_dotenv
 
@@ -7,8 +8,12 @@ from dotenv import load_dotenv, find_dotenv
 dotenv_path = find_dotenv(filename=".env", usecwd=True)
 load_dotenv(dotenv_path=dotenv_path, override=False)
 
+# 💡 [필수 FIX] 로컬 RAG GLOBs 환경 변수가 다른 곳에서 덮어씌워지는 문제 해결 💡
+# `.env` 값을 강제로 재주입하여 테스트 경로를 차단
+if os.getenv("LOCAL_RAG_GLOBS") not in ("refs/*.pdf,refs/**/*.pdf", "refs/*.pdf|refs/**/*.pdf"):
+    os.environ["LOCAL_RAG_GLOBS"] = "refs/*.pdf,refs/**/*.pdf"
+
 # ── 표준 라이브러리 ────────────────────────────────────────────────────────────
-import os
 import sys
 import argparse
 import logging

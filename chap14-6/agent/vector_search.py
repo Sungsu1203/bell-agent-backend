@@ -38,7 +38,7 @@ from utils.tasks import schedule_writer_if_needed
 # ── Refs 타입 도우미 ──────────────────────────────────────────────────────────
 class Refs(TypedDict):
     queries: List[str]
-    docs: List[Any]           # 안전을 위해 Any
+    docs: List[Any]          # 안전을 위해 Any
 
 def _to_refs(raw: Mapping[str, Any] | None) -> Refs:
     if not isinstance(raw, Mapping):
@@ -167,8 +167,11 @@ def vector_search_agent(state: State):
         not_yet = not state.get("local_ingested_once")
         if need_local and not_yet:
             slug = topic_slug
-            raw_globs = [g.strip() for g in local_globs_env.split("|") if g.strip()]
-
+            
+            # 💡 수정된 파싱 로직: 쉼표(,)와 파이프(|) 모두 지원하도록 통일 💡
+            import re as _re
+            raw_globs = [g.strip() for g in _re.split(r"[|;, \n]+", local_globs_env) if g.strip()]
+            
             def _norm(p: str) -> str:
                 p = p.replace("<topic-slug>", slug or "**")
                 return p.replace("\\", os.sep).replace("/", os.sep)
@@ -196,7 +199,11 @@ def vector_search_agent(state: State):
                     merged_dict = merge_refs(cast(dict[str, Any], references), [], l_docs)
                     references = _to_refs(merged_dict)
                     cast(MutableMapping[str, Any], state)["references"] = references
+                    
+                # 💡 local_ingested_once 플래그는 documents_to_chroma 내에서 설정하거나, 
+                # 여기서 설정해야 중복 호출을 막을 수 있음. (일단 여기서 설정)
                 state["local_ingested_once"] = True
+
     except Exception as e:
         logger.warning("on-demand local ingest 실패: %s", e)
 
@@ -229,7 +236,7 @@ def vector_search_agent(state: State):
         return any(b in ql for b in bad_markers)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 1) 사용자 질의 우선 검색
+    # 1) 사용자 질의 우선 검색 (Direct QA 시도)
     # ─────────────────────────────────────────────────────────────────────────
     last_human = next((m for m in reversed(messages) if isinstance(m, HumanMessage)), None)
     user_q = _extract_user_query(last_human.content) if (last_human and isinstance(last_human.content, str)) else ""
@@ -263,80 +270,91 @@ def vector_search_agent(state: State):
             accum_docs.extend(retrieved_docs)
             ran_queries.add(user_key)
 
-        merged_dict = merge_refs(cast(dict[str, Any], references), accum_queries, accum_docs)
-        references = _to_refs(merged_dict)
-        cast(MutableMapping[str, Any], state)["references"] = references
+            merged_dict = merge_refs(cast(dict[str, Any], references), accum_queries, accum_docs)
+            references = _to_refs(merged_dict)
+            cast(MutableMapping[str, Any], state)["references"] = references
 
-        if os.getenv("AUTO_WRITE_DURING_RESEARCH", "0") == "1":
-            schedule_writer_if_needed(
-                cast(MutableMapping[str, Any], state),
-                tasks=tasks, messages=messages, outline_text=outline_text, debug=True
-            )
+            # 💡 [핵심 FIX] ALLOW_LOCAL_SUMMARY=1 일 때, Writer Scheduler 호출을 완전히 건너뛴다.
+            # 대신 바로 아래에서 Direct QA summary를 시도한다.
+            ALLOW_SUMMARY = os.getenv("ALLOW_LOCAL_SUMMARY", "0") == "1"
 
-        logger.debug("ns=%s persist_dir=%s TOP_K=%s ALLOW_LOCAL_SUMMARY=%s",
-                     ns, persist_dir, TOP_K, os.getenv('ALLOW_LOCAL_SUMMARY'))
-        logger.debug("retrieved_docs=%s for user_q_clean=%r", len(retrieved_docs), user_q_clean)
-        for i, d in enumerate((retrieved_docs or [])[:2], 1):
-            meta = getattr(d, "metadata", {}) or {}
-            snip = (getattr(d, "page_content", "") or "")[:100].replace("\n", " ")
-            logger.debug("ctx%s source=%s snip=%r", i, meta.get('source'), snip)
+            if ALLOW_SUMMARY: 
+                # ----------------------------------------------------
+                # Direct QA summary 생성 및 즉시 반환 로직 (Communicator에게 답변 전달)
+                # ----------------------------------------------------
+                if retrieved_docs:
+                    ctx_parts = []
+                    for d in (retrieved_docs or [])[:3]:
+                        txt = (getattr(d, "page_content", "") or "").strip()
+                        if txt:
+                            # 답변 생성에 사용될 context를 1200자로 제한 (토큰 예산 절약)
+                            ctx_parts.append(txt[:1200]) 
+                    context = "\n\n---\n\n".join(ctx_parts).strip()
+    
+                    if context:
+                        prompt = (
+                            "다음 컨텍스트만 근거로 한국어로 1문단 요약을 작성하세요.\n"
+                            f"질문: {user_q}\n\n"
+                            f"컨텍스트:\n{context}\n\n"
+                            "지시사항:\n- 컨텍스트 밖의 지식은 쓰지 말 것\n- 불확실하면 모른다고 말할 것\n- 1문단(3~5문장)으로 간결히"
+                        )
+                        try:
+                            resp = llm.invoke(prompt)
+                            reply_text = getattr(resp, "content", str(resp))
+                            messages.append(AIMessage(content=reply_text))
+        
+                            state["qa_direct_reply"] = True # QA 응답 플래그 설정
+                            
+                            # 불필요한 라운드 플래그 클린업 (선택적)
+                            state["new_url_count"] = as_int(state, "new_url_count", 0)
+                            state["new_url_count_round"] = as_int(state, "new_url_count_round", 0)
+                            state["round_new_urls"] = as_int(state, "round_new_urls", 0)
+        
+                            if not has_pending(tasks, "communicator"):
+                                tasks.append(Task(agent="communicator", done=False,
+                                                    description="사용자 질의에 대한 요약 답변 전달", done_at=""))
+        
+                            pending.done = True
+                            pending.done_at = _now_str()
+                            logger.info("[DIRECT QA] Summary generated and returning to communicator.")
+                            return {
+                                "messages": messages,
+                                "task_history": tasks,
+                                "references": references,
+                                "qa_direct_reply": True # <-- 💡 [추가] 명시적으로 플래그 반환
+                                }
+                        except Exception as e:
+                            logger.warning("QA 요약 생성 실패: %s", e)
+                
+                # Q&A 실패 시, Writer Scheduler는 건너뛰고 Communicator로 넘어간다.
+                # (이전처럼 복잡한 보고서 초안 대신, 간단한 안내 메시지가 Communicator에서 나가도록 유도)
+                logger.info("[DIRECT QA] Summary failed/no context. Skipping writer scheduler.")
+                # END ALLOW_SUMMARY block
 
-        if os.getenv("ALLOW_LOCAL_SUMMARY", "0") == "1":
-            ctx_parts = []
-            for d in (retrieved_docs or [])[:3]:
-                txt = (getattr(d, "page_content", "") or "").strip()
-                if txt:
-                    ctx_parts.append(txt[:1200])
-            context = "\n\n---\n\n".join(ctx_parts).strip()
+            # ----------------------------------------------------
+            # 💡 [일반 보고서 모드/Q&A 미활성화 시에만 실행]
+            # ----------------------------------------------------
+            # 💡 기존 로직: ALLOW_SUMMARY가 False일 때, 또는 Q&A 실패 시 Writer 예약.
+            if not ALLOW_SUMMARY: # ALLOW_LOCAL_SUMMARY가 켜져있지 않을 때만 Writer 예약
+                if os.getenv("AUTO_WRITE_DURING_RESEARCH", "0") == "1":
+                    schedule_writer_if_needed(
+                        cast(MutableMapping[str, Any], state),
+                        tasks=tasks, messages=messages, outline_text=outline_text, debug=True
+                    )
+            
+            # --- (Direct QA를 통과하지 못한 경우) ---
 
-            if context:
-                prompt = (
-                    "다음 컨텍스트만 근거로 한국어로 1문단 요약을 작성하세요.\n"
-                    f"질문: {user_q}\n\n"
-                    f"컨텍스트:\n{context}\n\n"
-                    "지시사항:\n- 컨텍스트 밖의 지식은 쓰지 말 것\n- 불확실하면 모른다고 말할 것\n- 1문단(3~5문장)으로 간결히"
-                )
-                try:
-                    resp = llm.invoke(prompt)
-                    reply_text = getattr(resp, "content", str(resp))
-                    messages.append(AIMessage(content=reply_text))
-
-                    state["qa_direct_reply"] = True
-                    state["new_url_count"] = as_int(state, "new_url_count", 0)
-                    state["new_url_count_round"] = as_int(state, "new_url_count_round", 0)
-                    state["round_new_urls"] = as_int(state, "round_new_urls", 0)
-
-                    if not has_pending(tasks, "communicator"):
-                        tasks.append(Task(agent="communicator", done=False,
-                                          description="사용자 질의에 대한 요약 답변 전달", done_at=""))
-
-                    pending.done = True
-                    pending.done_at = _now_str()
-                    return {"messages": messages, "task_history": tasks, "references": references}
-                except Exception as e:
-                    logger.warning("QA 요약 생성 실패: %s", e)
-            else:
-                messages.append(AIMessage(content="요청과 직접 매칭되는 로컬 문서를 찾지 못했어요. 파일 경로/패턴(LOCAL_RAG_GLOBS)을 확인해 주세요."))
-                state["qa_direct_reply"] = True
-                state["new_url_count"] = as_int(state, "new_url_count", 0)
-                state["new_url_count_round"] = as_int(state, "new_url_count_round", 0)
-                state["round_new_urls"] = as_int(state, "round_new_urls", 0)
-
-                if not has_pending(tasks, "communicator"):
-                    tasks.append(Task(agent="communicator", done=False, description="안내 전달 및 다음 요청 확인", done_at=""))
-                pending.done = True
-                pending.done_at = _now_str()
-                return {"messages": messages, "task_history": tasks, "references": references}
     else:
         logger.debug("[SKIP user] q='%s' empty=%s noise=%s ok=%s dup=%s",
-                     user_q_clean,
-                     not bool(user_q_clean),
-                     _is_noise_query(user_q_clean),
-                     _ok_query(user_q_clean),
-                     user_key in ran_queries)
+                        user_q_clean,
+                        not bool(user_q_clean),
+                        _is_noise_query(user_q_clean),
+                        _ok_query(user_q_clean),
+                        user_key in ran_queries)
+
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 2) 설계 질의/기보유 쿼리 실행 루틴
+    # 2) 설계 질의/기보유 쿼리 실행 루틴 (이하 연구 루프 관련 로직)
     # ─────────────────────────────────────────────────────────────────────────
     inputs = {
         "mission": mission,
@@ -363,11 +381,11 @@ def vector_search_agent(state: State):
 
         if (not q_for_retrieve) or _is_noise_query(q_for_retrieve) or (not _ok_query(q_for_retrieve)) or (key in ran_queries):
             logger.debug("[SKIP preexisting] q='%s' empty=%s noise=%s ok=%s dup=%s",
-                         q_for_retrieve,
-                         not bool(q_for_retrieve),
-                         _is_noise_query(q_for_retrieve),
-                         _ok_query(q_for_retrieve),
-                         key in ran_queries)
+                            q_for_retrieve,
+                            not bool(q_for_retrieve),
+                            _is_noise_query(q_for_retrieve),
+                            _ok_query(q_for_retrieve),
+                            user_key in ran_queries)
             continue
 
         logger.debug("retrieve.invoke args: %s", {
@@ -417,11 +435,11 @@ def vector_search_agent(state: State):
 
         if (not q_for_retrieve) or _is_noise_query(q_for_retrieve) or (not _ok_query(q_for_retrieve)) or (key in ran_queries):
             logger.debug("[SKIP plan] q='%s' empty=%s noise=%s ok=%s dup=%s",
-                         q_for_retrieve,
-                         not bool(q_for_retrieve),
-                         _is_noise_query(q_for_retrieve),
-                         _ok_query(q_for_retrieve),
-                         key in ran_queries)
+                            q_for_retrieve,
+                            not bool(q_for_retrieve),
+                            _is_noise_query(q_for_retrieve),
+                            _ok_query(q_for_retrieve),
+                            user_key in ran_queries)
             continue
 
         logger.debug("retrieve.invoke args: %s", {
@@ -463,7 +481,7 @@ def vector_search_agent(state: State):
         for d in (references.get("docs") or [])[:20]:
             txt = (getattr(d, "page_content", "") or "")
             lines = [ln.strip() for ln in txt.splitlines()
-                     if re.search(r"(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(?:%|조|억|만대|GWh|kWh|원|달러|bn|trn)\b", ln)]
+                        if re.search(r"(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(?:%|조|억|만대|GWh|kWh|원|달러|bn|trn)\b", ln)]
             for ln in lines[:2]:
                 snips.append(ln[:300])
             if len(snips) >= 5:
@@ -555,6 +573,11 @@ def vector_search_agent(state: State):
 
         messages.append(AIMessage(content="[VECTOR SEARCH AGENT] 연구 라운드 진행 중 → 합성 단계(Research Synthesizer)로 이동"))
         return {"messages": messages, "task_history": tasks, "references": references}
+    
+    # 💡 [Final QA Fix 적용] 이 로직은 Q&A 성공 시 Writer 예약을 막기 위해 위에 통합되었습니다.
+    # 이 아래의 로직은 Q&A가 실패했거나, 연구 루프가 없는 일반 작성 모드일 때 실행됩니다.
+
+    writer_task_scheduled = False # 스케줄링 여부 플래그 추가 (옵션)
 
     if (not research_loop_active) or AUTO_WRITE_DURING_RESEARCH:
         did = schedule_writer_if_needed(
@@ -564,10 +587,23 @@ def vector_search_agent(state: State):
             outline_text=outline_text,
             debug=True,
         )
-        if (not did) and not has_pending(tasks, "communicator"):
+        if did:
+            writer_task_scheduled = True
+
+        if (not writer_task_scheduled) and not has_pending(tasks, "communicator"):
             tasks.append(Task(agent="communicator", done=False, description="검색/인덱싱 완료 보고 및 다음 집필 대상 확인", done_at=""))
 
     _qs = references.get("queries", [])
     _qs_view = _qs[:8] + (["..."] if len(_qs) > 8 else [])
-    messages.append(AIMessage(content=f"[VECTOR SEARCH AGENT] 검색 완료 (질의 {len(_qs)}건, 예시): { _qs_view }"))
+
+    # 💡 [FIXED] ALLOW_SUMMARY가 True일 때 이 메시지는 불필요하므로, 
+    # Direct QA 로직 내에서 처리하거나 여기서 조건부로 막아야 합니다.
+    # Direct QA가 성공했다면 이미 위에 return이 있습니다.
+    
+    # Q&A가 실패했고, Writer 예약도 없었으며, Communicator로 넘어갈 때, 
+    # 이 메시지는 Communicator의 답변과 겹치므로 제거합니다.
+    # if not writer_task_scheduled and not has_pending(tasks, "communicator"):
+    #     messages.append(AIMessage(content=f"[VECTOR SEARCH AGENT] 검색 완료 (질의 {len(_qs)}건, 예시): { _qs_view }"))
+
+    # 최종 반환 (Communicator에게 제어권이 넘어갔을 경우)
     return {"messages": messages, "task_history": tasks, "references": references}

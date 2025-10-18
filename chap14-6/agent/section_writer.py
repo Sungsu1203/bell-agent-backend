@@ -66,6 +66,11 @@ def section_writer(state: State):
         return {"messages": state.get("messages", []), "task_history": state.get("task_history", [])}
 
     logger.info("============ SECTION WRITER ============")
+
+    # === [여기에 out_path 초기화 코드 추가] ===
+    out_path = None  # <-- 이 위치에 추가합니다.
+    # ========================================
+
     state = sanitize_state(state)
     tasks = state.get("task_history", []) or []
     messages = state.get("messages", []) or []
@@ -129,32 +134,42 @@ def section_writer(state: State):
         except Exception as e:
             logger.warning("[SECTION WRITER] auto-citation 실패: %s", e)
 
+    # Q&A 모드 감지: "Q&A:"로 시작하면 파일 저장을 건너뛰고 답변 출력만 준비
+    IS_QA_MODE = target_title.strip().lower().startswith("q&a:")
+
     # 저장 시도 (save_md_draft 우선, 실패 시 폴백)
     slug = str(state.get("topic_slug") or "default")
     out_dir = path.join(current_path, "content", slug)
     out_path = None
-    try:
-        out_path = save_md_draft(
-            target_title, gathered, mode="report",
-            root_dir=current_path, topic_slug=slug
-        )
-        if not out_path or not path.isfile(out_path):
-            raise RuntimeError("save_md_draft returned empty or file not found")
-        logger.info("[SECTION WRITER] saved via save_md_draft → %s", out_path)
-    except Exception as e:
-        try:
-            makedirs(out_dir, exist_ok=True)
-            fname = f"{section_slugify(target_title)}.md"
-            out_path = path.join(out_dir, fname)
-            with open(out_path, "w", encoding="utf-8") as f:
-                f.write(gathered or "")
-            logger.warning("[SECTION WRITER fallback] saved → %s  (reason: %s)", out_path, e)
-        except Exception as e2:
-            logger.exception("[SECTION WRITER] failed to save draft (both primary and fallback): %s", e2)
-            # 저장 실패여도 후속 로직은 진행
 
-    state["last_saved_path"] = out_path or ""
-    messages.append(AIMessage(content=f"[SECTION WRITER] '{target_title}' 초안 저장 완료 → {out_path or '(save failed)'}"))
+    if not IS_QA_MODE: # Q&A 모드가 아닐 때만 파일 저장 로직 실행
+        try:
+            out_path = save_md_draft(
+                target_title, gathered, mode="report",
+                root_dir=current_path, topic_slug=slug
+            )
+            if not out_path or not path.isfile(out_path):
+                raise RuntimeError("save_md_draft returned empty or file not found")
+            logger.info("[SECTION WRITER] saved via save_md_draft → %s", out_path)
+        except Exception as e:
+            try:
+                makedirs(out_dir, exist_ok=True)
+                fname = f"{section_slugify(target_title)}.md"
+                out_path = path.join(out_dir, fname)
+                with open(out_path, "w", encoding="utf-8") as f:
+                    f.write(gathered or "")
+                logger.warning("[SECTION WRITER fallback] saved → %s  (reason: %s)", out_path, e)
+            except Exception as e2:
+                logger.exception("[SECTION WRITER] failed to save draft (both primary and fallback): %s", e2)
+                # 저장 실패여도 후속 로직은 진행
+
+        state["last_saved_path"] = out_path or ""
+        messages.append(AIMessage(content=f"[SECTION WRITER] '{target_title}' 초안 저장 완료 → {out_path or '(save failed)'}"))
+
+    else: # Q&A 모드일 때는 파일 저장 생략
+        logger.info("[SECTION WRITER] Q&A Mode detected. Skipping file save.")
+        # Q&A 답변 내용을 메시지에 추가 (파일 저장 메시지 대신)
+        messages.append(AIMessage(content=gathered))
 
     # [ADD] 진행 카운트: flags에만 저장(TypedDict 경고 회피) + 중복 카운트 방지 + 총 섹션 수 추정
     try:
@@ -180,20 +195,49 @@ def section_writer(state: State):
         logger.debug("[SECTION WRITER] progress flag update skipped: %s", e)
 
     # (NEW) 콘솔 에코: 저장된 섹션 초안 원문을 바로 출력 (옵션)
+    # (NEW) 콘솔 에코: 저장된 섹션 초안 원문을 바로 출력 (옵션)
+        # (NEW) 콘솔 에코: 저장된 섹션 초안 원문을 바로 출력 (옵션)
     if ECHO_SECTIONS:
+        # 1) 선초기화(예외 발생 시 NameError 방지)
+        box_title = ""
+        src_tag = ""
+        hdr_line = "=" * 24  # 최소 길이
+
         try:
-            box_title = f"SECTION DRAFT: {target_title}"
-            src_tag   = f"saved → {out_path or '(save failed)'}"
-            hdr_line  = "=" * max(len(box_title), len(src_tag), 24)
-            sys.stdout.write("\n" + hdr_line + "\n")
-            sys.stdout.write(box_title + "\n")
-            sys.stdout.write(src_tag + "\n")
-            sys.stdout.write(hdr_line + "\n\n")
-            sys.stdout.write((gathered or "").rstrip() + "\n")
-            sys.stdout.write(hdr_line + "\n")
+            # 2) 두 변수 먼저 확정 (※ 특수공백 없이 일반 스페이스만 사용)
+            if IS_QA_MODE:
+                box_title = f"Q&A ANSWER: {target_title}"
+                src_tag = "(Answer Only)"
+            else:
+                box_title = f"SECTION DRAFT: {target_title}"
+                src_tag = f"saved → {out_path or '(save failed)'}"
+
+            # 3) 헤더 길이는 상황에 따라 안전 계산
+            #    (src_tag가 필요 없을 때도 대비)
+            hdr_len = max(len(box_title), len(src_tag), 24)
+            hdr_line = "=" * hdr_len
+
+            if IS_QA_MODE:
+                # Q&A 모드: 깔끔한 답변 텍스트만 출력
+                sys.stdout.write("\n" + hdr_line + "\n")
+                sys.stdout.write(box_title + "\n")
+                sys.stdout.write("=" * len(box_title) + "\n\n")
+                sys.stdout.write((gathered or "").strip() + "\n")
+                sys.stdout.write(hdr_line + "\n")
+            else:
+                # 보고서 모드: 저장 경로와 함께 파일 내용 출력
+                sys.stdout.write("\n" + hdr_line + "\n")
+                sys.stdout.write(box_title + "\n")
+                sys.stdout.write(src_tag + "\n")
+                sys.stdout.write(hdr_line + "\n\n")
+                sys.stdout.write((gathered or "").rstrip() + "\n")
+                sys.stdout.write(hdr_line + "\n")
+
             sys.stdout.flush()
+
         except Exception as _e:
             logger.debug("[SECTION WRITER] echo failed: %s", _e)
+
 
     # ---- 태스크 완료/후속 예약 ----
     if pending:
