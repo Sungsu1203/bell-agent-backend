@@ -31,6 +31,36 @@ def _truthy_env(name: str) -> bool:
 
 ECHO_SECTIONS = _truthy_env("ECHO_SECTIONS")
 
+def _resolve_title(state: State, outline_text: str | None):
+    """
+    섹션 제목 결정 순서:
+    1) state.flags.pending_write_title (잠금 우선)
+    2) get_last_write_target(messages, tasks)
+    3) next_unwritten_title(outline_text, ...)
+    반환값: (title, from_lock: bool)
+    """
+    try:
+        f = state.get("flags") or {}
+        locked = str(f.get("pending_write_title") or "").strip()
+        if locked:
+            return locked, True
+    except Exception:
+        pass
+
+    messages = state.get("messages", []) or []
+    tasks = state.get("task_history", []) or []
+
+    title = (
+        get_last_write_target(messages, tasks)
+        or next_unwritten_title(
+            outline_text or "",
+            mode="report",
+            root_dir=current_path,
+            topic_slug=state.get("topic_slug"),
+        )
+    )
+    return title, False
+
 
 def _guess_total_sections(outline_text: str, fallback: int = 8) -> int:
     """
@@ -94,10 +124,12 @@ def section_writer(state: State):
         logger.info("[SECTION WRITER] outline missing → scheduled content_strategist (%s)", fname)
         return {"messages": messages, "task_history": tasks}
 
-    target_title = (
-        get_last_write_target(messages, tasks)
-        or next_unwritten_title(outline_text, mode="report", root_dir=current_path, topic_slug=state.get("topic_slug"))
-    )
+    # target_title = (
+    #     get_last_write_target(messages, tasks)
+    #     or next_unwritten_title(outline_text, mode="report", root_dir=current_path, topic_slug=state.get("topic_slug"))
+    # )
+    target_title, _came_from_lock = _resolve_title(state, outline_text)
+
     if not target_title:
         messages.append(AIMessage(content="[Section Writer] 모든 섹션 초안이 이미 작성되었습니다."))
         if pending:
@@ -166,10 +198,34 @@ def section_writer(state: State):
         state["last_saved_path"] = out_path or ""
         messages.append(AIMessage(content=f"[SECTION WRITER] '{target_title}' 초안 저장 완료 → {out_path or '(save failed)'}"))
 
+        # [ADD] 잠금 해제: 이번 타깃이 잠금에서 왔다면 pending_write_title을 정리
+        try:
+            if _came_from_lock:
+                ff = dict(state.get("flags") or {})
+                if str(ff.get("pending_write_title") or "").strip() == str(target_title).strip():
+                    ff.pop("pending_write_title", None)
+                    ff.pop("suppress_vector_qa", None)  # ← 이 줄 추가
+                    state["flags"] = ff
+                    logger.debug("[Section Writer] cleared pending_write_title lock: %s", target_title)
+        except Exception as _e:
+            logger.debug("[Section Writer] pending_write_title clear skipped: %s", _e)
+
     else: # Q&A 모드일 때는 파일 저장 생략
         logger.info("[SECTION WRITER] Q&A Mode detected. Skipping file save.")
         # Q&A 답변 내용을 메시지에 추가 (파일 저장 메시지 대신)
         messages.append(AIMessage(content=gathered))
+
+        # [ADD] 잠금 해제
+        try:
+            if _came_from_lock:
+                ff = dict(state.get("flags") or {})
+                if str(ff.get("pending_write_title") or "").strip() == str(target_title).strip():
+                    ff.pop("pending_write_title", None)
+                    ff.pop("suppress_vector_qa", None)  # ← 이 줄 추가
+                    state["flags"] = ff
+                    logger.debug("[Section Writer][QA] cleared pending_write_title lock: %s", target_title)
+        except Exception as _e:
+            logger.debug("[Section Writer][QA] pending_write_title clear skipped: %s", _e)
 
     # [ADD] 진행 카운트: flags에만 저장(TypedDict 경고 회피) + 중복 카운트 방지 + 총 섹션 수 추정
     try:

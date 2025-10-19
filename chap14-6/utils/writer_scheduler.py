@@ -50,6 +50,9 @@ def _env_truthy(name: str, default: bool = False) -> bool:
          return default
      return str(v).strip().lower() in {"1", "true", "yes", "y", "on"}
 
+# 제목이 명시되지 않으면 writer 예약을 금지(기본 True: 안전 모드)
+_REQUIRE_EXPLICIT = _env_truthy("REQUIRE_EXPLICIT_WRITE_TITLE", default=True)
+
 
 def schedule_writer_if_needed(
     state: MutableMapping[str, Any],
@@ -94,16 +97,39 @@ def schedule_writer_if_needed(
     writer_agent: str = WRITER_AGENT
     fallback_default = "Executive Summary" if DOC_MODE == "report" else "서문"
 
-    # requested_title = get_last_write_target(msgs_seq, tasks_seq)
-    auto_title = next_unwritten_title(
-        outline_text or "", mode=DOC_MODE, root_dir=current_path, topic_slug=state.get("topic_slug")
+    # 2. 타이틀 정제
+    req = (requested_title or "").strip() or None
+
+    # 2-a. 안전 가드: 명시적 제목이 필요한 설정이라면, 제목 없을 때 예약 금지
+    if _REQUIRE_EXPLICIT and not req:
+        if debug:
+            logger.debug("[writer_scheduler] blocked: REQUIRE_EXPLICIT_WRITE_TITLE=True & requested_title is empty")
+        return False
+
+    # 3. 자동 후보 계산 (req가 없을 때만 활용)
+    auto_title = None
+    if not req:
+        auto_title = next_unwritten_title(
+            outline_text or "", mode=DOC_MODE, root_dir=current_path, topic_slug=state.get("topic_slug")
+        )
+        auto_title = (auto_title or "").strip() or None
+
+    # 4. 최종 타이틀 결론
+    target_title = req or auto_title or None
+    if not target_title:
+        # 완전 무제목이면 안전 종료(Executive Summary로 폴백하지 않음)
+        if debug:
+            logger.debug("[writer_scheduler] blocked: no requested/auto title → avoid fallback default")
+        return False
+
+    # (참고) 만약 과거처럼 폴백을 강제하고 싶으면 위 return False 를 주석 처리하고 아래 라인을 해제:
+    # target_title = req or auto_title or fallback_default
+
+    logger.debug(
+        "[WriterScheduler Debug] ReqTitle=%r | AutoTitle=%r | FinalTarget=%r",
+        req, auto_title, target_title
     )
-    target_title = requested_title 
-    if not target_title:
-        target_title = auto_title
-    if not target_title:
-        target_title = fallback_default # 최종 폴백
-    # target_title = (requested_title or auto_title or fallback_default) or fallback_default
+
 
     # -------------------------------------------------------------------------
     # 참고: get_last_write_target이 추출하는 제목이 섹션 번호가 포함된 전체 제목이어야 합니다.
@@ -166,6 +192,8 @@ def schedule_writer_if_needed(
     if auto_write and not has_pending(tasks_iter_for_check, writer_agent, prefix="write:"):
         task_list.append(Task(agent=writer_agent, done=False, description=f"write: {target_title}", done_at=""))
         logger.info("writer task scheduled: agent=%s title=%s", writer_agent, target_title)
+        if debug:
+            logger.debug("[writer_scheduler] scheduled → %s ('write: %s')", writer_agent, target_title)
         return True
 
     return False

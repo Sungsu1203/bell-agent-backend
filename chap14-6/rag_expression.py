@@ -6,11 +6,23 @@ from re import Pattern  # 3.12+ 호환
 import logging
 logger = logging.getLogger(__name__)
 
+# __all__ = [
+#     # compiled regexes
+#     "RE_WRITE_LINE", "RE_WRITE_INLINE", "RE_SHOW_OUTLINE", "RE_NEW_TOPIC", "RE_RENAME_CHAPTER",
+#     # helpers
+#     "extract_write_title", "is_outline_creation", "is_outline_display", "extract_new_topic_title","extract_rename_chapter",
+#     "RE_QUANT_NUMBER", "RE_QUANT_SENT_HINTS", "split_sentences_ko_en",
+#     "coerce_message_content_to_str",
+# ]
+
 __all__ = [
     # compiled regexes
     "RE_WRITE_LINE", "RE_WRITE_INLINE", "RE_SHOW_OUTLINE", "RE_NEW_TOPIC", "RE_RENAME_CHAPTER",
+    "RE_WRITE_REQUEST_KO",
     # helpers
-    "extract_write_title", "is_outline_creation", "is_outline_display", "extract_new_topic_title","extract_rename_chapter",
+    "extract_write_title", "is_outline_creation", "is_outline_display",
+    "extract_new_topic_title", "extract_rename_chapter",
+    "extract_section_index",
     "RE_QUANT_NUMBER", "RE_QUANT_SENT_HINTS", "split_sentences_ko_en",
     "coerce_message_content_to_str",
 ]
@@ -76,6 +88,19 @@ RE_WRITE_INLINE: Pattern[str] = re.compile(
     re.IGNORECASE
 )
 
+# 한국어 자연어형: "4. XXX 섹션 작성해주세요", "XXX 작성해줘", "4) XXX 작성" 등
+# - idx: 선택적 선행 번호(1, 2, 3 ...)
+# - title: 섹션 제목(뒤의 '섹션' 단어는 선택)
+RE_WRITE_REQUEST_KO: Pattern[str] = re.compile(
+    r"(?P<prefix>^|[\s])"                              # 문장 시작 또는 공백
+    r"(?:(?P<idx>\d+)[\.\)]\s*)?"                      # 선택적 선행 번호 "4." / "4)"
+    r"(?P<title>[^.\n\r\t:：]+?)"                      # 제목(콜론/줄바꿈/마침표 전까지)
+    r"(?:\s*섹션)?\s*(?:을|를)?\s*"                    # '섹션', 목적격 조사 선택
+    r"(?:작성|집필)"                                   # 동사
+    r"(?:해줘|해\s*줘|해주세요|해\s*주세요|해주시오|해\s*주시오)?",  # 공손 표현
+    re.IGNORECASE
+)
+
 # "목차 보여줘/보기/출력/display/show" 등
 RE_SHOW_OUTLINE: Pattern[str] = re.compile(
     r"(?:목차|outline).*(?:보여|보기|출력|display|show)|^(?:책|ai).*(?:목차)$",
@@ -100,24 +125,64 @@ RE_RENAME_CHAPTER = re.compile(
 # ───────────────────────────────────────────────────────────────────────────────
 # Helpers
 
+def extract_section_index(text_like: Any) -> Optional[int]:
+    """사용자 문장 맨 앞의 '4.' / '4)' 형태 섹션 번호를 추출."""
+    text = coerce_message_content_to_str(text_like)
+    if not text:
+        return None
+    m = re.search(r"^\s*(\d+)[\.\)]\s*", text)
+    if m:
+        try:
+            return int(m.group(1))
+        except ValueError:
+            return None
+    # 한국어 자연어 패턴에도 idx 그룹이 있으면 활용
+    m2 = RE_WRITE_REQUEST_KO.search(text)
+    if m2 and m2.group("idx"):
+        try:
+            return int(m2.group("idx"))
+        except ValueError:
+            return None
+    return None
+
 def _strip_smart_quotes(s: str) -> str:
     # 따옴표 + 괄호/대괄호/마침표/세미콜론까지 정리
     return s.strip(' \t\'"“”‘’()[];。．.;')
 
 def extract_write_title(text_like: Any) -> Optional[str]:
-    """문자열/멀티모달 입력에서 write/작성/집필 명령의 타이틀을 추출."""
+    """문자열/멀티모달 입력에서 write/작성/집필 명령의 타이틀을 추출.
+    - 명시형: "write: XXX", "작성: XXX", "집필: XXX"
+    - 자연어형: "4. XXX 섹션 작성해주세요", "XXX 작성해줘"
+    """
     text = coerce_message_content_to_str(text_like)
     if not text:
-        return None    
-    # ✅ 새 주제 전환 문구면 write 해석 금지
+        return None
+
+    # 새 주제 전환 문구면 write 해석 금지
     if RE_NEW_TOPIC.search(text):
         return None
+
+    # 1) 명시형 우선
     m = RE_WRITE_LINE.search(text) or RE_WRITE_INLINE.search(text)
-    if not m:
-        return None
-    title = _strip_smart_quotes(m.group(1))
-    logger.debug("extract_write_title hit: %s", title)
-    return title or None
+    if m:
+        title = _strip_smart_quotes(m.group(1))
+        logger.debug("extract_write_title explicit hit: %s", title)
+        return title or None
+
+    # 2) 한국어 자연어형 보조: 번호/공손표현 포함 문장 처리
+    m2 = RE_WRITE_REQUEST_KO.search(text)
+    if m2:
+        raw = (m2.group("title") or "").strip()
+        # 문장 끝 불필요 토큰 제거
+        raw = re.sub(r"[\"“”'’)\]]+$", "", raw).strip()
+        # '섹션'이 중간에 들어갔을 때 제거(위 정규식으로 대부분 제거되지만 이중 방어)
+        raw = re.sub(r"\s*섹션\s*$", "", raw, flags=re.IGNORECASE).strip()
+        title = _strip_smart_quotes(raw)
+        logger.debug("extract_write_title ko-natural hit: %s", title)
+        return title or None
+
+    return None
+
 
 def is_outline_creation(text_like: Any) -> bool:
     """목차 생성 의도 탐지(멀티모달 입력 안전)."""

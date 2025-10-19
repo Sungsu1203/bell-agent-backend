@@ -23,6 +23,15 @@ def tail_task_router(state: State):
         logger.info("[router.tail] outline missing → content_strategist")
         return "content_strategist"
     if outline_not_shown:
+        # [ADD] writer-락(pending_write_title) 우선 라우팅
+        flags = state.get("flags") or {}
+        if flags.get("pending_write_title"):
+            tasks = state.get("task_history", []) or []
+            preferred_writer = "section_writer" if DOC_MODE == "report" else "chapter_writer"
+            alt_writer = "chapter_writer" if preferred_writer == "section_writer" else "section_writer"
+            if has_pending(tasks, preferred_writer, prefix="write:") or has_pending(tasks, alt_writer, prefix="write:"):
+                logger.info("[router.tail] outline exists but not shown — writer lock → %s", preferred_writer)
+                return preferred_writer
         logger.info("[router.tail] outline exists but not shown → communicator")
         return "communicator"
 
@@ -42,6 +51,12 @@ def tail_task_router(state: State):
             logger.debug("[router.tail] alt writer pending → %s", alt_writer)
             return alt_writer
 
+    # [ADD] writer-락 우선 (커뮤니케이터 펜딩보다 먼저)
+    # 수정(플래그 없이도 허용):
+    if has_pending(tasks, preferred_writer, prefix="write:") or has_pending(tasks, alt_writer, prefix="write:"):
+        logger.debug("[router.tail] writer pending(write:) → %s", preferred_writer)
+        return preferred_writer
+
     # 3) 커뮤니케이터가 미완료면
     for t in reversed(tasks):
         if (not getattr(t, "done", False)) and getattr(t, "agent", "") == "communicator":
@@ -55,8 +70,8 @@ def tail_task_router(state: State):
 
 def after_vector_router(state: State):
     """벡터검색 이후 라우팅."""
-
-    tasks = state.get("tasks") or []
+    # ✅ 이 스코프의 tasks 확보
+    tasks = state.get("task_history", []) or []
 
     # 0) 연구 루프 활성 + synthesizer 펜딩이면 → 최우선
     if bool(state.get("research_loop_active")) and has_pending(tasks, "research_synthesizer"):
@@ -66,11 +81,18 @@ def after_vector_router(state: State):
     # 1) (옵션) 집필 예약 — 연구 중 허용 플래그로 제어
     schedule_writer_if_needed(
         state,
-        tasks=tasks,
+        tasks=tasks,  # ← 확보한 tasks 사용
         messages=state.get("messages"),
-        outline_text=state.get("outline_text"),
+        outline_text=get_topic_outline_text(state),
         allow_during_research=os.getenv("AUTO_WRITE_DURING_RESEARCH", "0") == "1",
     )
+
+    # [CHANGE] 플래그 유무와 상관없이 write: 펜딩이 있으면 writer 우선
+    preferred_writer = "section_writer" if DOC_MODE == "report" else "chapter_writer"
+    alt_writer = "chapter_writer" if preferred_writer == "section_writer" else "section_writer"
+    if has_pending(tasks, preferred_writer, prefix="write:") or has_pending(tasks, alt_writer, prefix="write:"):
+        logger.info("[router.after_vector] writer pending(write:) → %s", preferred_writer)
+        return preferred_writer
 
     # 2) QA 직답 모드면 → 커뮤니케이터
     if state.get("qa_direct_reply"):
@@ -91,6 +113,7 @@ def after_vector_router(state: State):
     nxt = tail_task_router(state)
     logger.info("[router.after_vector] fallback → %s", nxt)
     return nxt
+
 
 def after_planner_router(state: State):
     """
@@ -153,13 +176,24 @@ def after_synthesizer_router(state: State):
     - 연구 라운드를 더 돌지 결정(신규 URL 수, 최소/최대 라운드, 무신규 연속치 등)
     - 계속 연구면 research_planner, 아니면 tail_task_router(writer/communicator 등)
     """
+    # ✅ 이 스코프의 tasks 확보
+    tasks = state.get("task_history", []) or []
+
     schedule_writer_if_needed(
         state,
-        tasks=state.get("tasks"),
+        tasks=tasks,  # ← 확보한 tasks 사용
         messages=state.get("messages"),
-        outline_text=state.get("outline_text"),
-        allow_during_research=os.getenv("AUTO_WRITE_DURING_RESEARCH","0")=="1",
+        outline_text=get_topic_outline_text(state),  # ← 안전한 outline 주입
+        allow_during_research=os.getenv("AUTO_WRITE_DURING_RESEARCH", "0") == "1",
     )
+
+    # [CHANGE] 플래그 유무와 상관없이 write: 펜딩이 있으면 writer 우선
+    preferred_writer = "section_writer" if DOC_MODE == "report" else "chapter_writer"
+    alt_writer = "chapter_writer" if preferred_writer == "section_writer" else "section_writer"
+    if has_pending(tasks, preferred_writer, prefix="write:") or has_pending(tasks, alt_writer, prefix="write:"):
+        logger.info("[router.after_synth] writer pending(write:) → %s", preferred_writer)
+        return preferred_writer
+
     rounds_done = as_int(state, "research_round", 0)
     max_iter = as_int(state, "iteration_count", 0)
 

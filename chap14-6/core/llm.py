@@ -24,7 +24,7 @@ def _mask(v: Optional[str]) -> str:
 
 
 # 환경 변수에서 GCP 설정값을 가져옵니다. (Vertex AI용)
-GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "your-gcp-project-id") # .env에서 설정한 프로젝트 ID
+GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "your-gcp-project-id").strip().lower() # .env에서 설정한 프로젝트 ID
 GCP_REGION = os.getenv("GCP_REGION", "asia-northeast3") # .env에서 설정한 리전
 # -----------------------------------------------------------------------------
 

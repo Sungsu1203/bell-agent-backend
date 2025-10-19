@@ -31,6 +31,7 @@ __all__ = [
     "normalize_outline_headings",
     "save_outline",
     "next_unwritten_title",
+    "title_by_index",
 ]
 
 # ─────────────────────────────────────────────────────────────
@@ -61,6 +62,32 @@ def get_topic_outline_text(
     )
     logger.debug("Loaded outline text (fname=%s, path=%s, chars=%d)", fname, getattr(_path, "as_posix", lambda: _path)(), len(txt or ""))
     return txt or ""
+
+# ─────────────────────────────────────────
+# 대체: 시그니처를 Optional[str] 허용으로 변경
+def title_by_index(outline_text: Optional[str], idx: int) -> Optional[str]:
+    """
+    목차 본문에서 'N. 제목' 또는 'N) 제목' 형태의 라인을 찾아
+    'N. 제목' 형태로 정규화한 문자열을 반환한다.
+    - Markdown 헤더(### 4. ...)도 허용
+    - outline_text 가 None 이어도 안전하게 처리
+    """
+    if not outline_text or not isinstance(idx, int):
+        return None
+
+    pat = re.compile(r'^\s*(?:#{1,6}\s*)?(?P<num>\d+)\s*[.)]\s*(?P<title>.+?)\s*$')
+    for raw in outline_text.splitlines():
+        m = pat.match(raw)
+        if not m:
+            continue
+        try:
+            n = int(m.group("num"))
+        except Exception:
+            continue
+        if n == idx:
+            title = (m.group("title") or "").strip().strip("#").strip()
+            return f"{idx}. {title}" if title else None
+    return None
 
 # ─────────────────────────────────────────────────────────────
 # 경로 & 파일명 규칙
