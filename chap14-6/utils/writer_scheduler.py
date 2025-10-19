@@ -97,13 +97,22 @@ def schedule_writer_if_needed(
     writer_agent: str = WRITER_AGENT
     fallback_default = "Executive Summary" if DOC_MODE == "report" else "서문"
 
-    # 2. 타이틀 정제
-    req = (requested_title or "").strip() or None
+    # 2. 타이틀 정제 (+ flags 폴백)
+    flags = (state.get("flags") or {})
+    flag_req = (flags.get("requested_write_title") or "").strip() or None
+
+    # 1순위: 인자 requested_title → 2순위: flags.requested_write_title
+    req_param = (requested_title or "").strip() or None
+    req = req_param or flag_req
 
     # 2-a. 안전 가드: 명시적 제목이 필요한 설정이라면, 제목 없을 때 예약 금지
     if _REQUIRE_EXPLICIT and not req:
         if debug:
-            logger.debug("[writer_scheduler] blocked: REQUIRE_EXPLICIT_WRITE_TITLE=True & requested_title is empty")
+            logger.debug(
+                "[writer_scheduler] blocked: REQUIRE_EXPLICIT_WRITE_TITLE=True & requested_title is empty "
+                "| param=%r | flags.requested_write_title=%r",
+                requested_title, flag_req
+            )
         return False
 
     # 3. 자동 후보 계산 (req가 없을 때만 활용)
@@ -126,8 +135,8 @@ def schedule_writer_if_needed(
     # target_title = req or auto_title or fallback_default
 
     logger.debug(
-        "[WriterScheduler Debug] ReqTitle=%r | AutoTitle=%r | FinalTarget=%r",
-        req, auto_title, target_title
+        "[WriterScheduler Debug] ParamReq=%r | FlagReq=%r | AutoTitle=%r | FinalTarget=%r",
+        req_param, flag_req, auto_title, target_title
     )
 
 

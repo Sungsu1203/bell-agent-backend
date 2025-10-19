@@ -521,9 +521,11 @@ def supervisor_router(state) -> str:
     flags = state.get("flags") or {}
     has_writer_p = _has("section_writer", prefix="write:") or _has("chapter_writer", prefix="write:")
     if has_writer_p and flags.get("pending_write_title"):
+        if refs_empty:
+            _dash_emit(state, where="router", picked="web_search_agent", reason="writer_locked_but_refs_empty")
+            return "web_search_agent"
         ret = "section_writer" if DOC_MODE == "report" else "chapter_writer"
-        logger.info("[supervisor_router] writer pending + pending_write_title → %s", ret)
-        _dash_emit(state, where="router", picked=ret, reason="writer_pending_locked_title")
+        _dash_emit(state, where="router", picked=ret, reason="writer_pending_locked_title_refs_ok")
         return ret
 
     preferred = "section_writer" if DOC_MODE == "report" else "chapter_writer"

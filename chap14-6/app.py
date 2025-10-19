@@ -48,6 +48,14 @@ def _bool_env(name: str, default: bool = False) -> bool:
         return default
     return v in ("1", "true", "yes", "on")
 
+def _truthy(name: str, default: str = "0") -> bool:
+    return str(os.getenv(name, default)).strip().lower() in ("1","true","yes","on")
+
+def human_print(msg: str):
+    """사람용 콘솔 출력(로거와 분리)."""
+    if _truthy("HUMAN_LOGS"):
+        print(msg, flush=True)
+
 def setup_logging(stream: Optional[TextIO] = None) -> None:
     """
     LOG_LEVEL, LOG_FILE, LOG_MAX_BYTES, LOG_BACKUP_COUNT, LOG_JSON 등 환경변수로 제어.
@@ -68,6 +76,7 @@ def setup_logging(stream: Optional[TextIO] = None) -> None:
     level_name = (os.getenv("LOG_LEVEL") or "INFO").strip().upper()
     level = getattr(logging, level_name, logging.INFO)
     root.setLevel(level)
+    root.propagate = False  # [ADD] 상위 핸들러 전파 차단 → 중복 로그 방지
 
     # 서드파티 노이즈 억제
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -102,44 +111,31 @@ def setup_logging(stream: Optional[TextIO] = None) -> None:
     import re as _re
     class HumanOnlyFilter(logging.Filter):
         """
-        - 기존 패턴 매칭 + 에이전트 핵심 네임스페이스 화이트리스트 허용
-        - ENV: HUMAN_LOGS_VERBOSE=1 이면 필터 OFF(=모든 INFO+ 노출)
+        콘솔에는 정말 필요한 라인만.
+        HUMAN_LOGS_VERBOSE=1이면 필터 해제(INFO+ 전부).
         """
+        import re as _re
         _pat = _re.compile(
-            r'^\s*User\s*:'
-            r'|^\s*\[Communicator\]'
+            r'^\s*User\s*:'            # 사용자 입력
+            r'|^\s*\[REPORT\]'         # 보고서 빌드 결과
             r'|^\s*Application started'
-            r'|^\s*MESSAGE COUNT'
-            r'|^\s*\[GATEKEEP\]'
             r'|^\s*Exit command received'
-            r'|^\s*Interrupt received'
-            r'|^\s*\[REPORT\]'
+            r'|^\s*Goodbye!'
             , _re.I
         )
         _allow_names = {
-            # 핵심 파이프라인 가독 로그 허용
-            "tools.web_rag",
-            "agent.web_search",
-            "agent.vector_search",
-            "agent.supervisor",
-            "agent.research_planner",
-            "agent.research_synthesizer",
-            "agent.section_writer",
-            "agent.content_strategist",
-            "report_builder",
-            "core.routers",
-            "__main__",
+            "__main__",         # 앱 상태/요약
+            "agent.supervisor", # 대시보드 한 줄 요약
+            "core.routers",     # 라우팅 한 줄 요약
         }
 
         def filter(self, record: logging.LogRecord) -> bool:
-            # 상세 모드면 필터 끔
             if (os.getenv("HUMAN_LOGS_VERBOSE") or "0").lower() in ("1","true","yes","on"):
                 return record.levelno >= logging.INFO
 
             msg = str(record.getMessage() or "")
             if self._pat.search(msg):
                 return True
-            # 네임스페이스 화이트리스트
             name_ok = record.name in self._allow_names
             level_ok = record.levelno >= logging.INFO
             return bool(name_ok and level_ok)
@@ -177,7 +173,6 @@ def setup_logging(stream: Optional[TextIO] = None) -> None:
     fh.setLevel(level)
     fh.setFormatter(formatter)
     root.addHandler(fh)
-
 
 logger = logging.getLogger(__name__)
 
@@ -319,6 +314,11 @@ if __name__ == "__main__":
     os.environ["LOG_TOPK"] = str(args.log_topk)
     os.environ["LOG_DASHBOARD"] = "1" if args.log_dashboard else "0"
     os.environ["LOG_WRAP"] = str(args.log_wrap)
+    # 대시보드 요약/레이트리밋 (supervisor._dash_emit가 읽음)
+    os.environ["DASH_SIMPLE"]   = os.getenv("DASH_SIMPLE", "1")  # 기본 1 권장
+    os.environ["DASH_RATE_SEC"] = os.getenv("DASH_RATE_SEC", "8")
+    # Communicator는 에코 금지(사람용 본문 출력은 app.py가 단일 경로로 담당)
+    os.environ["COMMUNICATOR_ECHO"] = os.getenv("COMMUNICATOR_ECHO", "0")
     os.environ["HUMAN_LOGS_VERBOSE"] = "1" if args.human_logs_verbose else "0"
     os.environ["HUMAN_LOGS"]    = "1" if args.human_logs     else "0"
     os.environ["ECHO_OUTLINE"]  = "1" if args.echo_outline   else "0"
@@ -406,17 +406,16 @@ if __name__ == "__main__":
                 DOC_MODE, state.get("iteration_count"), state.get("agent_role"))
     
     # [ADD] 시작 배너(간단)
-    logger.info("┌─ Console: HUMAN_LOGS=%s, VERBOSE=%s | LOG_TOPK=%s LOG_WRAP=%s LOG_DASHBOARD=%s",
-                os.getenv("HUMAN_LOGS","0"),
-                os.getenv("HUMAN_LOGS_VERBOSE","0"),
-                os.getenv("LOG_TOPK","3"),
-                os.getenv("LOG_WRAP","88"),
-                os.getenv("LOG_DASHBOARD","1"))
+    human_print(f"┌─ Console: HUMAN_LOGS={os.getenv('HUMAN_LOGS','0')}, "
+            f"VERBOSE={os.getenv('HUMAN_LOGS_VERBOSE','0')} | "
+            f"LOG_TOPK={os.getenv('LOG_TOPK','3')} LOG_WRAP={os.getenv('LOG_WRAP','88')} "
+            f"LOG_DASHBOARD={os.getenv('LOG_DASHBOARD','1')}")
 
     try:
         while True:
             try:
                 user_input = read_user_input()
+                human_print(f"User    : {user_input}")
             except (EOFError, KeyboardInterrupt):
                 logger.info("Interrupt received. Attempting to save final state...")
                 try:
@@ -488,6 +487,18 @@ if __name__ == "__main__":
             merged = dict(state)
             merged.update(result)
             state = merged  # type: ignore
+
+            # 이번 턴 최종 AI 응답 한 건만 콘솔에 출력
+            try:
+                msgs = state.get("messages", []) or []
+                last_ai = next((m for m in reversed(msgs) if getattr(m, "type", "").lower() == "ai"), None)
+                if last_ai:
+                    content = getattr(last_ai, "content", "")
+                    if isinstance(content, dict):
+                        content = content.get("text") or content.get("content") or str(content)
+                    human_print(str(content).strip())
+            except Exception:
+                pass
 
             # 로깅(레벨 구분)
             logger.info("MESSAGE COUNT = %s", len(state.get("messages", [])))

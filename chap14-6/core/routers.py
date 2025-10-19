@@ -52,8 +52,14 @@ def tail_task_router(state: State):
             return alt_writer
 
     # [ADD] writer-락 우선 (커뮤니케이터 펜딩보다 먼저)
-    # 수정(플래그 없이도 허용):
+    # refs 비어있으면 write: 펜딩이어도 먼저 RAG(Web)으로 보냄
+    refs = state.get("references") or {}
+    refs_empty = not (refs.get("docs") or [])
+
     if has_pending(tasks, preferred_writer, prefix="write:") or has_pending(tasks, alt_writer, prefix="write:"):
+        if refs_empty:
+            logger.debug("[router.tail] write: pending but refs empty → web_search_agent")
+            return "web_search_agent"
         logger.debug("[router.tail] writer pending(write:) → %s", preferred_writer)
         return preferred_writer
 
@@ -87,10 +93,19 @@ def after_vector_router(state: State):
         allow_during_research=os.getenv("AUTO_WRITE_DURING_RESEARCH", "0") == "1",
     )
 
-    # [CHANGE] 플래그 유무와 상관없이 write: 펜딩이 있으면 writer 우선
+    # [ADD] refs 가드: refs 비어있으면 write: 펜딩이어도 우선 RAG(Web)로 라우팅
     preferred_writer = "section_writer" if DOC_MODE == "report" else "chapter_writer"
     alt_writer = "chapter_writer" if preferred_writer == "section_writer" else "section_writer"
-    if has_pending(tasks, preferred_writer, prefix="write:") or has_pending(tasks, alt_writer, prefix="write:"):
+    has_write_pending = (
+        has_pending(tasks, preferred_writer, prefix="write:") or
+        has_pending(tasks, alt_writer, prefix="write:")
+    )
+    if has_write_pending:
+        refs = state.get("references") or {}
+        refs_empty = not (refs.get("docs") or [])
+        if refs_empty:
+            logger.info("[router.after_vector] write: pending but refs empty → web_search_agent")
+            return "web_search_agent"
         logger.info("[router.after_vector] writer pending(write:) → %s", preferred_writer)
         return preferred_writer
 

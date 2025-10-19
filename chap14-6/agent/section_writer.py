@@ -34,22 +34,25 @@ ECHO_SECTIONS = _truthy_env("ECHO_SECTIONS")
 def _resolve_title(state: State, outline_text: str | None):
     """
     섹션 제목 결정 순서:
-    1) state.flags.pending_write_title (잠금 우선)
-    2) get_last_write_target(messages, tasks)
+    1) flags.requested_write_title (잠금 우선)
+    2) get_last_write_target(messages, tasks)  ← write: ... 에서 파싱
     3) next_unwritten_title(outline_text, ...)
     반환값: (title, from_lock: bool)
     """
     try:
         f = state.get("flags") or {}
-        locked = str(f.get("pending_write_title") or "").strip()
-        if locked:
-            return locked, True
+        # bool 락(pending_write_title)이 켜져 있고, 요청 제목이 있으면 그것을 사용
+        if bool(f.get("pending_write_title")):
+            req = str(f.get("requested_write_title") or "").strip()
+            if req:
+                return req, True
     except Exception:
         pass
 
     messages = state.get("messages", []) or []
     tasks = state.get("task_history", []) or []
 
+    # write: ... 가 있는 가장 최신 태스크/메시지에서 타이틀 파싱
     title = (
         get_last_write_target(messages, tasks)
         or next_unwritten_title(
@@ -60,6 +63,7 @@ def _resolve_title(state: State, outline_text: str | None):
         )
     )
     return title, False
+
 
 
 def _guess_total_sections(outline_text: str, fallback: int = 8) -> int:
@@ -198,17 +202,19 @@ def section_writer(state: State):
         state["last_saved_path"] = out_path or ""
         messages.append(AIMessage(content=f"[SECTION WRITER] '{target_title}' 초안 저장 완료 → {out_path or '(save failed)'}"))
 
-        # [ADD] 잠금 해제: 이번 타깃이 잠금에서 왔다면 pending_write_title을 정리
+        # [FIX] 잠금 해제: 요청 제목 일치 시에만 해제 (bool과 문자열 비교 금지)
         try:
             if _came_from_lock:
                 ff = dict(state.get("flags") or {})
-                if str(ff.get("pending_write_title") or "").strip() == str(target_title).strip():
+                req = str(ff.get("requested_write_title") or "").strip()
+                if req and (req == str(target_title).strip()):
                     ff.pop("pending_write_title", None)
-                    ff.pop("suppress_vector_qa", None)  # ← 이 줄 추가
+                    ff.pop("requested_write_title", None)
+                    ff.pop("suppress_vector_qa", None)
                     state["flags"] = ff
-                    logger.debug("[Section Writer] cleared pending_write_title lock: %s", target_title)
+                    logger.debug("[Section Writer] cleared writer lock: %s", target_title)
         except Exception as _e:
-            logger.debug("[Section Writer] pending_write_title clear skipped: %s", _e)
+            logger.debug("[Section Writer] writer lock clear skipped: %s", _e)
 
     else: # Q&A 모드일 때는 파일 저장 생략
         logger.info("[SECTION WRITER] Q&A Mode detected. Skipping file save.")
@@ -216,16 +222,19 @@ def section_writer(state: State):
         messages.append(AIMessage(content=gathered))
 
         # [ADD] 잠금 해제
+        # [FIX][QA] 잠금 해제: 요청 제목 일치 시에만 해제
         try:
             if _came_from_lock:
                 ff = dict(state.get("flags") or {})
-                if str(ff.get("pending_write_title") or "").strip() == str(target_title).strip():
+                req = str(ff.get("requested_write_title") or "").strip()
+                if req and (req == str(target_title).strip()):
                     ff.pop("pending_write_title", None)
-                    ff.pop("suppress_vector_qa", None)  # ← 이 줄 추가
+                    ff.pop("requested_write_title", None)
+                    ff.pop("suppress_vector_qa", None)
                     state["flags"] = ff
-                    logger.debug("[Section Writer][QA] cleared pending_write_title lock: %s", target_title)
+                    logger.debug("[Section Writer][QA] cleared writer lock: %s", target_title)
         except Exception as _e:
-            logger.debug("[Section Writer][QA] pending_write_title clear skipped: %s", _e)
+            logger.debug("[Section Writer][QA] writer lock clear skipped: %s", _e)
 
     # [ADD] 진행 카운트: flags에만 저장(TypedDict 경고 회피) + 중복 카운트 방지 + 총 섹션 수 추정
     try:
