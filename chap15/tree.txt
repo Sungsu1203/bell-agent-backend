@@ -1,0 +1,396 @@
+폴더 PATH의 목록입니다.
+볼륨 일련 번호는 A6BD-DC85입니다.
+D:.
+|   app.py
+|   changelog.md
+|   content_utils.py
+|   graph.py
+|   md_autofix.py
+|   oauth_client_info.json
+|   project_tree.txt
+|   prompts.py
+|   pyproject.toml
+|   pytest.ini
+|   quick_test.py
+|   rag_expression.py
+|   report_builder.py
+|   service_account_key.json
+|   settings_gatekeep.py
+|   smoke_auto_footnote.py
+|   smoke_pptx_qa.py
+|   tree.txt
+|   
++---.chroma
+|   |   chroma.sqlite3
+|   |   
+|   \---77542d5a-c242-440c-8c2c-99cc11acf0c0
+|           data_level0.bin
+|           header.bin
+|           length.bin
+|           link_lists.bin
+|           
++---.vscode
+|       settings.json
+|       
++---agent
+|   |   chapter_writer.py
+|   |   communicator.py
+|   |   communicator_refac.py
+|   |   content_strategist.py
+|   |   research_planner.py
+|   |   research_synthesizer.py
+|   |   section_writer.py
+|   |   supervisor.py
+|   |   vector_search.py
+|   |   vector_search_old.py
+|   |   web_search.py
+|   |   __init__.py
+|   |   
+|   \---__pycache__
+|           chapter_writer.cpython-312.pyc
+|           communicator.cpython-312.pyc
+|           content_strategist.cpython-312.pyc
+|           research_planner.cpython-312.pyc
+|           research_synthesizer.cpython-312.pyc
+|           section_writer.cpython-312.pyc
+|           supervisor.cpython-312.pyc
+|           vector_search.cpython-312.pyc
+|           web_search.cpython-312.pyc
+|           __init__.cpython-312.pyc
+|           
++---chapters
++---content
+|       api.py
+|       __init__.py
+|       
++---core
+|   |   config.py
+|   |   llm.py
+|   |   llm_legacy.py
+|   |   llm_old.py
+|   |   llm_refac.py
+|   |   models.py
+|   |   paths.py
+|   |   routers.py
+|   |   state_io.py
+|   |   state_types.py
+|   |   topic.py
+|   |   __init__.py
+|   |   
+|   \---__pycache__
+|           config.cpython-312.pyc
+|           llm.cpython-312.pyc
+|           models.cpython-312.pyc
+|           paths.cpython-312.pyc
+|           routers.cpython-312.pyc
+|           state_io.cpython-312.pyc
+|           state_types.cpython-312.pyc
+|           topic.cpython-312.pyc
+|           __init__.cpython-312.pyc
+|           
++---data
+|   +---chroma_store
+|   |   +---kr-vitamin-venfobel-quick
+|   |   |   |   chroma.sqlite3
+|   |   |   |   
+|   |   |   +---3a213684-0d24-42b6-8708-f96042db5372
+|   |   |   |       data_level0.bin
+|   |   |   |       header.bin
+|   |   |   |       length.bin
+|   |   |   |       link_lists.bin
+|   |   |   |       
+|   |   |   \---quarantine
+|   |   \---kr-vitamin-venfobel-quick-gm
+|   |       |   chroma.sqlite3
+|   |       |   
+|   |       +---53c23d5d-f898-4772-8fef-4a5df94f4205
+|   |       |       data_level0.bin
+|   |       |       header.bin
+|   |       |       length.bin
+|   |       |       link_lists.bin
+|   |       |       
+|   |       \---quarantine
+|   +---default
+|   |   \---sections
+|   +---venfobel-market
+|   |   \---sections
+|   \---venfobel-market-gm
+|       \---sections
++---demo_data
++---docs
+|       0d639cb0-391b-49e9-b0ea-2741998bb4d6_운영_매뉴얼.pdf
+|       env_guide.md
+|       벤포벨_브리프.docx
+|       벤포벨_브리프.pdf
+|       
++---local
+|   +---CASE_SPLIT
+|   |       compliance_guide.md
+|   |       policy_overview.md
+|   |       
+|   +---EMPTY
+|   \---ONE
+|           control_recycle.md
+|           
++---logs
+|       run_full.log
+|       
++---outlines
+|   +---default
+|   |       outline_report.md
+|   |       
+|   +---venfobel-market
+|   |       outline_report.md
+|   |       
+|   \---venfobel-market-gm
+|           outline_report.md
+|           
++---refs
+|   |   docu.txt
+|   |   일반_의약품_브랜드_마케팅_광고전략_분석.pdf
+|   |   종근당_전략가설(tmp).pdf
+|   |   종근당_팩트북.pdf
+|   |   
+|   \---1. 벤포벨
+|       |   시장조사자료_양식.pptx
+|       |   시장조사자료_양식_우루사.pptx
+|       |   
+|       +---1. 광고비
+|       |       ★최종★벤포벨_2023 월별 채널별 예산_231222.xlsx
+|       |       ★최종★벤포벨_2024 월별 채널별 예산_241216.xlsx
+|       |       벤포벨_2025 월별 채널별 예산_250924.xlsx
+|       |       
+|       +---2. 광고 영상
+|       |   +---2023
+|       |   |       01카페 15초(사투리).mp4
+|       |   |       02길15초(막내아들).mp4
+|       |   |       03카페 15초(기본).mp4
+|       |   |       04길15초(와이프).mp4
+|       |   |       
+|       |   +---2024
+|       |   |       0321_벤포벨_박스접기의 달인.mp4
+|       |   |       0321_벤포벨_유리창 청소의 달인.mp4
+|       |   |       0321_벤포벨_줄넘기의 달인.mp4
+|       |   |       
+|       |   \---2025
+|       |           0423_BENFOBELL_15-CR.mp4
+|       |           0423_BENFOBELL_30-CR.mp4
+|       |           0423_BENFOBELL_6A-CR_체력저하.mp4
+|       |           0423_BENFOBELL_6B-CR_피로.mp4
+|       |           0423_BENFOBELL_6C-CR_신경통.mp4
+|       |           
+|       +---3. 광고효과조사
+|       |       (Ipsos) 2021 벤포벨 광고 효과 조사 보고서_PT본_211129_(Submit).pptx
+|       |       (Ipsos) 2022 벤포벨 광고 효과 조사 보고서_PT본_221209(submit).pptx
+|       |       (Ipsos) 2023 벤포벨 광고 효과 조사 보고서_ PT본_231121(submit).pptx
+|       |       
+|       +---4. 경쟁사 광고비
+|       |       비타민 경쟁사 광고비.xlsx
+|       |       
+|       \---5. 팩트북
+|               [Factbook] 종근당 벤포벨_241122.pptx
+|               
++---reports
+|   \---venfobel-market
+|           20251016-213821_report.md
+|           latest.md
+|           
++---research
+|   +---venfobel-market
+|   |       round-01-findings.md
+|   |       round-02-findings.md
+|   |       
+|   \---venfobel-market-gm
+|           round-01-findings.md
+|           round-02-findings.md
+|           
++---resources
+|   +---venfobel-market
+|   |       local_2025_10_16_182819.json
+|   |       resources_2025_10_16_182706_821929_8b6f65c5.json
+|   |       resources_2025_10_16_182710_297519_7b61b450.json
+|   |       resources_2025_10_16_182710_297519_7b61b450_filtered.json
+|   |       resources_2025_10_16_182724_226930_9464315b.json
+|   |       resources_2025_10_16_182724_226930_9464315b_filtered.json
+|   |       resources_2025_10_16_182737_916082_2524dd58.json
+|   |       resources_2025_10_16_182737_916082_2524dd58_filtered.json
+|   |       resources_2025_10_16_182757_426127_f6d8bc8d.json
+|   |       resources_2025_10_16_182758_470206_9c71547d.json
+|   |       resources_2025_10_16_182758_470206_9c71547d_filtered.json
+|   |       resources_2025_10_16_182801_615130_1f3f8690.json
+|   |       resources_2025_10_16_182810_925207_4d672e08.json
+|   |       resources_2025_10_16_182817_406238_b3611771.json
+|   |       resources_2025_10_16_182817_406238_b3611771_filtered.json
+|   |       resources_2025_10_16_182909_108723_f0ddf623.json
+|   |       resources_2025_10_16_182909_108723_f0ddf623_filtered.json
+|   |       resources_2025_10_16_182910_155223_8d3659c6.json
+|   |       resources_2025_10_16_182910_155223_8d3659c6_filtered.json
+|   |       resources_2025_10_16_182913_141414_14722be3.json
+|   |       resources_2025_10_16_182913_141414_14722be3_filtered.json
+|   |       resources_2025_10_16_182957_328590_53e11b60.json
+|   |       resources_2025_10_16_182957_328590_53e11b60_filtered.json
+|   |       resources_2025_10_16_183007_124554_ce476f77.json
+|   |       resources_2025_10_16_183007_124554_ce476f77_filtered.json
+|   |       round-01-meta.json
+|   |       round-02-meta.json
+|   |       
+|   \---venfobel-market-gm
+|           local_2025_10_18_191512.json
+|           local_2025_10_18_211154.json
+|           local_2025_10_18_235300.json
+|           local_2025_10_19_002301.json
+|           local_2025_10_19_071515.json
+|           local_2025_10_19_084640.json
+|           local_2025_10_19_160106.json
+|           local_2025_10_19_170156.json
+|           local_2025_10_19_210423.json
+|           local_2025_10_20_150841.json
+|           local_2025_10_20_170141.json
+|           resources_2025_10_18_191445_719631_016ef081.json
+|           resources_2025_10_18_191445_719631_016ef081_filtered.json
+|           resources_2025_10_18_191449_790379_cc1f2416.json
+|           resources_2025_10_18_191449_790379_cc1f2416_filtered.json
+|           resources_2025_10_18_191457_028094_4dd61c29.json
+|           resources_2025_10_18_191459_770050_e70586bb.json
+|           resources_2025_10_18_191502_609690_0d65244f.json
+|           resources_2025_10_18_191502_609690_0d65244f_filtered.json
+|           resources_2025_10_18_191506_429818_f56d230c.json
+|           resources_2025_10_18_191510_021030_d5c62cbd.json
+|           resources_2025_10_18_235250_698032_a4928d07.json
+|           resources_2025_10_18_235258_178668_e4c2f0a4.json
+|           resources_2025_10_18_235258_178668_e4c2f0a4_filtered.json
+|           resources_2025_10_19_002250_699983_46eb25de.json
+|           resources_2025_10_19_002257_330030_7d57e421.json
+|           resources_2025_10_19_002257_330030_7d57e421_filtered.json
+|           resources_2025_10_19_071505_582050_a4928d07.json
+|           resources_2025_10_19_071513_368849_f9693e04.json
+|           resources_2025_10_19_071513_368849_f9693e04_filtered.json
+|           resources_2025_10_19_084630_376470_a4928d07.json
+|           resources_2025_10_19_084638_384833_a4f7f517.json
+|           resources_2025_10_19_084638_384833_a4f7f517_filtered.json
+|           resources_2025_10_19_160056_761589_c1236ea1.json
+|           resources_2025_10_19_160103_945924_94108ddb.json
+|           resources_2025_10_19_160103_945924_94108ddb_filtered.json
+|           resources_2025_10_19_170148_170671_265ea72e.json
+|           resources_2025_10_19_170152_072598_d116ec26.json
+|           resources_2025_10_19_170152_072598_d116ec26_filtered.json
+|           resources_2025_10_19_210414_226600_a4928d07.json
+|           resources_2025_10_19_210419_389268_fd274f43.json
+|           resources_2025_10_19_210419_389268_fd274f43_filtered.json
+|           resources_2025_10_20_150827_899941_a4928d07.json
+|           resources_2025_10_20_150835_539065_5d65495b.json
+|           resources_2025_10_20_150835_539065_5d65495b_filtered.json
+|           resources_2025_10_20_170046_004471_a4928d07.json
+|           resources_2025_10_20_170046_004471_a4928d07_filtered.json
+|           resources_2025_10_20_170138_983574_70e200ff.json
+|           round-01-meta.json
+|           
++---sections
+|   +---venfobel-market
+|   |       analysis-insights.md
+|   |       background-objectives.md
+|   |       key-findings.md
+|   |       
+|   \---venfobel-market-gm
+|           5.md
+|           8-실행-계획-및-일정.md
+|           executive-summary.md
+|           executive-summary.md.11604.bak
+|           executive-summary.md.33564.bak
+|           executive-summary.md.34736.bak
+|           executive-summary.md.44232.bak
+|           true.md
+|           분석-및-인사이트-도출.md
+|           분석-및-인사이트-도출.md.36712.bak
+|           서론.md
+|           심층-분석-및-전략적-시사점.md
+|           핵심-성공-전략-및-실행-과제-제안.md
+|           
++---state
+|       last_state.json
+|       last_state.pkl
+|       
++---tests
+|   |   test_app_cli_smoke.py
+|   |   test_chroma_ingest_and_clear.py
+|   |   test_e2e_local_rag.py
+|   |   test_gatekeep.py
+|   |   test_gatekeep_edges.py
+|   |   test_gatekeep_pipeline_integration.py
+|   |   test_last_saved_path.py
+|   |   test_logging.py
+|   |   test_outline_and_content.py
+|   |   test_outline_rename.py
+|   |   test_progress_and_communicator_minimal.py
+|   |   test_rag_expression.py
+|   |   test_refs.py
+|   |   test_research_auto_write_policy.py
+|   |   test_research_loop_to_writer.py
+|   |   test_retrieve_quality.py
+|   |   test_sanitize.py
+|   |   test_supervisor_write_fastpath.py
+|   |   test_webjson_loader.py
+|   |   test_web_rag_naver_unit.py
+|   |   test_web_rag_router_smoke.py
+|   |   test_writer_auto_schedule.py
+|   |   test_writer_dedup.py
+|   |   test_writer_schedule_equivalence.py
+|   |   
+|   \---__pycache__
+|           test_app_cli_smoke.cpython-312-pytest-8.4.2.pyc
+|           test_chroma_ingest_and_clear.cpython-312-pytest-8.4.2.pyc
+|           test_gatekeep.cpython-312-pytest-8.4.2.pyc
+|           test_gatekeep_edges.cpython-312-pytest-8.4.2.pyc
+|           test_gatekeep_pipeline_integration.cpython-312-pytest-8.4.2.pyc
+|           test_logging.cpython-312-pytest-8.4.2.pyc
+|           test_progress_and_communicator_minimal.cpython-312-pytest-8.4.2.pyc
+|           test_research_loop_to_writer.cpython-312-pytest-8.4.2.pyc
+|           test_retrieve_quality.cpython-312-pytest-8.4.2.pyc
+|           test_webjson_loader.cpython-312-pytest-8.4.2.pyc
+|           test_writer_auto_schedule.cpython-312-pytest-8.4.2.pyc
+|           test_writer_schedule_equivalence.cpython-312-pytest-8.4.2.pyc
+|           
++---tools
+|   |   local_rag.py
+|   |   web_rag.py
+|   |   web_rag_old.py
+|   |   __init__.py
+|   |   
+|   \---__pycache__
+|           local_rag.cpython-312.pyc
+|           web_rag.cpython-312.pyc
+|           __init__.cpython-312.pyc
+|           
++---utils
+|   |   forced_queries.py
+|   |   outline.py
+|   |   query_filters.py
+|   |   rag_utils.py
+|   |   refs.py
+|   |   sanitize.py
+|   |   tasks.py
+|   |   text_utils.py
+|   |   writer_scheduler.py
+|   |   __init__.py
+|   |   
+|   \---__pycache__
+|           forced_queries.cpython-312.pyc
+|           outline.cpython-312.pyc
+|           query_filters.cpython-312.pyc
+|           rag_utils.cpython-312.pyc
+|           refs.cpython-312.pyc
+|           sanitize.cpython-312.pyc
+|           tasks.cpython-312.pyc
+|           text_utils.cpython-312.pyc
+|           writer_scheduler.cpython-312.pyc
+|           __init__.cpython-312.pyc
+|           
+\---__pycache__
+        app.cpython-312.pyc
+        content_utils.cpython-312.pyc
+        graph.cpython-312.pyc
+        prompts.cpython-312.pyc
+        rag_expression.cpython-312.pyc
+        report_builder.cpython-312.pyc
+        settings_gatekeep.cpython-312.pyc
+        
