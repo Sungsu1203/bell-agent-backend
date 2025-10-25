@@ -1,0 +1,11 @@
+{
+  "round": 1,
+  "timestamp": "2025-10-24 15:18:16",
+  "round_new_urls": 5291,
+  "no_new_url_streak": 0,
+  "min_rounds": 1,
+  "max_no_new": 1,
+  "halt_threshold": 0,
+  "halted": false,
+  "findings_path": "D:\\gpt_agent_2025_book\\chap14-7\\research\\venfobel-market-gm\\round-01-findings.md"
+}
