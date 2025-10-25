@@ -1,20 +1,51 @@
-# Python 가상환경
-venv/
+# ── OS / IDE ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ── Python ───────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv*/
+venv*/
 .env
 
-# Python 캐시 파일
-__pycache__/
-*.pyc
+# ── Logs & run artifacts ─────────────────────────────────
+logs/
+**/logs/
+data/
+# 생성 산출물(필요 시 좁혀도 됨)
+**/resources/**/*.json
+**/state/**
+**/reports/**
 
-# Jupyter Notebook 체크포인트
-.ipynb_checkpoints/"chap09/data/OneNYC_2050_Strategic_Plan.pdf" 
+# ── Notebooks ────────────────────────────────────────────
+.ipynb_checkpoints/
+# 특정 파일(원문에 있던 PDF)
+chap09/data/OneNYC_2050_Strategic_Plan.pdf
 
-# Chroma / 벡터DB 산출물
-chap14-1/sec04/data/chroma_store/
-chap14/sec04/data/chroma_store/
+# ── Vector DB / Chroma 산출물 ────────────────────────────
+# 폴더 통째로 무시(범용)
+**/chroma_store/
+# 다양한 포맷(구/신버전 호환)
 **/chroma.sqlite3
+**/chroma-collections.parquet
+**/chroma-embeddings.parquet
 **/data_level*.bin
 **/header.bin
 **/length.bin
 **/link_lists.bin
 **/index_metadata.pickle
+
+# ── 대용량 미디어(refs 폴더 전역) ─────────────────────────
+# (현재 chap14-6/7만 필요한 경우엔 아래 두 줄만 남기세요)
+**/refs/**/*.mp4
+**/refs/**/*.pptx
+# 필요시 확장:
+# **/refs/**/*.mov
+# **/refs/**/*.avi
+# **/refs/**/*.mkv
