@@ -1,0 +1,809 @@
+﻿폴더 PATH의 목록입니다.
+볼륨 일련 번호는 A6BD-DC85입니다.
+D:\GPT_AGENT_2025_BOOK\chap14_8\
+│  app.py
+│  content_utils.py
+│  graph.py
+│  md_autofix.py
+│  oauth_client_info.json
+│  project_tree.txt
+│  prompts.py
+│  pyproject.toml
+│  pytest.ini
+│  quick_test.py
+│  rag_expression.py
+│  report_builder.py
+│  service_account_key.json
+│  settings_gatekeep.py
+│  smoke_auto_footnote.py
+│  smoke_pptx_qa.py
+│  tree.txt
+│  
+├─.chroma
+│  │  chroma.sqlite3
+│  │  
+│  └─77542d5a-c242-440c-8c2c-99cc11acf0c0
+│          data_level0.bin
+│          header.bin
+│          length.bin
+│          link_lists.bin
+│          
+├─.vscode
+│      settings.json
+│      
+├─agent
+│  │  chapter_writer.py
+│  │  communicator.py
+│  │  communicator_refac.py
+│  │  content_strategist.py
+│  │  research_planner.py
+│  │  research_synthesizer.py
+│  │  section_writer.py
+│  │  supervisor.py
+│  │  vector_search.py
+│  │  vector_search_old.py
+│  │  web_search.py
+│  │  __init__.py
+│  │  
+│  └─__pycache__
+│          chapter_writer.cpython-312.pyc
+│          communicator.cpython-312.pyc
+│          content_strategist.cpython-312.pyc
+│          research_planner.cpython-312.pyc
+│          research_synthesizer.cpython-312.pyc
+│          section_writer.cpython-312.pyc
+│          supervisor.cpython-312.pyc
+│          vector_search.cpython-312.pyc
+│          web_search.cpython-312.pyc
+│          __init__.cpython-312.pyc
+│          
+├─chapters
+├─content
+│      api.py
+│      __init__.py
+│      
+├─core
+│  │  config.py
+│  │  llm.py
+│  │  models.py
+│  │  paths.py
+│  │  routers.py
+│  │  state_io.py
+│  │  state_types.py
+│  │  topic.py
+│  │  __init__.py
+│  │  
+│  └─__pycache__
+│          config.cpython-312.pyc
+│          llm.cpython-312.pyc
+│          models.cpython-312.pyc
+│          paths.cpython-312.pyc
+│          routers.cpython-312.pyc
+│          state_io.cpython-312.pyc
+│          state_types.cpython-312.pyc
+│          topic.cpython-312.pyc
+│          __init__.cpython-312.pyc
+│          
+├─data
+│  ├─chroma_store
+│  │  ├─kr-vitamin-venfobel-quick
+│  │  │  │  chroma.sqlite3
+│  │  │  │  
+│  │  │  ├─3a213684-0d24-42b6-8708-f96042db5372
+│  │  │  │      data_level0.bin
+│  │  │  │      header.bin
+│  │  │  │      length.bin
+│  │  │  │      link_lists.bin
+│  │  │  │      
+│  │  │  └─quarantine
+│  │  ├─kr-vitamin-venfobel-quick-gm-test2
+│  │  │  │  chroma.sqlite3
+│  │  │  │  
+│  │  │  ├─99931022-ef64-438c-b0ae-f9eb3b450e12
+│  │  │  │      data_level0.bin
+│  │  │  │      header.bin
+│  │  │  │      length.bin
+│  │  │  │      link_lists.bin
+│  │  │  │      
+│  │  │  ├─a4510dc8-fe13-48c3-8fad-b45d67605c80
+│  │  │  │      data_level0.bin
+│  │  │  │      header.bin
+│  │  │  │      length.bin
+│  │  │  │      link_lists.bin
+│  │  │  │      
+│  │  │  ├─b7df31a8-6479-447d-abe4-53924679b88a
+│  │  │  │      data_level0.bin
+│  │  │  │      header.bin
+│  │  │  │      length.bin
+│  │  │  │      link_lists.bin
+│  │  │  │      
+│  │  │  └─quarantine
+│  │  ├─kr-vitamin-venfobel-quick-gm-test2-local
+│  │  ├─kr-vitamin-venfobel-quick-gm-test2-web
+│  │  ├─smoke-local
+│  │  └─smoke-web
+│  ├─default
+│  │  └─sections
+│  ├─venfobel-market
+│  │  └─sections
+│  └─venfobel-market-gm
+│      └─sections
+├─demo_data
+├─docs
+│      0d639cb0-391b-49e9-b0ea-2741998bb4d6_운영_매뉴얼.pdf
+│      env_guide.md
+│      벤포벨_브리프.docx
+│      벤포벨_브리프.pdf
+│      
+├─local
+│  ├─CASE_SPLIT
+│  │      compliance_guide.md
+│  │      policy_overview.md
+│  │      
+│  ├─EMPTY
+│  └─ONE
+│          control_recycle.md
+│          
+├─logs
+│      run_full.log
+│      
+├─outlines
+│  ├─default
+│  │      outline_report.md
+│  │      
+│  ├─venfobel-market
+│  │      outline_report.md
+│  │      
+│  └─venfobel-market-gm
+│          outline_report.md
+│          
+├─refs
+│  │  일반_의약품_브랜드_마케팅_광고전략_분석.pdf
+│  │  종근당_전략가설(tmp).pdf
+│  │  종근당_팩트북.pdf
+│  │  
+│  └─1. 벤포벨
+│      │  시장조사자료_양식.pptx
+│      │  시장조사자료_양식_우루사.pptx
+│      │  
+│      ├─1. 광고비
+│      │      ★최종★벤포벨_2023 월별 채널별 예산_231222.xlsx
+│      │      ★최종★벤포벨_2024 월별 채널별 예산_241216.xlsx
+│      │      벤포벨_2025 월별 채널별 예산_250924.xlsx
+│      │      
+│      ├─2. 광고 영상
+│      │  ├─2023
+│      │  │      01카페 15초(사투리).mp4
+│      │  │      02길15초(막내아들).mp4
+│      │  │      03카페 15초(기본).mp4
+│      │  │      04길15초(와이프).mp4
+│      │  │      
+│      │  ├─2024
+│      │  │      0321_벤포벨_박스접기의 달인.mp4
+│      │  │      0321_벤포벨_유리창 청소의 달인.mp4
+│      │  │      0321_벤포벨_줄넘기의 달인.mp4
+│      │  │      
+│      │  └─2025
+│      │          0423_BENFOBELL_15-CR.mp4
+│      │          0423_BENFOBELL_30-CR.mp4
+│      │          0423_BENFOBELL_6A-CR_체력저하.mp4
+│      │          0423_BENFOBELL_6B-CR_피로.mp4
+│      │          0423_BENFOBELL_6C-CR_신경통.mp4
+│      │          
+│      ├─3. 광고효과조사
+│      │      (Ipsos) 2021 벤포벨 광고 효과 조사 보고서_PT본_211129_(Submit).pptx
+│      │      (Ipsos) 2022 벤포벨 광고 효과 조사 보고서_PT본_221209(submit).pptx
+│      │      (Ipsos) 2023 벤포벨 광고 효과 조사 보고서_ PT본_231121(submit).pptx
+│      │      
+│      ├─4. 경쟁사 광고비
+│      │      비타민 경쟁사 광고비.xlsx
+│      │      
+│      └─5. 팩트북
+│              [Factbook] 종근당 벤포벨_241122.pptx
+│              
+├─refs - origin
+│  │  docu.txt
+│  │  refs.txt
+│  │  일반_의약품_브랜드_마케팅_광고전략_분석.pdf
+│  │  종근당_전략가설(tmp).pdf
+│  │  종근당_팩트북.pdf
+│  │  
+│  └─1. 벤포벨
+│      │  시장조사자료_양식.pptx
+│      │  시장조사자료_양식_우루사.pptx
+│      │  
+│      ├─1. 광고비
+│      │      ★최종★벤포벨_2023 월별 채널별 예산_231222.xlsx
+│      │      ★최종★벤포벨_2024 월별 채널별 예산_241216.xlsx
+│      │      벤포벨_2025 월별 채널별 예산_250924.xlsx
+│      │      
+│      ├─2. 광고 영상
+│      │  ├─2023
+│      │  │      01카페 15초(사투리).mp4
+│      │  │      02길15초(막내아들).mp4
+│      │  │      03카페 15초(기본).mp4
+│      │  │      04길15초(와이프).mp4
+│      │  │      
+│      │  ├─2024
+│      │  │      0321_벤포벨_박스접기의 달인.mp4
+│      │  │      0321_벤포벨_유리창 청소의 달인.mp4
+│      │  │      0321_벤포벨_줄넘기의 달인.mp4
+│      │  │      
+│      │  └─2025
+│      │          0423_BENFOBELL_15-CR.mp4
+│      │          0423_BENFOBELL_30-CR.mp4
+│      │          0423_BENFOBELL_6A-CR_체력저하.mp4
+│      │          0423_BENFOBELL_6B-CR_피로.mp4
+│      │          0423_BENFOBELL_6C-CR_신경통.mp4
+│      │          
+│      ├─3. 광고효과조사
+│      │      (Ipsos) 2021 벤포벨 광고 효과 조사 보고서_PT본_211129_(Submit).pptx
+│      │      (Ipsos) 2022 벤포벨 광고 효과 조사 보고서_PT본_221209(submit).pptx
+│      │      (Ipsos) 2023 벤포벨 광고 효과 조사 보고서_ PT본_231121(submit).pptx
+│      │      
+│      ├─4. 경쟁사 광고비
+│      │      비타민 경쟁사 광고비.xlsx
+│      │      
+│      └─5. 팩트북
+│              [Factbook] 종근당 벤포벨_241122.pptx
+│              
+├─reports
+│  └─venfobel-market
+│          20251016-213821_report.md
+│          latest.md
+│          
+├─research
+│  ├─venfobel-market
+│  │      round-01-findings.md
+│  │      round-02-findings.md
+│  │      
+│  └─venfobel-market-gm
+│          round-01-findings.md
+│          round-02-findings.md
+│          
+├─resources
+│  ├─venfobel-market
+│  │      local_2025_10_16_182819.json
+│  │      resources_2025_10_16_182706_821929_8b6f65c5.json
+│  │      resources_2025_10_16_182710_297519_7b61b450.json
+│  │      resources_2025_10_16_182710_297519_7b61b450_filtered.json
+│  │      resources_2025_10_16_182724_226930_9464315b.json
+│  │      resources_2025_10_16_182724_226930_9464315b_filtered.json
+│  │      resources_2025_10_16_182737_916082_2524dd58.json
+│  │      resources_2025_10_16_182737_916082_2524dd58_filtered.json
+│  │      resources_2025_10_16_182757_426127_f6d8bc8d.json
+│  │      resources_2025_10_16_182758_470206_9c71547d.json
+│  │      resources_2025_10_16_182758_470206_9c71547d_filtered.json
+│  │      resources_2025_10_16_182801_615130_1f3f8690.json
+│  │      resources_2025_10_16_182810_925207_4d672e08.json
+│  │      resources_2025_10_16_182817_406238_b3611771.json
+│  │      resources_2025_10_16_182817_406238_b3611771_filtered.json
+│  │      resources_2025_10_16_182909_108723_f0ddf623.json
+│  │      resources_2025_10_16_182909_108723_f0ddf623_filtered.json
+│  │      resources_2025_10_16_182910_155223_8d3659c6.json
+│  │      resources_2025_10_16_182910_155223_8d3659c6_filtered.json
+│  │      resources_2025_10_16_182913_141414_14722be3.json
+│  │      resources_2025_10_16_182913_141414_14722be3_filtered.json
+│  │      resources_2025_10_16_182957_328590_53e11b60.json
+│  │      resources_2025_10_16_182957_328590_53e11b60_filtered.json
+│  │      resources_2025_10_16_183007_124554_ce476f77.json
+│  │      resources_2025_10_16_183007_124554_ce476f77_filtered.json
+│  │      round-01-meta.json
+│  │      round-02-meta.json
+│  │      
+│  └─venfobel-market-gm
+│          local_2025_10_22_110702.json
+│          local_2025_10_22_123449.json
+│          local_2025_10_22_125851.json
+│          local_2025_10_22_132749.json
+│          local_2025_10_22_145916.json
+│          local_2025_10_22_163634.json
+│          local_2025_10_22_205724.json
+│          local_2025_10_22_213421.json
+│          local_2025_10_22_214922.json
+│          local_2025_10_22_231517.json
+│          local_2025_10_22_232208.json
+│          local_2025_10_23_082448.json
+│          local_2025_10_23_094223.json
+│          local_2025_10_23_102326.json
+│          local_2025_10_23_153750.json
+│          local_2025_10_23_154238.json
+│          local_2025_10_23_234444.json
+│          local_2025_10_24_151444.json
+│          resources_2025_10_22_110256_750141_a7959fe7.json
+│          resources_2025_10_22_110256_750141_a7959fe7_filtered.json
+│          resources_2025_10_22_110314_461012_0b066eaf.json
+│          resources_2025_10_22_110314_461012_0b066eaf_filtered.json
+│          resources_2025_10_22_110339_053261_1447af18.json
+│          resources_2025_10_22_110339_053261_1447af18_filtered.json
+│          resources_2025_10_22_110411_190856_994967b0.json
+│          resources_2025_10_22_110411_190856_994967b0_filtered.json
+│          resources_2025_10_22_110440_980391_e01bdc32.json
+│          resources_2025_10_22_110440_980391_e01bdc32_filtered.json
+│          resources_2025_10_22_110453_800558_b8daaee7.json
+│          resources_2025_10_22_110453_800558_b8daaee7_filtered.json
+│          resources_2025_10_22_110503_472973_38d49231.json
+│          resources_2025_10_22_110503_472973_38d49231_filtered.json
+│          resources_2025_10_22_110533_452669_cb76fb0a.json
+│          resources_2025_10_22_110533_452669_cb76fb0a_filtered.json
+│          resources_2025_10_22_110603_037921_83f14075.json
+│          resources_2025_10_22_110603_037921_83f14075_filtered.json
+│          resources_2025_10_22_123410_336182_426e386a.json
+│          resources_2025_10_22_123410_336182_426e386a_filtered.json
+│          resources_2025_10_22_123435_479056_d0b01ee0.json
+│          resources_2025_10_22_123435_479056_d0b01ee0_filtered.json
+│          resources_2025_10_22_125829_621438_0df46b1d.json
+│          resources_2025_10_22_125829_621438_0df46b1d_filtered.json
+│          resources_2025_10_22_125843_464453_438118ef.json
+│          resources_2025_10_22_125843_464453_438118ef_filtered.json
+│          resources_2025_10_22_132732_691424_c51ede0e.json
+│          resources_2025_10_22_132732_691424_c51ede0e_filtered.json
+│          resources_2025_10_22_132742_096187_37ccd734.json
+│          resources_2025_10_22_132742_096187_37ccd734_filtered.json
+│          resources_2025_10_22_145648_552826_99c7da22.json
+│          resources_2025_10_22_145648_552826_99c7da22_filtered.json
+│          resources_2025_10_22_145726_760847_26d47f60.json
+│          resources_2025_10_22_145726_760847_26d47f60_filtered.json
+│          resources_2025_10_22_145735_892757_6c8b5f90.json
+│          resources_2025_10_22_145742_300083_606efa8c.json
+│          resources_2025_10_22_145742_300083_606efa8c_filtered.json
+│          resources_2025_10_22_145747_516774_f215acf7.json
+│          resources_2025_10_22_145747_516774_f215acf7_filtered.json
+│          resources_2025_10_22_145750_572593_55768578.json
+│          resources_2025_10_22_145750_572593_55768578_filtered.json
+│          resources_2025_10_22_145817_872359_f85245cc.json
+│          resources_2025_10_22_145817_872359_f85245cc_filtered.json
+│          resources_2025_10_22_145843_807579_6e5dfd5e.json
+│          resources_2025_10_22_145843_807579_6e5dfd5e_filtered.json
+│          resources_2025_10_22_145853_981676_f89d6e16.json
+│          resources_2025_10_22_145853_981676_f89d6e16_filtered.json
+│          resources_2025_10_22_163406_223921_6b6ccc59.json
+│          resources_2025_10_22_163406_223921_6b6ccc59_filtered.json
+│          resources_2025_10_22_163416_576429_4988c08c.json
+│          resources_2025_10_22_163416_576429_4988c08c_filtered.json
+│          resources_2025_10_22_163429_210652_eec7112a.json
+│          resources_2025_10_22_163429_210652_eec7112a_filtered.json
+│          resources_2025_10_22_163445_120698_f167ee79.json
+│          resources_2025_10_22_163445_120698_f167ee79_filtered.json
+│          resources_2025_10_22_163525_132712_d09c1f41.json
+│          resources_2025_10_22_163525_132712_d09c1f41_filtered.json
+│          resources_2025_10_22_163532_132984_392b9f42.json
+│          resources_2025_10_22_163532_132984_392b9f42_filtered.json
+│          resources_2025_10_22_163544_867164_78942c77.json
+│          resources_2025_10_22_163544_867164_78942c77_filtered.json
+│          resources_2025_10_22_163614_864332_7a69cc0d.json
+│          resources_2025_10_22_163614_864332_7a69cc0d_filtered.json
+│          resources_2025_10_22_163627_653601_38963c0f.json
+│          resources_2025_10_22_163627_653601_38963c0f_filtered.json
+│          resources_2025_10_22_181605_235386_12096262.json
+│          resources_2025_10_22_181605_235386_12096262_filtered.json
+│          resources_2025_10_22_181610_706093_7df19025.json
+│          resources_2025_10_22_181610_706093_7df19025_filtered.json
+│          resources_2025_10_22_181625_029302_d0c3c072.json
+│          resources_2025_10_22_181625_029302_d0c3c072_filtered.json
+│          resources_2025_10_22_181635_381592_6b00f688.json
+│          resources_2025_10_22_181635_381592_6b00f688_filtered.json
+│          resources_2025_10_22_181654_150895_bb57537a.json
+│          resources_2025_10_22_181654_150895_bb57537a_filtered.json
+│          resources_2025_10_22_181700_673496_5ee4e41e.json
+│          resources_2025_10_22_181700_673496_5ee4e41e_filtered.json
+│          resources_2025_10_22_181711_222517_8260da28.json
+│          resources_2025_10_22_181711_222517_8260da28_filtered.json
+│          resources_2025_10_22_181729_432542_3ef08138.json
+│          resources_2025_10_22_181729_432542_3ef08138_filtered.json
+│          resources_2025_10_22_181744_370596_77d119ab.json
+│          resources_2025_10_22_181744_370596_77d119ab_filtered.json
+│          resources_2025_10_22_182227_099945_d00ab3e4.json
+│          resources_2025_10_22_182227_099945_d00ab3e4_filtered.json
+│          resources_2025_10_22_182234_797646_78818d4d.json
+│          resources_2025_10_22_182234_797646_78818d4d_filtered.json
+│          resources_2025_10_22_182244_328121_29a3cddc.json
+│          resources_2025_10_22_182244_328121_29a3cddc_filtered.json
+│          resources_2025_10_22_182256_765560_417f7367.json
+│          resources_2025_10_22_182256_765560_417f7367_filtered.json
+│          resources_2025_10_22_182336_034965_f539e8fd.json
+│          resources_2025_10_22_182336_034965_f539e8fd_filtered.json
+│          resources_2025_10_22_182347_383713_e891a73b.json
+│          resources_2025_10_22_182347_383713_e891a73b_filtered.json
+│          resources_2025_10_22_182350_345481_3b01c849.json
+│          resources_2025_10_22_182350_345481_3b01c849_filtered.json
+│          resources_2025_10_22_182415_128192_b3e573fb.json
+│          resources_2025_10_22_182415_128192_b3e573fb_filtered.json
+│          resources_2025_10_22_182428_402854_7cb4e453.json
+│          resources_2025_10_22_182428_402854_7cb4e453_filtered.json
+│          resources_2025_10_22_182918_522998_9c835b43.json
+│          resources_2025_10_22_182918_522998_9c835b43_filtered.json
+│          resources_2025_10_22_182924_393745_91948e0e.json
+│          resources_2025_10_22_182924_393745_91948e0e_filtered.json
+│          resources_2025_10_22_182934_341947_b7ab1163.json
+│          resources_2025_10_22_182934_341947_b7ab1163_filtered.json
+│          resources_2025_10_22_182945_041289_954bd2e4.json
+│          resources_2025_10_22_182945_041289_954bd2e4_filtered.json
+│          resources_2025_10_22_183011_274953_9d0659d2.json
+│          resources_2025_10_22_183011_274953_9d0659d2_filtered.json
+│          resources_2025_10_22_183022_751299_47f651a1.json
+│          resources_2025_10_22_183022_751299_47f651a1_filtered.json
+│          resources_2025_10_22_183041_094543_260e129f.json
+│          resources_2025_10_22_183041_094543_260e129f_filtered.json
+│          resources_2025_10_22_183120_125327_7f82fac2.json
+│          resources_2025_10_22_183120_125327_7f82fac2_filtered.json
+│          resources_2025_10_22_183139_024918_ee30e634.json
+│          resources_2025_10_22_183139_024918_ee30e634_filtered.json
+│          resources_2025_10_22_183827_636993_0bad1a51.json
+│          resources_2025_10_22_183827_636993_0bad1a51_filtered.json
+│          resources_2025_10_22_183845_598830_80a17854.json
+│          resources_2025_10_22_183845_598830_80a17854_filtered.json
+│          resources_2025_10_22_183901_758377_1e9fe5c1.json
+│          resources_2025_10_22_183901_758377_1e9fe5c1_filtered.json
+│          resources_2025_10_22_184045_294996_142f58c5.json
+│          resources_2025_10_22_184045_294996_142f58c5_filtered.json
+│          resources_2025_10_22_184055_045385_4a8ef067.json
+│          resources_2025_10_22_184055_045385_4a8ef067_filtered.json
+│          resources_2025_10_22_184058_438055_c877a786.json
+│          resources_2025_10_22_184058_438055_c877a786_filtered.json
+│          resources_2025_10_22_184109_218741_17938ab6.json
+│          resources_2025_10_22_184109_218741_17938ab6_filtered.json
+│          resources_2025_10_22_205500_798180_f055f9e9.json
+│          resources_2025_10_22_205500_798180_f055f9e9_filtered.json
+│          resources_2025_10_22_205507_975821_df0950a5.json
+│          resources_2025_10_22_205507_975821_df0950a5_filtered.json
+│          resources_2025_10_22_205519_435096_0d9b0954.json
+│          resources_2025_10_22_205519_435096_0d9b0954_filtered.json
+│          resources_2025_10_22_205534_331319_532da1fa.json
+│          resources_2025_10_22_205534_331319_532da1fa_filtered.json
+│          resources_2025_10_22_205554_608438_2d4c13f9.json
+│          resources_2025_10_22_205554_608438_2d4c13f9_filtered.json
+│          resources_2025_10_22_205626_127774_be8f5b8b.json
+│          resources_2025_10_22_205626_127774_be8f5b8b_filtered.json
+│          resources_2025_10_22_205634_974311_d307ee17.json
+│          resources_2025_10_22_205634_974311_d307ee17_filtered.json
+│          resources_2025_10_22_205700_979719_4b832657.json
+│          resources_2025_10_22_205700_979719_4b832657_filtered.json
+│          resources_2025_10_22_205717_773532_ebcb8b26.json
+│          resources_2025_10_22_205717_773532_ebcb8b26_filtered.json
+│          resources_2025_10_22_213221_039983_4c832108.json
+│          resources_2025_10_22_213221_039983_4c832108_filtered.json
+│          resources_2025_10_22_213225_592544_9e21a044.json
+│          resources_2025_10_22_213225_592544_9e21a044_filtered.json
+│          resources_2025_10_22_213230_559275_2b39b355.json
+│          resources_2025_10_22_213230_559275_2b39b355_filtered.json
+│          resources_2025_10_22_213234_300308_0898e76f.json
+│          resources_2025_10_22_213234_300308_0898e76f_filtered.json
+│          resources_2025_10_22_213302_777960_f6484cd7.json
+│          resources_2025_10_22_213302_777960_f6484cd7_filtered.json
+│          resources_2025_10_22_213309_646073_818ec059.json
+│          resources_2025_10_22_213309_646073_818ec059_filtered.json
+│          resources_2025_10_22_213317_230396_f2a66680.json
+│          resources_2025_10_22_213317_230396_f2a66680_filtered.json
+│          resources_2025_10_22_213338_191062_7e2ce804.json
+│          resources_2025_10_22_213338_191062_7e2ce804_filtered.json
+│          resources_2025_10_22_213416_709286_4a08e454.json
+│          resources_2025_10_22_213416_709286_4a08e454_filtered.json
+│          resources_2025_10_22_214732_070452_fda63a94.json
+│          resources_2025_10_22_214732_070452_fda63a94_filtered.json
+│          resources_2025_10_22_214741_279924_1e5c6d0d.json
+│          resources_2025_10_22_214741_279924_1e5c6d0d_filtered.json
+│          resources_2025_10_22_214748_083465_d30800a0.json
+│          resources_2025_10_22_214754_296021_83875bf1.json
+│          resources_2025_10_22_214754_296021_83875bf1_filtered.json
+│          resources_2025_10_22_214804_687286_9763d7e5.json
+│          resources_2025_10_22_214804_687286_9763d7e5_filtered.json
+│          resources_2025_10_22_214827_816781_e5680e25.json
+│          resources_2025_10_22_214827_816781_e5680e25_filtered.json
+│          resources_2025_10_22_214837_520933_1649c4cf.json
+│          resources_2025_10_22_214837_520933_1649c4cf_filtered.json
+│          resources_2025_10_22_214901_698496_d9101ef3.json
+│          resources_2025_10_22_214901_698496_d9101ef3_filtered.json
+│          resources_2025_10_22_214917_361584_0312dbc5.json
+│          resources_2025_10_22_214917_361584_0312dbc5_filtered.json
+│          resources_2025_10_22_231203_128628_aeac6660.json
+│          resources_2025_10_22_231203_128628_aeac6660_filtered.json
+│          resources_2025_10_22_231210_533651_1e318cdf.json
+│          resources_2025_10_22_231210_533651_1e318cdf_filtered.json
+│          resources_2025_10_22_231220_755684_7f8880ff.json
+│          resources_2025_10_22_231220_755684_7f8880ff_filtered.json
+│          resources_2025_10_22_231225_774692_1e6b1f23.json
+│          resources_2025_10_22_231225_774692_1e6b1f23_filtered.json
+│          resources_2025_10_22_231257_803267_ebc439ae.json
+│          resources_2025_10_22_231257_803267_ebc439ae_filtered.json
+│          resources_2025_10_22_231347_604927_ae07fc13.json
+│          resources_2025_10_22_231347_604927_ae07fc13_filtered.json
+│          resources_2025_10_22_231354_096221_2461c854.json
+│          resources_2025_10_22_231354_096221_2461c854_filtered.json
+│          resources_2025_10_22_231413_246396_be8e0e6a.json
+│          resources_2025_10_22_231413_246396_be8e0e6a_filtered.json
+│          resources_2025_10_22_231507_723953_18933268.json
+│          resources_2025_10_22_231507_723953_18933268_filtered.json
+│          resources_2025_10_22_232128_963946_021c201a.json
+│          resources_2025_10_22_232128_963946_021c201a_filtered.json
+│          resources_2025_10_22_232130_207053_91add37a.json
+│          resources_2025_10_22_232139_962035_cce6de2e.json
+│          resources_2025_10_22_232139_962035_cce6de2e_filtered.json
+│          resources_2025_10_22_232146_432066_6ba1a4a6.json
+│          resources_2025_10_22_232146_432066_6ba1a4a6_filtered.json
+│          resources_2025_10_22_232152_049530_47482e2c.json
+│          resources_2025_10_22_232152_049530_47482e2c_filtered.json
+│          resources_2025_10_22_232155_026896_577f26fb.json
+│          resources_2025_10_22_232155_026896_577f26fb_filtered.json
+│          resources_2025_10_22_232158_149724_dd1e52bd.json
+│          resources_2025_10_22_232158_149724_dd1e52bd_filtered.json
+│          resources_2025_10_22_232327_694614_8c4e824f.json
+│          resources_2025_10_22_232327_694614_8c4e824f_filtered.json
+│          resources_2025_10_22_232334_544691_19f2ba9b.json
+│          resources_2025_10_22_232339_702759_06e5f764.json
+│          resources_2025_10_22_232339_702759_06e5f764_filtered.json
+│          resources_2025_10_22_232343_414924_688fe76c.json
+│          resources_2025_10_22_232343_414924_688fe76c_filtered.json
+│          resources_2025_10_22_232352_329204_0fabb07c.json
+│          resources_2025_10_22_232352_329204_0fabb07c_filtered.json
+│          resources_2025_10_22_232417_023821_968f1017.json
+│          resources_2025_10_22_232417_023821_968f1017_filtered.json
+│          resources_2025_10_22_232428_956827_698a6a3d.json
+│          resources_2025_10_22_232428_956827_698a6a3d_filtered.json
+│          resources_2025_10_22_232443_027582_d70d0792.json
+│          resources_2025_10_22_232443_027582_d70d0792_filtered.json
+│          resources_2025_10_22_232457_135967_b92fdbe5.json
+│          resources_2025_10_22_232457_135967_b92fdbe5_filtered.json
+│          resources_2025_10_22_233334_169444_7772a94a.json
+│          resources_2025_10_22_233334_535737_3cbf7efa.json
+│          resources_2025_10_22_233359_219378_50322641.json
+│          resources_2025_10_22_233359_219378_50322641_filtered.json
+│          resources_2025_10_22_233405_568952_b8d3d57d.json
+│          resources_2025_10_22_233405_568952_b8d3d57d_filtered.json
+│          resources_2025_10_23_082401_600511_1a633517.json
+│          resources_2025_10_23_082405_721307_e2c0e314.json
+│          resources_2025_10_23_082405_721307_e2c0e314_filtered.json
+│          resources_2025_10_23_082414_268796_43a48ba2.json
+│          resources_2025_10_23_082414_571956_a6c3c34b.json
+│          resources_2025_10_23_082417_460688_1333c144.json
+│          resources_2025_10_23_082417_460688_1333c144_filtered.json
+│          resources_2025_10_23_082417_803075_10c5f68f.json
+│          resources_2025_10_23_082424_721138_1ab3336a.json
+│          resources_2025_10_23_094047_752701_abfb9df5.json
+│          resources_2025_10_23_094047_752701_abfb9df5_filtered.json
+│          resources_2025_10_23_094053_089689_0a967621.json
+│          resources_2025_10_23_094053_089689_0a967621_filtered.json
+│          resources_2025_10_23_094101_648796_5db6f97e.json
+│          resources_2025_10_23_094101_648796_5db6f97e_filtered.json
+│          resources_2025_10_23_094111_398501_c3a65d06.json
+│          resources_2025_10_23_094111_398501_c3a65d06_filtered.json
+│          resources_2025_10_23_094111_701412_5f4ec41e.json
+│          resources_2025_10_23_094119_117015_fb66dc1b.json
+│          resources_2025_10_23_094119_117015_fb66dc1b_filtered.json
+│          resources_2025_10_23_094130_165121_2f54b815.json
+│          resources_2025_10_23_094130_165121_2f54b815_filtered.json
+│          resources_2025_10_23_094154_574354_4223fd44.json
+│          resources_2025_10_23_094154_574354_4223fd44_filtered.json
+│          resources_2025_10_23_094216_136588_27368c95.json
+│          resources_2025_10_23_094216_136588_27368c95_filtered.json
+│          resources_2025_10_23_101931_922590_675f64cb.json
+│          resources_2025_10_23_101931_922590_675f64cb_filtered.json
+│          resources_2025_10_23_102020_295355_f2a2ff50.json
+│          resources_2025_10_23_102020_295355_f2a2ff50_filtered.json
+│          resources_2025_10_23_102036_912409_5346e8ec.json
+│          resources_2025_10_23_102036_912409_5346e8ec_filtered.json
+│          resources_2025_10_23_102051_659773_38cf78a6.json
+│          resources_2025_10_23_102051_659773_38cf78a6_filtered.json
+│          resources_2025_10_23_102125_170472_f27c3c56.json
+│          resources_2025_10_23_102125_170472_f27c3c56_filtered.json
+│          resources_2025_10_23_102145_379474_3f9b010b.json
+│          resources_2025_10_23_102145_379474_3f9b010b_filtered.json
+│          resources_2025_10_23_102203_660790_cf2094d9.json
+│          resources_2025_10_23_102203_660790_cf2094d9_filtered.json
+│          resources_2025_10_23_102224_006969_bb87abcf.json
+│          resources_2025_10_23_102224_006969_bb87abcf_filtered.json
+│          resources_2025_10_23_102318_400193_037f0db5.json
+│          resources_2025_10_23_102318_400193_037f0db5_filtered.json
+│          resources_2025_10_23_102544_228295_6859b802.json
+│          resources_2025_10_23_102544_228295_6859b802_filtered.json
+│          resources_2025_10_23_102605_899102_4341f880.json
+│          resources_2025_10_23_102605_899102_4341f880_filtered.json
+│          resources_2025_10_23_102615_948110_b01d79c5.json
+│          resources_2025_10_23_102615_948110_b01d79c5_filtered.json
+│          resources_2025_10_23_102626_249148_9c2322da.json
+│          resources_2025_10_23_102626_249148_9c2322da_filtered.json
+│          resources_2025_10_23_102650_529030_69ffa352.json
+│          resources_2025_10_23_102650_529030_69ffa352_filtered.json
+│          resources_2025_10_23_102706_092891_fe585dba.json
+│          resources_2025_10_23_102706_092891_fe585dba_filtered.json
+│          resources_2025_10_23_102733_438244_4073b82a.json
+│          resources_2025_10_23_102733_438244_4073b82a_filtered.json
+│          resources_2025_10_23_102752_632842_e65fce74.json
+│          resources_2025_10_23_102752_632842_e65fce74_filtered.json
+│          resources_2025_10_23_153351_425489_cee287de.json
+│          resources_2025_10_23_153351_425489_cee287de_filtered.json
+│          resources_2025_10_23_153404_423038_ca865986.json
+│          resources_2025_10_23_153404_423038_ca865986_filtered.json
+│          resources_2025_10_23_153429_838848_f8ac04c7.json
+│          resources_2025_10_23_153429_838848_f8ac04c7_filtered.json
+│          resources_2025_10_23_153449_388545_125909c0.json
+│          resources_2025_10_23_153459_864637_e7c2ced9.json
+│          resources_2025_10_23_153459_864637_e7c2ced9_filtered.json
+│          resources_2025_10_23_153516_568169_4753b563.json
+│          resources_2025_10_23_153516_568169_4753b563_filtered.json
+│          resources_2025_10_23_153531_674145_ce62d684.json
+│          resources_2025_10_23_153531_674145_ce62d684_filtered.json
+│          resources_2025_10_23_153631_861333_c2121440.json
+│          resources_2025_10_23_153631_861333_c2121440_filtered.json
+│          resources_2025_10_23_153659_816699_47d9b184.json
+│          resources_2025_10_23_153659_816699_47d9b184_filtered.json
+│          resources_2025_10_23_153900_885070_5cfcbc32.json
+│          resources_2025_10_23_153900_885070_5cfcbc32_filtered.json
+│          resources_2025_10_23_153940_235839_25ac1a34.json
+│          resources_2025_10_23_153940_235839_25ac1a34_filtered.json
+│          resources_2025_10_23_154000_257778_5e11183e.json
+│          resources_2025_10_23_154000_257778_5e11183e_filtered.json
+│          resources_2025_10_23_154028_722682_2f8c94f5.json
+│          resources_2025_10_23_154028_722682_2f8c94f5_filtered.json
+│          resources_2025_10_23_154053_231915_4e399ef4.json
+│          resources_2025_10_23_154053_231915_4e399ef4_filtered.json
+│          resources_2025_10_23_154113_102707_a21480bb.json
+│          resources_2025_10_23_154113_102707_a21480bb_filtered.json
+│          resources_2025_10_23_154130_054944_d55a7733.json
+│          resources_2025_10_23_154130_054944_d55a7733_filtered.json
+│          resources_2025_10_23_154206_479438_e4a49046.json
+│          resources_2025_10_23_154206_479438_e4a49046_filtered.json
+│          resources_2025_10_23_154223_628506_c0ffabfc.json
+│          resources_2025_10_23_154223_628506_c0ffabfc_filtered.json
+│          resources_2025_10_23_234022_774862_e049ab01.json
+│          resources_2025_10_23_234022_774862_e049ab01_filtered.json
+│          resources_2025_10_23_234039_287668_df217b4c.json
+│          resources_2025_10_23_234039_287668_df217b4c_filtered.json
+│          resources_2025_10_23_234058_519478_6c473950.json
+│          resources_2025_10_23_234058_519478_6c473950_filtered.json
+│          resources_2025_10_23_234114_136934_72fa8ef6.json
+│          resources_2025_10_23_234114_136934_72fa8ef6_filtered.json
+│          resources_2025_10_23_234130_671237_4a2a1456.json
+│          resources_2025_10_23_234130_671237_4a2a1456_filtered.json
+│          resources_2025_10_23_234144_319052_704e356b.json
+│          resources_2025_10_23_234144_319052_704e356b_filtered.json
+│          resources_2025_10_23_234203_292130_e2978648.json
+│          resources_2025_10_23_234203_292130_e2978648_filtered.json
+│          resources_2025_10_23_234243_636847_334c5128.json
+│          resources_2025_10_23_234243_636847_334c5128_filtered.json
+│          resources_2025_10_23_234305_492528_0f681ba6.json
+│          resources_2025_10_23_234305_492528_0f681ba6_filtered.json
+│          resources_2025_10_23_234923_209432_7b6650c7.json
+│          resources_2025_10_23_234923_209432_7b6650c7_filtered.json
+│          resources_2025_10_23_234934_736347_4f450413.json
+│          resources_2025_10_23_234934_736347_4f450413_filtered.json
+│          resources_2025_10_23_234950_115448_e10952dd.json
+│          resources_2025_10_23_234950_115448_e10952dd_filtered.json
+│          resources_2025_10_23_235005_420667_e795f579.json
+│          resources_2025_10_23_235005_420667_e795f579_filtered.json
+│          resources_2025_10_23_235021_372631_4a4c79ef.json
+│          resources_2025_10_23_235021_372631_4a4c79ef_filtered.json
+│          resources_2025_10_23_235027_133789_8e9e1809.json
+│          resources_2025_10_23_235027_133789_8e9e1809_filtered.json
+│          resources_2025_10_23_235053_109581_91d11e2e.json
+│          resources_2025_10_23_235053_109581_91d11e2e_filtered.json
+│          resources_2025_10_23_235109_186993_0bbf2347.json
+│          resources_2025_10_23_235109_186993_0bbf2347_filtered.json
+│          resources_2025_10_24_150815_100114_158ac74a.json
+│          resources_2025_10_24_150815_100114_158ac74a_filtered.json
+│          resources_2025_10_24_150836_151249_fee6b7a6.json
+│          resources_2025_10_24_150857_606535_296d80ee.json
+│          resources_2025_10_24_150929_698031_ab15a278.json
+│          resources_2025_10_24_151005_408549_c7b42c8c.json
+│          resources_2025_10_24_151005_408549_c7b42c8c_filtered.json
+│          resources_2025_10_24_151030_014205_15e2c3c7.json
+│          resources_2025_10_24_151113_283913_e3910890.json
+│          resources_2025_10_24_151113_283913_e3910890_filtered.json
+│          resources_2025_10_24_151202_991172_cd8ade2b.json
+│          resources_2025_10_24_151202_991172_cd8ade2b_filtered.json
+│          resources_2025_10_24_151403_044199_ae488e3c.json
+│          resources_2025_10_24_151908_861347_96504255.json
+│          resources_2025_10_24_151908_861347_96504255_filtered.json
+│          resources_2025_10_24_151953_306108_aee22797.json
+│          resources_2025_10_24_152012_908667_02e2b45e.json
+│          round-01-meta.json
+│          round-02-meta.json
+│          
+├─sections
+│  ├─venfobel-market
+│  │      analysis-insights.md
+│  │      background-objectives.md
+│  │      key-findings.md
+│  │      
+│  └─venfobel-market-gm
+├─state
+│      last_state.json
+│      last_state.pkl
+│      
+├─tests
+│  │  test_app_cli_smoke.py
+│  │  test_chroma_ingest_and_clear.py
+│  │  test_e2e_local_rag.py
+│  │  test_gatekeep.py
+│  │  test_gatekeep_edges.py
+│  │  test_gatekeep_pipeline_integration.py
+│  │  test_last_saved_path.py
+│  │  test_logging.py
+│  │  test_outline_and_content.py
+│  │  test_outline_rename.py
+│  │  test_progress_and_communicator_minimal.py
+│  │  test_rag_expression.py
+│  │  test_refs.py
+│  │  test_research_auto_write_policy.py
+│  │  test_research_loop_to_writer.py
+│  │  test_retrieve_quality.py
+│  │  test_sanitize.py
+│  │  test_supervisor_write_fastpath.py
+│  │  test_webjson_loader.py
+│  │  test_web_rag_naver_unit.py
+│  │  test_web_rag_router_smoke.py
+│  │  test_writer_auto_schedule.py
+│  │  test_writer_dedup.py
+│  │  test_writer_schedule_equivalence.py
+│  │  
+│  └─__pycache__
+│          test_app_cli_smoke.cpython-312-pytest-8.4.2.pyc
+│          test_chroma_ingest_and_clear.cpython-312-pytest-8.4.2.pyc
+│          test_gatekeep.cpython-312-pytest-8.4.2.pyc
+│          test_gatekeep_edges.cpython-312-pytest-8.4.2.pyc
+│          test_gatekeep_pipeline_integration.cpython-312-pytest-8.4.2.pyc
+│          test_logging.cpython-312-pytest-8.4.2.pyc
+│          test_progress_and_communicator_minimal.cpython-312-pytest-8.4.2.pyc
+│          test_research_loop_to_writer.cpython-312-pytest-8.4.2.pyc
+│          test_retrieve_quality.cpython-312-pytest-8.4.2.pyc
+│          test_webjson_loader.cpython-312-pytest-8.4.2.pyc
+│          test_writer_auto_schedule.cpython-312-pytest-8.4.2.pyc
+│          test_writer_schedule_equivalence.cpython-312-pytest-8.4.2.pyc
+│          
+├─tools
+│  │  local_rag.py
+│  │  metrics.py
+│  │  web_rag_origin.py
+│  │  __init__.py
+│  │  
+│  ├─data
+│  ├─web_rag
+│  │  │  ingest.py
+│  │  │  search.py
+│  │  │  utils.py
+│  │  │  __init__.py
+│  │  │  
+│  │  └─__pycache__
+│  │          ingest.cpython-312.pyc
+│  │          search.cpython-312.pyc
+│  │          utils.cpython-312.pyc
+│  │          __init__.cpython-312.pyc
+│  │          
+│  └─__pycache__
+│          local_rag.cpython-312.pyc
+│          __init__.cpython-312.pyc
+│          
+├─utils
+│  │  forced_queries.py
+│  │  outline.py
+│  │  query_filters.py
+│  │  rag_utils.py
+│  │  refs.py
+│  │  ref_format.py
+│  │  sanitize.py
+│  │  tasks.py
+│  │  text_utils.py
+│  │  writer_scheduler.py
+│  │  __init__.py
+│  │  
+│  └─__pycache__
+│          forced_queries.cpython-312.pyc
+│          outline.cpython-312.pyc
+│          query_filters.cpython-312.pyc
+│          rag_utils.cpython-312.pyc
+│          refs.cpython-312.pyc
+│          sanitize.cpython-312.pyc
+│          tasks.cpython-312.pyc
+│          text_utils.cpython-312.pyc
+│          writer_scheduler.cpython-312.pyc
+│          __init__.cpython-312.pyc
+│          
+└─__pycache__
+        app.cpython-312.pyc
+        content_utils.cpython-312.pyc
+        graph.cpython-312.pyc
+        prompts.cpython-312.pyc
+        rag_expression.cpython-312.pyc
+        report_builder.cpython-312.pyc
+        settings_gatekeep.cpython-312.pyc
+        
