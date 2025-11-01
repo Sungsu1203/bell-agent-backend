@@ -79,7 +79,6 @@ try {
 # check existing tag
 $tagExists = ((git tag -l $Tag) | Where-Object { $_ -eq $Tag }).Count -gt 0
 
-# ▼ 여기서부터 doRetag 사용
 if ($tagExists -and $doRetag) {
   Write-Host "Tag '$Tag' already exists - delete and re-tag"
   git tag -d $Tag | Out-Null
@@ -87,7 +86,7 @@ if ($tagExists -and $doRetag) {
 }
 
 if (-not $tagExists) {
-  git tag -a $Tag -m "$Tag"   # 메시지 따옴표로 감싸기
+  git tag -a $Tag -m "$Tag"
 } else {
   Write-Host "(info) Tag '$Tag' kept (use -RetagIfExists to overwrite)."
 }
@@ -99,17 +98,29 @@ if ($doPush) {
   Write-Host "== Skip git push (Push switch not present) =="
 }
 
-# 6) create snapshot zip
+# 6) create snapshot zip (robust: temp → move with retries)
 $stamp   = Get-Date -Format "yyyyMMdd_HHmmss"
 $zipName = "snapshot_${Tag}_${stamp}.zip"
 
-# ▼ 여기서부터 zipToRes 사용
 if ($zipToRes) {
   $snapDir = Join-Path $chapDir ("resources\" + $Topic + "\snapshots")
-  if (!(Test-Path $snapDir)) { New-Item -ItemType Directory -Path $snapDir -Force | Out-Null }
-  $zipPath = Join-Path $snapDir $zipName
 } else {
-  $zipPath = Join-Path $chapDir $zipName
+  $snapDir = $chapDir
+}
+if (!(Test-Path $snapDir)) { New-Item -ItemType Directory -Path $snapDir -Force | Out-Null }
+$zipPath = Join-Path $snapDir $zipName
+
+function Test-FileLocked([string]$path) {
+  if (-not (Test-Path $path)) { return $false }
+  try {
+    $fs = [System.IO.File]::Open($path, 'Open', 'ReadWrite', 'None'); $fs.Close(); return $false
+  } catch { return $true }
+}
+function Remove-IfPossible([string]$path) {
+  if (Test-Path $path) {
+    if (Test-FileLocked $path) { Start-Sleep -Milliseconds 500 }
+    try { Remove-Item $path -Force -ErrorAction SilentlyContinue } catch {}
+  }
 }
 
 # gather include paths
@@ -117,9 +128,28 @@ $include = @()
 $include += $keep      | ForEach-Object { Join-Path $chapDir $_ } | Where-Object { Test-Path $_ }
 $include += $artifacts | Where-Object { Test-Path $_ }
 
-Write-Host "== Create archive =="
-if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-Compress-Archive -Path $include -DestinationPath $zipPath
+Write-Host "== Create archive (temp) =="
+$tmpZip = Join-Path $env:TEMP ("snap_" + [guid]::NewGuid().ToString() + ".zip")
+Remove-IfPossible $tmpZip
+
+Compress-Archive -Path $include -DestinationPath $tmpZip -CompressionLevel Optimal -ErrorAction Stop
+
+# move to destination with retries (handle locks)
+$moved = $false
+for ($i=0; $i -lt 6; $i++) {
+  if (-not (Test-FileLocked $zipPath)) {
+    Remove-IfPossible $zipPath
+    try { Move-Item -Path $tmpZip -Destination $zipPath -Force; $moved=$true; break }
+    catch { Start-Sleep -Milliseconds 700 }
+  } else {
+    Start-Sleep -Milliseconds 700
+  }
+}
+if (-not $moved) {
+  Write-Error "Failed to place zip at: $zipPath (locked). Temp zip left at: $tmpZip"
+} else {
+  Write-Host "Zip created: $zipPath"
+}
 
 # 7) preview
 Write-Host "== Snapshot content preview =="
