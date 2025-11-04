@@ -5,8 +5,11 @@ from __future__ import annotations
 # ── Fault handler (deadlock/멈춤 추적) ──────────────────────────────────────────
 import faulthandler, sys, time
 faulthandler.enable()  # 항상 가능한 초반에 활성화
-# 콘솔(stderr)로 90초 타임아웃 스택 덤프 예약
-faulthandler.dump_traceback_later(90, file=sys.stderr)
+# 타임아웃(초) 환경변수로 제어: FAULT_DUMP_AFTER_SEC (기본 180초)
+import os as _os_for_fault
+TIMEOUT_DUMP_SEC = int((_os_for_fault.getenv("FAULT_DUMP_AFTER_SEC") or "180").strip() or "180")
+# 콘솔(stderr)로 타임아웃 스택 덤프 예약
+faulthandler.dump_traceback_later(TIMEOUT_DUMP_SEC, file=sys.stderr)
 
 _trace_fh = None  # 파일 트레이스 핸들(로깅 설정 후 열어 예약)
 
@@ -26,41 +29,44 @@ def _cancel_fault_timers_and_close() -> None:
 
 # ── 환경 로드 ───────────────────────────────────────────────────────────────────
 import os
+
+# ── Early debug buffer & mode ──────────────────────────────────────────────────
+def _env_truthy(name: str, default: bool = False) -> bool:
+    v = (os.getenv(name) or "").strip().lower()
+    if not v:
+        return default
+    return v in ("1", "true", "yes", "on")
+
+DEBUG_MODE = _env_truthy("DEBUG", False) or (os.getenv("LOG_LEVEL", "INFO").strip().upper() == "DEBUG")
+_EARLY_DEBUG: list[str] = []
+
+def early_debug(msg: str) -> None:
+    """로깅 설정 전 수집. DEBUG 모드에서만 나중에 방출."""
+    if DEBUG_MODE:
+        _EARLY_DEBUG.append(msg)
+
 from dotenv import load_dotenv, find_dotenv
-
 dotenv_path = find_dotenv(filename=".env", usecwd=True)
+# 1) .env 로드만 수행(주입/강제 덮어쓰기 제거) → 단일 진입점은 CFG에서 처리
 load_dotenv(dotenv_path=dotenv_path, override=False)
-
-# .env 오염 방지: 특정 키 강제 주입(옵션)
-try:
-    from dotenv import get_key
-    local_rag_globs_from_env = get_key(dotenv_path, "LOCAL_RAG_GLOBS")
-    if local_rag_globs_from_env and os.getenv("LOCAL_RAG_GLOBS") != local_rag_globs_from_env:
-        os.environ["LOCAL_RAG_GLOBS"] = local_rag_globs_from_env
-        print(f"[CRITICAL DEBUG] LOCAL_RAG_GLOBS FORCED: {os.environ['LOCAL_RAG_GLOBS']}", flush=True)
-except Exception as e:
-    print(f"[CRITICAL DEBUG] Failed to force override: {e}", flush=True)
-
-print(f"[CRITICAL DEBUG] LOCAL_RAG_GLOBS RAW: {os.getenv('LOCAL_RAG_GLOBS')}", flush=True)
+early_debug(f"[EARLY] dotenv loaded: {dotenv_path}")
 
 # ── 표준 라이브러리 ────────────────────────────────────────────────────────────
 import sys
 import argparse
 from logging import StreamHandler, Formatter
 import logging
-from typing import Optional, TextIO, Any, Dict, cast
+from typing import Optional, TextIO, Any, Dict, Tuple, cast
 from logging.handlers import RotatingFileHandler
 import json
 
 # ── 프로젝트 의존 ───────────────────────────────────────────────────────────────
 from langchain_core.messages import SystemMessage, HumanMessage
 import core.config as config
+
 from core.paths import now_str as _now_str, current_path
 from core.state_types import State
-try:
-    from core.state_types import Flags  # 프로젝트에 존재하면 사용
-except Exception:
-    from typing import Dict as Flags  # 폴백: Dict[str, Any]로 간주
+
 from core.state_io import save_state
 from utils.sanitize import coerce_int
 from report_builder import build_final_report
@@ -73,18 +79,48 @@ _ALLOWED_FLAG_KEYS = {
     "topic_title","iteration_count",
 }
 
+# Flags TypedDict의 필수 키를 만족시키기 위한 기본값 테이블
+# (필수/선택 구분과 무관하게 넉넉히 채워 안전 캐스팅)
+_DEFAULT_FLAGS_SHAPE: Dict[str, Any] = {
+    "pending_write_title": False,
+    "requested_write_title": "",
+    "suppress_vector_qa": False,
+    "sections_done": 0,
+    "sections_total": 0,
+    "sections_seen": "",
+    "chapters_done": 0,
+    "chapters_total": 0,
+    "chapters_seen": "",
+    "dash_last_ts": "",
+    "dash_count": 0,
+    "skip_web_search": False,
+    "debug": False,
+    "topic_title": "",
+    "iteration_count": 0,
+}
+
+
 def update_flags(state: State, **updates: Any) -> None:
     """Flags에 허용된 키만 반영하고, 나머지는 state 루트에 기록."""
-    f: Dict[str, Any] = dict(state.get("flags") or {})
+    f_raw = state.get("flags") or {}
+    # dict로 복사(원본이 TypedDict 이어도 가변 사본으로 작업)
+    f: Dict[str, Any] = dict(f_raw)
+
+    # 1) 업데이트 반영: 허용 키만 flags로 기록 (루트에는 동적 키를 쓰지 않음)
     for k, v in updates.items():
         if k in _ALLOWED_FLAG_KEYS:
             f[k] = v
-        else:
-            state[k] = v
-    state["flags"] = cast(Flags, f)
+        # else: 무시 (루트에 동적 키 쓰면 mypy 에러)
+
+    # 2) Flags TypedDict의 shape 보장(필수 키 기본값 채움)
+    for k, v in _DEFAULT_FLAGS_SHAPE.items():
+        f.setdefault(k, v)
+
+    # 3) 최종 대입(형 안전 캐스팅)
+    state["flags"] = cast(Dict[str, Any], f)
 
 if bool(getattr(config.CFG, "HUMAN_LOGS_VERBOSE", False)):
-    print(config.CFG)
+    print(config.CFG)  # CFG를 단일 소스로 노출(디버그 시)
 
 # ── 로깅 설정 ──────────────────────────────────────────────────────────────────
 def _int_env(name: str, default: int) -> int:
@@ -95,10 +131,15 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 def _bool_env(name: str, default: bool = False) -> bool:
+    # CFG 우선 → 없으면 ENV 폴백(점진적 호환)
+    try:
+        if hasattr(config.CFG, name):
+            return bool(getattr(config.CFG, name))
+    except Exception:
+        pass
     v = (os.getenv(name) or "").strip().lower()
-    if not v:
-        return default
-    return v in ("1", "true", "yes", "on")
+    if not v: return default
+    return v in ("1","true","yes","on")
 
 def _truthy_cfg(name: str, fallback_env: str | None = None, default: bool = False) -> bool:
     if hasattr(config.CFG, name):
@@ -119,7 +160,8 @@ def setup_logging(stream: Optional[TextIO] = None) -> None:
         except Exception:
             pass
 
-    level_name = (os.getenv("LOG_LEVEL") or "INFO").strip().upper()
+    # LOG_LEVEL 등은 CFG를 단일 진입점으로 사용
+    level_name = (str(getattr(config.CFG, "LOG_LEVEL", "INFO")) or "INFO").strip().upper()
     level = getattr(logging, level_name, logging.INFO)
     root.setLevel(level)
     root.propagate = False
@@ -133,9 +175,9 @@ def setup_logging(stream: Optional[TextIO] = None) -> None:
     logging.getLogger("absl").setLevel(logging.WARNING)
     logging.getLogger("grpc").setLevel(logging.WARNING)
 
-    use_json = _bool_env("LOG_JSON", False)
-    fmt = os.getenv("LOG_FMT") or "[%(levelname)s] %(name)s: %(message)s"
-    datefmt = os.getenv("LOG_DATEFMT") or "%Y-%m-%dT%H:%M:%S"
+    use_json = bool(getattr(config.CFG, "LOG_JSON", False))
+    fmt = getattr(config.CFG, "LOG_FMT", "[%(levelname)s] %(name)s: %(message)s")
+    datefmt = getattr(config.CFG, "LOG_DATEFMT", "%Y-%m-%dT%H:%M:%S")
 
     if use_json:
         class _JsonFormatter(logging.Formatter):
@@ -188,17 +230,20 @@ def setup_logging(stream: Optional[TextIO] = None) -> None:
         ch.setFormatter(formatter)
     root.addHandler(ch)
 
-    log_file = (os.getenv("LOG_FILE") or "").strip()
-    if not log_file:
-        log_file = os.path.join(".", "logs", "run_full.log")
-    try:
-        max_bytes = int(os.getenv("LOG_MAX_BYTES", "1048576"))
-    except Exception:
-        max_bytes = 1048576
-    try:
-        backups = int(os.getenv("LOG_BACKUP_COUNT", "3"))
-    except Exception:
-        backups = 3
+    # (선택) DEBUG 모드가 아닐 때 [CRITICAL DEBUG] 태그 숨김
+    if not DEBUG_MODE:
+        class _DropCriticalDebug(logging.Filter):
+            def filter(self, record: logging.LogRecord) -> bool:
+                try:
+                    return "[CRITICAL DEBUG]" not in record.getMessage()
+                except Exception:
+                    return True
+        root.addFilter(_DropCriticalDebug())
+
+    # 파일 로거 설정도 CFG 우선
+    log_file = (getattr(config.CFG, "LOG_FILE", "") or "").strip() or os.path.join(".", "logs", "run_full.log")
+    max_bytes = int(getattr(config.CFG, "LOG_MAX_BYTES", 1048576) or 1048576)
+    backups = int(getattr(config.CFG, "LOG_BACKUP_COUNT", 3) or 3)
 
     log_dir = os.path.dirname(log_file)
     if log_dir:
@@ -209,11 +254,12 @@ def setup_logging(stream: Optional[TextIO] = None) -> None:
     fh.setFormatter(formatter)
     root.addHandler(fh)
 
-    # ▼ faulthandler: 파일로도 90초 덤프 예약(로깅 경로 확정 후)
+    # ▼ faulthandler: 파일로도 덤프 예약(로깅 경로 확정 후)
     global _trace_fh
     try:
         _trace_fh = open(log_file, "a", encoding="utf-8", buffering=1)
-        faulthandler.dump_traceback_later(90, file=_trace_fh)  # stderr 예약은 유지, 파일로 재예약(마지막 예약이 유효)
+        # stderr 예약은 유지, 파일로 재예약(마지막 예약이 유효). 콘솔과 동일 타임아웃 사용.
+        faulthandler.dump_traceback_later(TIMEOUT_DUMP_SEC, file=_trace_fh)
     except Exception:
         _trace_fh = None
     # ▲
@@ -234,7 +280,9 @@ def print_help():
 # ── 초기 상태 ──────────────────────────────────────────────────────────────────
 def initial_state(iteration_count: int, agent_role: str | None = None) -> State:
     default_outline = "outline_report.md" if config.DOC_MODE == "report" else "outline.md"
-    base: State = {
+    # mypy: 초기 dict는 동적 키가 섞이므로 Dict로 생성 후 마지막에 cast(State)
+    # 초기 구성은 동적 키가 섞이므로 Dict로 만들고 마지막에 State로 캐스팅
+    base: Dict[str, Any] = {
         "messages": [SystemMessage(content=(
             f"너희 AI들은 사용자의 요구에 맞는 {('보고서' if config.DOC_MODE=='report' else '책')}을(를) 쓰는 작가팀이다. "
             f"사용자가 사용하는 언어로 대화하라. 현재시각은 {_now_str()}이다. "
@@ -244,7 +292,8 @@ def initial_state(iteration_count: int, agent_role: str | None = None) -> State:
         "references": {"queries": [], "docs": []},
         # 일부 라우터/도구는 경량 미러 키 'refs'도 참조하므로 초깃값에서 함께 준비
         "refs": {"queries": [], "docs": []},
-        "agent_role": (agent_role or getattr(config.CFG, "BLOCKAGI_AGENT_ROLE", "")).strip().lower(),
+        # Optional/Any 섞임 방지: 안전한 문자열 변환 후 처리
+        "agent_role": str(agent_role or getattr(config.CFG, "BLOCKAGI_AGENT_ROLE", "") or "").strip().lower(),
         "iteration_count": int(iteration_count),
         "research_objectives": [],
         "research_round": 0,
@@ -259,7 +308,7 @@ def initial_state(iteration_count: int, agent_role: str | None = None) -> State:
         "research_plan": {"round": 0, "objective": "", "queries": [], "timestamp": _now_str()},
         "flags": {},
     }
-    return base
+    return cast(State, base)
 
 # ── 사용자 입력 ────────────────────────────────────────────────────────────────
 def read_user_input() -> str:
@@ -275,7 +324,7 @@ def read_user_input() -> str:
 
     if s.startswith('```') or s == '"""':
         fence = '```' if s.startswith('```') else '"""'
-        lines = []
+        lines: list[str] = []
         while True:
             try:
                 line = input()
@@ -294,10 +343,49 @@ def read_user_input() -> str:
             break
     return buf.strip()
 
+
 # ── 지연 로딩: 그래프 빌더 ─────────────────────────────────────────────────────
 def _load_graph():
-    from graph import build_graph
+    from graph import build_graph  # InvokableGraph 타입이 있더라도 여기선 불필요
     return build_graph()
+
+# ── 그래프 캐시 ────────────────────────────────────────────────────────────────
+# 모듈 전역 캐시(타입 힌트 포함)
+_graph_obj: Optional[Any] = None
+_graph_sig: Optional[Tuple[Any, ...]] = None
+
+def _graph_signature() -> Tuple[Any, ...]:
+    """
+    그래프 재빌드 여부를 결정할 '구성 시그니처'.
+    CFG가 바뀌면 여기 구성 요소를 더 넣으세요.
+    """
+    try:
+        cfg = config.CFG
+        return (
+            getattr(config, "DOC_MODE", "report"),
+            bool(getattr(cfg, "ENABLE_COMMUNICATOR", True)),
+            bool(getattr(cfg, "ENABLE_CONTENT_STRATEGIST", True)),
+            bool(getattr(cfg, "ENABLE_VECTOR_SEARCH", True)),
+            bool(getattr(cfg, "ENABLE_WEB_SEARCH", True)),
+            bool(getattr(cfg, "ENABLE_CHAPTER_WRITER", True)),
+            bool(getattr(cfg, "ENABLE_SECTION_WRITER", True)),
+            bool(getattr(cfg, "ENABLE_RESEARCH_PLANNER", True)),
+            bool(getattr(cfg, "ENABLE_RESEARCH_SYNTHESIZER", True)),
+        )
+    except Exception:
+        # 문제가 생기면 '항상 동일'한 튜플을 반환해 과도한 리빌드를 막음
+        return ("fallback",)
+
+def _get_graph_cached():
+    global _graph_obj, _graph_sig
+    sig = _graph_signature()
+    if _graph_obj is None or _graph_sig != sig:
+        g = _load_graph()  # graph.build_graph()를 내부에서 호출
+        if g is None or not hasattr(g, "invoke"):
+            raise RuntimeError("Graph build failed: compiled graph has no 'invoke'.")
+        _graph_obj, _graph_sig = g, sig
+        logger.debug("[GRAPH] (re)built; signature=%s", sig)
+    return _graph_obj
 
 # ── 엔트리포인트 ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
@@ -309,7 +397,7 @@ if __name__ == "__main__":
     parser.add_argument("--recursion_limit", type=int, default=int(os.getenv("RECURSION_LIMIT", "200")))
     parser.add_argument("--log-level", type=str, default=getattr(config.CFG, "LOG_LEVEL", "INFO"))
     parser.add_argument("--log-file", type=str, default=os.getenv("LOG_FILE"))
-    parser.add_argument("--log-json", action="store_true", default=_bool_env("LOG_JSON", False))
+    parser.add_argument("--log-json", action="store_true", default=bool(getattr(config.CFG, "LOG_JSON", False)))
     parser.add_argument("--topic-slug", type=str, default=getattr(config.CFG, "TOPIC_SLUG", "") or "default")
 
     parser.add_argument("--log-topk", type=int, default=_int_env("LOG_TOPK", 3))
@@ -360,18 +448,17 @@ if __name__ == "__main__":
     else:
         os.environ["GATE_KEEP_SOURCES"] = os.getenv("GATE_KEEP_SOURCES", "0")
 
-    if args.allow_domains is not None:
+    if args.allow_domains is not None and args.allow_domains.strip():
         os.environ["ALLOWED_DOMAINS"] = args.allow_domains
 
     if args.allow_subdomains is not None:
         os.environ["ALLOW_SUBDOMAINS"] = "1" if args.allow_subdomains else "0"
 
-    # CFG 재로딩
+    # 인자→ENV 반영 후 CFG **in-place** 리로드(모듈 속성에 갱신하여 전역 일관 유지)
     try:
         config.CFG = config.reload_config()
     except Exception:
-        pass
-
+        logger.exception("reload_config() failed; continuing with previous CFG")
     # 게이트키핑 캐시 리프레시
     try:
         from settings_gatekeep import refresh_gatekeep_cache
@@ -379,13 +466,24 @@ if __name__ == "__main__":
     except Exception:
         pass
 
-    # 로깅 설정 (여기서 로그 파일 경로 확정 → faulthandler 파일 예약도 여기서)
+    # 로깅 설정 (CFG 기반) — 여기서 파일 경로 확정 → faulthandler 파일 예약
     try:
         setup_logging()
     except Exception as e:
         # 로깅 설정 실패해도 덤프 타이머는 정리
         _cancel_fault_timers_and_close()
         raise
+
+    # ▼ early debug buffer flush (DEBUG 모드에서만 존재)
+    try:
+        if _EARLY_DEBUG:
+            _initlog = logging.getLogger("app.init")
+            for _m in _EARLY_DEBUG:
+                _initlog.debug(_m)
+            _EARLY_DEBUG.clear()
+    except Exception:
+        pass
+    # ▲
 
     logger.info(
         "ENV TOPIC_TITLE=%r | TOPIC_SLUG=%r | dotenv_path=%s",
@@ -405,8 +503,11 @@ if __name__ == "__main__":
         pass
 
     iter_count = coerce_int(args.iteration_count, default=3)
-    effective_role = (args.agent_role or os.getenv("BLOCKAGI_AGENT_ROLE", "")).strip().lower() or None
+    # Optional 처리: getenv는 Optional[str]이므로 기본값 보장 + 문자열화
+    effective_role = (str(args.agent_role or os.getenv("BLOCKAGI_AGENT_ROLE", "") or "").strip().lower() or None)
 
+
+    # state에 반영하되, ENV는 최소한으로만 사용(호환 위해 TOPIC_* 유지)
     os.environ["TOPIC_SLUG"] = args.topic_slug
     if not os.getenv("TOPIC_TITLE"):
         os.environ["TOPIC_TITLE"] = args.topic_slug.replace("-", " ")
@@ -415,20 +516,25 @@ if __name__ == "__main__":
 
     state["topic_slug"] = args.topic_slug
     update_flags(state, topic_title=os.environ.get("TOPIC_TITLE", ""))
-    state["topic_title"] = os.environ["TOPIC_TITLE"]
 
-    _topic_title = (state.get("flags") or {}).get("topic_title") or args.topic_slug.replace("-", " ")
+    _topic_title = str((state.get("flags") or {}).get("topic_title") or args.topic_slug.replace("-", " "))
     state.setdefault("messages", []).append(
         HumanMessage(content=f"주제는 '{_topic_title}'로 고정. 다른 산업으로 확장하지 말고 이 주제에 한정해 최신 자료로 RAG 업데이트.")
     )
 
-    # 그래프 구성
+    # 그래프 워밍업(전역 캐시 사용): 필요 시 자동 (재)빌드
+    _ = _get_graph_cached()
+
+    # 그래프 빌드 성공 후 덤프 타이머 취소(운영시 불필요한 스택 덤프 완화)
+    # 환경변수 FAULT_DUMP_CANCEL_AFTER_BUILD=0 이면 유지함.
     try:
-        graph = _load_graph()
-    except Exception as e:
-        logger.exception("build_graph failed: %s", e)
-        _cancel_fault_timers_and_close()   # ← 예약 취소 + 파일 핸들 정리
-        raise
+        _cancel_after_build = (_os_for_fault.getenv("FAULT_DUMP_CANCEL_AFTER_BUILD") or "1").strip().lower()
+        if _cancel_after_build not in ("0", "false", "off", "no"):
+            # 예약된 마지막 덤프(파일/콘솔 모두) 취소. 파일 핸들은 유지(재예약 가능).
+            faulthandler.cancel_dump_traceback_later()
+            logger.debug("[FAULT] dump_traceback_later cancelled after build_graph()")
+    except Exception:
+        pass
 
     logger.info("Application started (config.DOC_MODE=%s, iteration_count=%s, agent_role=%s)",
                 config.DOC_MODE, state.get("iteration_count"), state.get("agent_role"))
@@ -457,7 +563,7 @@ if __name__ == "__main__":
                     logger.info("Goodbye!")
                 break
 
-            if not user_input.strip():
+            if not str(user_input).strip():
                 logger.warning("빈 입력 수신. 도움말은 'help' 또는 '?'")
                 continue
 
@@ -497,8 +603,19 @@ if __name__ == "__main__":
 
             state.setdefault("messages", []).append(HumanMessage(content=user_input))
 
+            # 그래프 획득(필요 시에만 재빌드)
+            graph_obj = _get_graph_cached()
+
+            # 호환 래퍼 (일부 버전은 .run/.stream만 지원)
+            def _invoke_graph(g: Any, st: Any, cfg: dict | None = None) -> Any:
+                if hasattr(g, "invoke"):
+                    return g.invoke(st, config=cfg)
+                if hasattr(g, "run"):
+                    return g.run(st, config=cfg)  
+                raise TypeError("Graph object exposes neither 'invoke' nor 'run'.")
+
             try:
-                result = graph.invoke(state, config={"recursion_limit": args.recursion_limit})
+                result = _invoke_graph(graph_obj, state, {"recursion_limit": args.recursion_limit})
             except Exception as e:
                 logger.exception("graph.invoke failed: %s", e)
                 _cancel_fault_timers_and_close()  # ← 예외 시에도 정리
@@ -511,7 +628,7 @@ if __name__ == "__main__":
 
             merged = dict(state)
             merged.update(result)
-            state = merged  # type: ignore
+            state = cast(State, merged)
 
             try:
                 from langchain_core.messages import AIMessage

@@ -1,46 +1,32 @@
 # utils/writer_scheduler.py — dynamic config access (v2025-10-27)
 from __future__ import annotations
-from typing import Any, MutableMapping, List, Optional, Sequence, Iterable, Literal, TypeAlias, Dict
+from typing import Any, MutableMapping, List, Optional, Sequence, Iterable, Literal, TypeAlias, Dict, Set
 from core.paths import now_str as _now_str
 from core.state_types import State  # noqa: F401 (type reference only)
 import os
+import re
 
 import logging
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────
-# Dynamic config access (CFG → module attr → ENV → default)
+# Dynamic config access (CFG 단일 진입점)
 # ─────────────────────────────────────────────────────────────
 import core.config as config
+from core.config import reload_config as reload_config  # in-place 갱신만 허용
 
-def _get_cfg_attr(name: str, default):
-    """config.CFG.<name> → config.<name> → ENV[name] → default."""
+def _cfg_bool(attr: str, default: bool) -> bool:
+    """CFG 우선 읽기(ENV 비접근)."""
     try:
-        cfg = getattr(config, "CFG", None)
-        if cfg is not None and hasattr(cfg, name):
-            return getattr(cfg, name)
-        if hasattr(config, name):
-            return getattr(config, name)
-    except Exception:
-        pass
-    env = os.getenv(name)
-    return env if env is not None else default
-
-
-def _cfg_truthy(attr: str, default: bool) -> bool:
-    v = _get_cfg_attr(attr, default)
-    try:
-        if isinstance(v, bool):
-            return v
-        return str(v).strip().lower() in {"1", "true", "yes", "y", "on"}
+        return bool(getattr(config.CFG, attr))
     except Exception:
         return default
 
-
 def _cfg_str(attr: str, default: str) -> str:
-    v = _get_cfg_attr(attr, default)
+    """CFG 우선 읽기(ENV 비접근)."""
     try:
-        return str(v).strip() if v is not None else default
+        v = getattr(config.CFG, attr)
+        return (str(v).strip() if v is not None else default)
     except Exception:
         return default
 
@@ -105,7 +91,56 @@ def _as_agent_name(val: Any) -> AgentName:
     return "section_writer"
 
 # 제목이 명시되지 않으면 writer 예약을 금지(기본 True: 안전 모드)
-_REQUIRE_EXPLICIT = _cfg_truthy("REQUIRE_EXPLICIT_WRITE_TITLE", True)
+_REQUIRE_EXPLICIT = _cfg_bool("REQUIRE_EXPLICIT_WRITE_TITLE", True)
+
+# ────────────────────────────────────────────────────────────
+# 진행률 보조 유틸 (섹션 총량/SEEN 집계)
+# ────────────────────────────────────────────────────────────
+def _count_sections_in_outline(outline_text: str, *, mode: Literal["report", "book"]) -> int:
+    """
+    간단 카운트 규칙:
+      - report: '## ' 로 시작하는 H2 섹션 수
+      - book  : '## ' 로 시작하는 장/절(기본 동일 규칙, 필요 시 강화 가능)
+    """
+    if not outline_text:
+        return 0
+    # 코드/펜스 블록 등은 단순 무시(정규식 한 번으로 충분)
+    lines = outline_text.splitlines()
+    pat = re.compile(r'^\s*##\s+')
+    return sum(1 for ln in lines if pat.match(ln))
+
+def _ensure_progress_flags(state: MutableMapping[str, Any], *, outline_text: str, doc_mode: Literal["report","book"]) -> None:
+    """sections_total/sections_done/sections_seen/sections_seen_titles 초기화."""
+    flags: Dict[str, Any] = dict(state.get("flags") or {})
+    # total: 한 번만 세팅(0 또는 미지정일 때)
+    total = int(flags.get("sections_total") or 0)
+    if total <= 0:
+        total = _count_sections_in_outline(outline_text or "", mode=doc_mode)
+        flags["sections_total"] = int(total or 0)
+    # done/seen 기본값 보정
+    if "sections_done" not in flags:
+        flags["sections_done"] = 0
+    if "sections_seen" not in flags:
+        flags["sections_seen"] = 0
+    if "sections_seen_titles" not in flags or not isinstance(flags.get("sections_seen_titles"), list):
+        flags["sections_seen_titles"] = []
+    state["flags"] = flags  # commit
+
+def _mark_title_seen(state: MutableMapping[str, Any], title: str) -> None:
+    """중복 없이 SEEN 집계 업데이트."""
+    flags: Dict[str, Any] = dict(state.get("flags") or {})
+    seen_list = flags.get("sections_seen_titles")
+    if not isinstance(seen_list, list):
+        seen_list = []
+    title_norm = (title or "").strip().lower()
+    if title_norm and all(str(t).strip().lower() != title_norm for t in seen_list):
+        seen_list.append(title)
+        flags["sections_seen_titles"] = seen_list
+        try:
+            flags["sections_seen"] = int(flags.get("sections_seen") or 0) + 1
+        except Exception:
+            flags["sections_seen"] = len(seen_list)
+    state["flags"] = flags  # commit
 
 
 def schedule_writer_if_needed(
@@ -190,12 +225,19 @@ def schedule_writer_if_needed(
         req_param, flag_req, auto_title, target_title
     )
 
+    # [PATCH: 진행률 카운터 초기화] — 섹션 총량/seen/done 기본값 보정
+    try:
+        _ensure_progress_flags(state, outline_text=outline_text or "", doc_mode=doc_mode)
+    except Exception as _e:
+        if debug:
+            logger.debug("[writer_scheduler] progress flags init skipped: %s", _e)
+
     # 3) 연구 루프 감지
     explicit_flag = state.get("research_loop_active")
 
     if allow_during_research is None:
-        allow_during_research = _cfg_truthy("AUTO_WRITE_DURING_RESEARCH", False)
-    auto_write = _cfg_truthy("AUTO_WRITE_AFTER_RAG", True)
+        allow_during_research = _cfg_bool("AUTO_WRITE_DURING_RESEARCH", False)
+    auto_write = _cfg_bool("AUTO_WRITE_AFTER_RAG", True)
 
     if isinstance(explicit_flag, bool):
         research_loop_active = explicit_flag
@@ -225,8 +267,8 @@ def schedule_writer_if_needed(
         logger.debug("[writer_scheduler] %s", {
             "DOC_MODE": doc_mode,
             "WRITER_AGENT": writer_agent,
-            "AUTO_WRITE_AFTER_RAG": _cfg_str("AUTO_WRITE_AFTER_RAG", ""),
-            "AUTO_WRITE_DURING_RESEARCH": _cfg_str("AUTO_WRITE_DURING_RESEARCH", ""),
+            "AUTO_WRITE_AFTER_RAG": str(_cfg_bool("AUTO_WRITE_AFTER_RAG", True)),
+            "AUTO_WRITE_DURING_RESEARCH": str(_cfg_bool("AUTO_WRITE_DURING_RESEARCH", False)),
             "allow_during_research": allow_during_research,
             "research_loop_active": research_loop_active,
             "has_writer_pending": has_pending(tasks_iter_for_check, str(writer_agent), prefix="write:"),
@@ -255,6 +297,14 @@ def schedule_writer_if_needed(
     if auto_write and not has_writer_pending:
         task_list.append(Task(agent=writer_agent, done=False, description=f"write: {target_title}", done_at=""))
         logger.info("writer task scheduled: agent=%s title=%s", writer_agent, target_title)
+        # [PATCH: 진행률 집계] — 새로 예약된 타이틀을 SEEN 누적에 반영(중복 보호)
+        try:
+            _mark_title_seen(state, target_title)
+            if debug:
+                logger.debug("[writer_scheduler] sections_seen incremented (title=%r)", target_title)
+        except Exception as _e:
+            if debug:
+                logger.debug("[writer_scheduler] mark_title_seen skipped: %s", _e)
         if debug:
             logger.debug("[writer_scheduler] scheduled → %s ('write: %s')", writer_agent, target_title)
         return True

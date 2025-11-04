@@ -7,16 +7,59 @@ logger = logging.getLogger(__name__)
 import os, hashlib
 from pathlib import Path
 from datetime import datetime
-from typing import List, Optional, Tuple, cast
+from typing import List, Optional, Tuple, cast, Any, Union, TYPE_CHECKING
 
 import core.config as config
-from core.config import CFG, DocMode
+if TYPE_CHECKING:  # 타입 전용(런타임 바인딩 방지)
+    from core.config import DocMode
+else:
+    from typing import Literal as _Lit
+    DocMode = _Lit["report", "book"]  # 런타임 안전 폴백
 from utils.text_utils import slugify, section_slugify
 
 # ──────────────────────────────────────────────────────────────
-# 프로젝트 루트: 항상 config.CFG.PROJECT_ROOT 기준으로 일원화
+# Config helpers (동적 조회)
 # ──────────────────────────────────────────────────────────────
-current_path = config.CFG.PROJECT_ROOT
+def _cfg_str(name: str, default: str = "") -> str:
+    try:
+        v = getattr(config.CFG, name, default)
+        s = (v if isinstance(v, str) else str(v)).strip()
+        return s or default
+    except Exception:
+        return default
+
+def _cfg_bool(name: str, default: bool = False) -> bool:
+    v = getattr(config.CFG, name, default)
+    if isinstance(v, bool):
+        return v
+    try:
+        return str(v).strip().lower() in {"1","true","yes","on","y"}
+    except Exception:
+        return default
+
+# ──────────────────────────────────────────────────────────────
+# 프로젝트 루트: 항상 config.CFG.PROJECT_ROOT (동적)
+# ──────────────────────────────────────────────────────────────
+def get_project_root() -> str:
+    # 없으면 현재 작업 디렉터리로 폴백
+    return _cfg_str("PROJECT_ROOT", os.getcwd())
+
+class _RootProxy:
+    """문자열/경로 연산에 자연스럽게 동작하는 동적 루트 프록시 (reload 후 즉시 반영)."""
+    def __fspath__(self) -> str:  # os.fspath 지원
+        return get_project_root()
+    def __str__(self) -> str:
+        return get_project_root()
+    def __repr__(self) -> str:
+        return f"_RootProxy({get_project_root()!r})"
+    # Path-like 연산 편의
+    def __truediv__(self, other: Union[str, os.PathLike[str]]) -> Path:
+        return Path(get_project_root()) / other
+    def joinpath(self, *parts: Union[str, os.PathLike[str]]) -> Path:
+        return Path(get_project_root()).joinpath(*parts)
+
+# 과거 호환: 변수처럼 쓰이던 current_path를 동적 프록시로 유지
+current_path: Any = _RootProxy()
 
 
 def now_str(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
@@ -26,20 +69,22 @@ def now_str(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
 def _resolve_under_root(p: str | Path) -> Path:
     """절대경로면 그대로, 상대경로면 PROJECT_ROOT 기준으로 해석."""
     q = Path(p)
-    return q if q.is_absolute() else (Path(current_path) / q).resolve()
+    if q.is_absolute():
+        return q
+    return (Path(str(current_path)) / q).resolve()
 
 
 # ── Research output base (RESEARCH_OUT_DIR → REPORT_OUT_DIR/research → <project>/research)
 def research_base_dir() -> Path:
-    ro = (CFG.RESEARCH_OUT_DIR or "").strip()
+    ro = _cfg_str("RESEARCH_OUT_DIR", "")
     if ro:
         return _resolve_under_root(ro)
 
-    rep = (CFG.REPORT_OUT_DIR or "").strip()
+    rep = _cfg_str("REPORT_OUT_DIR", "")
     if rep:
         return _resolve_under_root(rep) / "research"
 
-    return Path(current_path) / "research"
+    return Path(str(current_path)) / "research"
 
 
 def research_topic_dir(topic_slug: str | None) -> Path:
@@ -58,8 +103,9 @@ def research_resources_dir(topic_slug: str | None) -> Path:
 
 # ── Outline base (REPORT_OUT_DIR/outlines → <project>/outlines)
 def outline_base_dir() -> Path:
-    # ✅ 항상 프로젝트 루트 아래 'outlines' 고정 (읽기와 일치)
-    return Path(current_path) / "outlines"
+    # 기본값 'outlines', CFG.OUTLINES_DIR_NAME로 오버라이드 가능
+    name = _cfg_str("OUTLINES_DIR_NAME", "outlines")
+    return Path(str(current_path)) / name
 
 
 def outline_topic_dir(topic_slug: str | None, mode: str | None = None) -> Path:
@@ -78,21 +124,43 @@ def ascii_namespace(seed: str) -> str:
     return f"ns-{core}"
 
 
+def chroma_base_dir() -> Path:
+    """
+    벡터스토어 기본 디렉터리.
+    - CFG.CHROMA_BASE_DIR 설정 시 우선
+    - 없으면 <PROJECT_ROOT>/data/chroma_store
+    """
+    base = _cfg_str("CHROMA_BASE_DIR", "")
+    if base:
+        return _resolve_under_root(base)
+    return Path(str(current_path)) / "data" / "chroma_store"
+
 def topic_dir(slug: str) -> str:
-    return os.path.join(current_path, "data", "chroma_store", slug)
+    return str(chroma_base_dir() / slug)
 
 
 def _coerce_mode(mode: Optional[str | DocMode]) -> DocMode:
     """문자열/None을 DocMode로 정규화."""
     if mode in ("book", "report"):
         return cast(DocMode, mode)
-    # ✅ CFG.DOC_MODE에서 직접 가져오도록 수정
-    return CFG.DOC_MODE
+    # CFG.DOC_MODE 동적 조회
+    try:
+        m = getattr(config.CFG, "DOC_MODE", "report")
+        return cast(DocMode, "book" if m == "book" else "report")
+    except Exception:
+        return cast(DocMode, "report")
 
 
 def _base_dir_for_mode(mode: Optional[str | DocMode] = None) -> str:
+    """
+    콘텐츠 하위 디렉터리 이름을 결정.
+    - 기본: report → 'sections', book → 'chapters'
+    - CFG.CONTENT_DIR_REPORT_NAME / CFG.CONTENT_DIR_BOOK_NAME로 오버라이드
+    """
     m: DocMode = _coerce_mode(mode)
-    return "sections" if m == "report" else "chapters"
+    if m == "report":
+        return _cfg_str("CONTENT_DIR_REPORT_NAME", "sections")
+    return _cfg_str("CONTENT_DIR_BOOK_NAME", "chapters")
 
 
 def get_content_dir(
@@ -102,7 +170,7 @@ def get_content_dir(
     topic_slug: Optional[str] = None,
     base_dir: Optional[str] = None,
 ) -> Path:
-    root = _resolve_under_root(root_dir) if root_dir else Path(current_path)
+    root = _resolve_under_root(root_dir) if root_dir else Path(str(current_path))
     base = base_dir or _base_dir_for_mode(mode)
     p = root / base
     if topic_slug:
@@ -149,8 +217,8 @@ def get_outline_dir(
     root_dir: Optional[str | Path] = None,
     topic_slug: Optional[str] = None,
 ) -> Path:
-    root = _resolve_under_root(root_dir) if root_dir else Path(current_path)
-    d = root / "outlines"
+    root = _resolve_under_root(root_dir) if root_dir else Path(str(current_path))
+    d = root / _cfg_str("OUTLINES_DIR_NAME", "outlines")
     if topic_slug:
         d = d / topic_slug
     d.mkdir(parents=True, exist_ok=True)
@@ -223,3 +291,12 @@ def is_written(
     topic_slug: Optional[str] = None,
 ) -> bool:
     return path_for_title(title, mode=mode, root_dir=root_dir, topic_slug=topic_slug).exists()
+
+
+# ──────────────────────────────────────────────────────────────
+# Reload hook (선택): config.reload_config() 이후 호출 시 로깅만
+# ──────────────────────────────────────────────────────────────
+def refresh_paths() -> None:  # pragma: no cover
+    """동적 프록시를 쓰므로 특별한 갱신은 필요 없지만, 호출 시 현재 루트를 로그에 남깁니다."""
+    logger.info("[paths] project_root=%s | chroma_base=%s | outlines=%s",
+                get_project_root(), chroma_base_dir(), outline_base_dir())

@@ -11,7 +11,7 @@ import re
 import time
 import hashlib
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union, Callable
 from datetime import datetime
 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 
@@ -20,7 +20,6 @@ import base64
 import requests
 import certifi
 import chardet
-from dotenv import load_dotenv, find_dotenv
 from langchain_community.document_loaders import WebBaseLoader
 
 # 게이트키핑
@@ -30,23 +29,75 @@ from settings_gatekeep import (
     _normalize_host,  # 로그 요약용 (없으면 제거 가능)
 )
 
-# ✅ 메트릭 이벤트 훅 (안전 임포트: 미존재/비활성 시 no-op)
+# ✅ 메트릭 이벤트 훅 (안전 임포트: 미존재/비활성 시 no-op, 시그니처 통일)
+from typing import Any
 try:
-    from tools.metrics import event  # real hook
+    from tools.metrics import event as _metrics_event  # 실제 훅
+    def event(kind: str, **payload: Any) -> Any:  # 시그니처 고정
+        return _metrics_event(kind, **payload)
 except Exception:
-    def event(*args, **kwargs):
+    def event(kind: str, **payload: Any) -> Any:  # 시그니처 고정
         return None
 
-from core.config import CFG
+from core.config import CFG, reload_config as _reload_config
+
+
+# ─────────────────────────────────────────────────────────────
+# CFG helper shims (define only if missing to avoid redeclare)
+# ─────────────────────────────────────────────────────────────
+if "_cfg_str" not in globals():
+    def _cfg_str(key: str, default: str = "") -> str:
+        try:
+            v = getattr(CFG, key)
+            return (str(v).strip() if v is not None else default)
+        except Exception:
+            return default
+
+if "_cfg_int" not in globals():
+    def _cfg_int(key: str, default: int = 0) -> int:
+        try:
+            v = getattr(CFG, key)
+            if v is None or v == "":
+                return default
+            return int(str(v).strip())
+        except Exception:
+            return default
+
+if "_cfg_float" not in globals():
+    def _cfg_float(key: str, default: float = 0.0) -> float:
+        try:
+            v = getattr(CFG, key)
+            if v is None or v == "":
+                return default
+            return float(str(v).strip())
+        except Exception:
+            return default
+
+# NOTE: 이 파일에는 이미 _cfg_* 헬퍼가 존재합니다(다른 위치).
+#       재정의 충돌을 피하기 위해 새 정의는 두지 않고 기존 함수를 그대로 사용합니다.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HTTPS 세션 (검증 ON)
 # ─────────────────────────────────────────────────────────────────────────────
 session = requests.Session()
-session.headers.update({
-    "User-Agent": (getattr(CFG, "USER_AGENT", None) or os.getenv("USER_AGENT", "BookWriterBot/1.0"))
-})
+session.headers.update({"User-Agent": (_cfg_str("USER_AGENT", default="BookWriterBot/1.0"))})
 session.verify = certifi.where()  # 신뢰 루트
+
+# 런타임 설정 재적용 훅 (외부에서 CFG.reload 후 호출 권장)
+def refresh_runtime_config() -> None:
+    """
+    CFG 값이 바뀐 뒤(예: reload_config()) 런타임 세션 헤더/옵션 재적용.
+    """
+    try:
+        _reload_config()  # in-place 갱신
+    except Exception:
+        pass
+    try:
+        session.headers.update({"User-Agent": (_cfg_str("USER_AGENT", default="BookWriterBot/1.0"))})
+        # 필요 시 타임아웃/프록시 등도 여기서 재설정 가능
+    except Exception:
+        pass
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 문자 정규화(유니코드/제로폭 제거/전각→반각)
@@ -113,23 +164,18 @@ def safe_decode(b: bytes, fallback: str | None = None) -> str:
 
 def http_get(url: str, **kw) -> requests.Response:
     """requests.Session.get 래퍼 (기본 타임아웃 튜플)."""
-    kw.setdefault("timeout", (6, 20))
+    kw.setdefault("timeout", (_cfg_int("WEB_FETCH_TIMEOUT_CONNECT", default=6),
+                              _cfg_int("WEB_FETCH_TIMEOUT_READ", default=20)))
     return session.get(url, **kw)
 
 # =============================================================================
 # Env & Paths
 # =============================================================================
-
-dotenv_path = find_dotenv(usecwd=True)
-if dotenv_path:
-    load_dotenv(dotenv_path, override=False)
-else:
-    logger.info(".env file not found: using OS environment variables only.")
-
-# CFG 우선의 프로젝트/데이터 루트
-_PRJ_ROOT_CAND = getattr(CFG, "PROJECT_ROOT", None) or os.getenv("PROJECT_ROOT", None)
+# ※ .env 로드는 core.config에서 일괄 처리. 이 모듈은 CFG만 신뢰.
+# 프로젝트/데이터 루트: CFG만 사용
+_PRJ_ROOT_CAND = _cfg_str("PROJECT_ROOT", "")
 PROJECT_ROOT = Path(_PRJ_ROOT_CAND) if _PRJ_ROOT_CAND else Path(__file__).resolve().parents[1]
-_DATA_DIR_CAND = getattr(CFG, "WEB_RAG_DATA_DIR", None) or os.getenv("DATA_DIR", None)
+_DATA_DIR_CAND = _cfg_str("WEB_RAG_DATA_DIR", "")
 DATA_DIR = Path(_DATA_DIR_CAND) if _DATA_DIR_CAND else (PROJECT_ROOT / "data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -143,11 +189,9 @@ def _now(fmt: str = "%Y_%m%d_%H%M%S") -> str:
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
-def _truthy(name: str, default: Optional[str] = None) -> bool:
-    """환경변수를 불리언으로 해석 (1/true/yes/on)."""
-    raw = os.getenv(name) if default is None else os.getenv(name, default)
-    v = (raw or "").strip().lower()
-    return v in {"1", "true", "yes", "on"}
+def _truthy_cfg(name: str, default: bool = False) -> bool:
+    """CFG 불리언 키를 안전하게 해석."""
+    return _cfg_bool(name, default=default)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # JSON-safe 변환(바이너리 → base64) 헬퍼
@@ -269,32 +313,16 @@ def _save_results(
 # ─────────────────────────────────────────────────────────────────────────────
 # 검색 정책/TopN (기존 키 + 신규 alias 지원)
 # ─────────────────────────────────────────────────────────────────────────────
-def _env_int(*names: str, default: int = 0) -> int:
-    for n in names:
-        v = os.getenv(n)
-        if v and v.strip().lstrip("-").isdigit():
-            try:
-                return int(v.strip())
-            except Exception:
-                continue
-    return default
-
-def _env_str(*names: str, default: str = "") -> str:
-    for n in names:
-        v = os.getenv(n)
-        if v and v.strip():
-            return v.strip()
-    return default
-
-_MIN_RESULTS_OK = _env_int("SEARCH_MIN_OK", "WEB_MIN_RESULTS_OK", default=1)
-_BACKEND_PICK_POLICY = _env_str("SEARCH_POLICY", "WEB_BACKEND_PICK_POLICY", default="best_of_chain").lower()
-_SEARCH_TOPN = _env_int("SEARCH_TOPN", default=10)
+_MIN_RESULTS_OK = _cfg_int("SEARCH_MIN_OK", default=_cfg_int("WEB_MIN_RESULTS_OK", default=1))
+_BACKEND_PICK_POLICY = _cfg_str("SEARCH_POLICY",
+                                default=_cfg_str("WEB_BACKEND_PICK_POLICY", default="best_of_chain")).lower()
+_SEARCH_TOPN = _cfg_int("SEARCH_TOPN", default=10)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 로그 도우미
 # ─────────────────────────────────────────────────────────────────────────────
-_LOG_TOPK = int(str(getattr(CFG, "LOG_TOPK", "") or os.getenv("LOG_TOPK", "3")))
-_LOG_WRAP = int(str(getattr(CFG, "LOG_WRAP", "") or os.getenv("LOG_WRAP", "88")))
+_LOG_TOPK = _cfg_int("LOG_TOPK", default=3)
+_LOG_WRAP = _cfg_int("LOG_WRAP", default=88)
 
 def _ell(s: str, n: int = _LOG_WRAP) -> str:
     s = (s or "").replace("\n", " ").strip()
@@ -323,12 +351,12 @@ def _cfg_bool(name: str, *, default: bool) -> bool:
     s = (os.getenv(name, "1" if default else "0") or "").strip().lower()
     return s in ("1", "true", "yes", "on")
 
-_URL_STRIP_DEFAULT_PORTS      = _cfg_bool("URL_STRIP_DEFAULT_PORTS", default=True)
-_URL_NORMALIZE_DEFAULT_INDEX  = _cfg_bool("URL_NORMALIZE_DEFAULT_INDEX", default=True)
+_URL_STRIP_DEFAULT_PORTS         = _cfg_bool("URL_STRIP_DEFAULT_PORTS", default=True)
+_URL_NORMALIZE_DEFAULT_INDEX     = _cfg_bool("URL_NORMALIZE_DEFAULT_INDEX", default=True)
 _URL_CANONICALIZE_TRAILING_SLASH = _cfg_bool("URL_CANONICALIZE_TRAILING_SLASH", default=True)
-_URL_SORT_QUERY               = _cfg_bool("URL_SORT_QUERY", default=True)
-_URL_CANONICALIZE_AMP         = _cfg_bool("URL_CANONICALIZE_AMP", default=True)
-_URL_TREAT_WWW_EQUIV          = _cfg_bool("URL_TREAT_WWW_EQUIV", default=False)  # 필요시 on
+_URL_SORT_QUERY                  = _cfg_bool("URL_SORT_QUERY", default=True)
+_URL_CANONICALIZE_AMP            = _cfg_bool("URL_CANONICALIZE_AMP", default=True)
+_URL_TREAT_WWW_EQUIV             = _cfg_bool("URL_TREAT_WWW_EQUIV", default=False)  # 필요시 on
 
 # 추적/광고성 파라미터(확장)
 _TRACKING_PARAMS = {
@@ -361,7 +389,7 @@ def _collapse_slashes(path: str) -> str:
     return re.sub(r"/{2,}", "/", path or "/")
 
 def _normalize_path_segments(path: str) -> str:
-    segs = []
+    segs: list[str] = []
     for p in (path or "/").split("/"):
         if p in ("", "."):
             continue
@@ -413,13 +441,9 @@ def _sort_and_filter_query(qs_pairs: list[tuple[str,str]]) -> list[tuple[str,str
 def _mobile_to_www_enabled() -> bool:
     """
     모바일 서브도메인(m./mobile.) → www. 치환 여부 스위치.
-    CFG.URL_NORMALIZE_MOBILE_TO_WWW 우선, 없으면 ENV URL_NORMALIZE_MOBILE_TO_WWW (기본: 켬).
+    CFG.URL_NORMALIZE_MOBILE_TO_WWW (기본: 켬).
     """
-    cfg_val = getattr(CFG, "URL_NORMALIZE_MOBILE_TO_WWW", None)
-    if isinstance(cfg_val, bool):
-        return cfg_val
-    v = (os.getenv("URL_NORMALIZE_MOBILE_TO_WWW", "1") or "").strip().lower()
-    return v in ("1", "true", "yes", "on")
+    return _cfg_bool("URL_NORMALIZE_MOBILE_TO_WWW", default=True)
 
 def _normalize_mobileish_host(host: str) -> str:
     """
@@ -575,7 +599,7 @@ def _simplify_for_naver(q: str) -> str:
     s = s.replace("'", " ").replace('"', " ").replace("/", " ").replace("|", " ")
     s = _re.sub(r"\s+", " ", s).strip()
 
-    if _truthy("NAVER_TRIM_OPERATORS", default="1"):
+    if _truthy_cfg("NAVER_TRIM_OPERATORS", default=True):
         s = _re.sub(r"site:\S+", " ", s, flags=_re.I)
         s = _re.sub(r"filetype:\S+", " ", s, flags=_re.I)
         s = _re.sub(r"\b(OR|AND|NOT)\b", " ", s, flags=_re.I)
@@ -583,10 +607,7 @@ def _simplify_for_naver(q: str) -> str:
         s = s.replace("..", " ")
         s = _re.sub(r"\b(event|exhibition|tickets)\b", " ", s, flags=_re.I)
 
-    try:
-        cap = int(str(getattr(CFG, "NAVER_NEGATIVE_CAP", "") or os.getenv("NAVER_NEGATIVE_CAP", "0")))
-    except Exception:
-        cap = 0
+    cap = _cfg_int("NAVER_NEGATIVE_CAP", default=0)
     s = _cap_minus_tokens(s, cap)
     s = _re.sub(r"\s+", " ", s).strip()
     if len(s) > 200:
@@ -598,14 +619,8 @@ def _should_skip_naver(q: str) -> bool:
     if not s:
         logger.debug("[naver.skip] reason=empty-after-simplify")
         return True
-    try:
-        max_len = int(str(getattr(CFG, "NAVER_MAX_LEN", "") or os.getenv("NAVER_MAX_LEN", "120")))
-    except Exception:
-        max_len = 120
-    try:
-        max_toks = int(str(getattr(CFG, "NAVER_MAX_TOKENS", "") or os.getenv("NAVER_MAX_TOKENS", "8")))
-    except Exception:
-        max_toks = 8
+    max_len = _cfg_int("NAVER_MAX_LEN", default=120)
+    max_toks = _cfg_int("NAVER_MAX_TOKENS", default=8)
     if len(s) > max_len:
         logger.debug("[naver.skip] reason=too_long len=%d max=%d q=%r", len(s), max_len, s)
         return True
@@ -723,17 +738,14 @@ def _looks_like_serialized_blob(txt: str) -> bool:
     return brace_ratio > 0.02
 
 def _append_default_negatives(q: str) -> str:
-    if not q or not _truthy("WEB_APPLY_DEFAULT_NEGATIVES", default="1"):
+    if not q or not _truthy_cfg("WEB_APPLY_DEFAULT_NEGATIVES", default=True):
         return q
-    try:
-        min_tok = int(str(getattr(CFG, "WEB_DEFAULT_NEGATIVES_MIN_TOKENS", "") or os.getenv("WEB_DEFAULT_NEGATIVES_MIN_TOKENS", "3")))
-    except Exception:
-        min_tok = 3
+    min_tok = _cfg_int("WEB_DEFAULT_NEGATIVES_MIN_TOKENS", default=3)
     if min_tok and len(q.split()) < min_tok:
         return q
     if _is_naver_safe(q):
         return q
-    base = (getattr(CFG, "WEB_DEFAULT_NEGATIVES", None) or os.getenv("WEB_DEFAULT_NEGATIVES", "-행사 -세미나 -박람회") or "").strip()
+    base = _cfg_str("WEB_DEFAULT_NEGATIVES", default="-행사 -세미나 -박람회")
     if not base:
         return q
     existing = set(q.split())
@@ -788,9 +800,9 @@ def _apply_gatekeep_to_results(results: list[dict]) -> list[dict]:
 # ─────────────────────────────────────────────────────────────────────────────
 def _load_web_page(url: str) -> str:
     """원문 HTML을 받아 텍스트로 정리 (스트리밍 + 최대 바이트 예산 + 인코딩 추정)."""
-    connect_to = int(str(getattr(CFG, "WEB_FETCH_TIMEOUT_CONNECT", "") or os.getenv("WEB_FETCH_TIMEOUT_CONNECT", "6")))
-    read_to    = int(str(getattr(CFG, "WEB_FETCH_TIMEOUT_READ", "") or os.getenv("WEB_FETCH_TIMEOUT_READ", "20")))
-    max_bytes  = int(str(getattr(CFG, "WEB_FETCH_MAX_BYTES", "") or os.getenv("WEB_FETCH_MAX_BYTES", "1000000")))  # 1MB
+    connect_to = _cfg_int("WEB_FETCH_TIMEOUT_CONNECT", default=6)
+    read_to    = _cfg_int("WEB_FETCH_TIMEOUT_READ", default=20)
+    max_bytes  = _cfg_int("WEB_FETCH_MAX_BYTES", default=1_000_000)  # 1MB
 
     try:
         with session.get(url, timeout=(connect_to, read_to), stream=True) as r:
@@ -868,12 +880,12 @@ def _enrich_raw_content(results: List[Dict[str, Any]]) -> None:
     상위 N개 결과에 대해 원문을 페치해 raw_content 채우기.
     예산: WEB_SEARCH_RAW_FETCH_TOP / WEB_FETCH_BUDGET_SECONDS
     """
-    top = int(str(getattr(CFG, "WEB_SEARCH_RAW_FETCH_TOP", "") or os.getenv("WEB_SEARCH_RAW_FETCH_TOP", "5")))
+    top = _cfg_int("WEB_SEARCH_RAW_FETCH_TOP", default=5)
     if top <= 0:
         return
 
-    budget_s = float(str(getattr(CFG, "WEB_FETCH_BUDGET_SECONDS", "") or os.getenv("WEB_FETCH_BUDGET_SECONDS", "30")))
-    per_url_cap = float(os.getenv("WEB_FETCH_PER_URL_CAP", "8"))  # URL당 최대 N초 캡
+    budget_s = _cfg_float("WEB_FETCH_BUDGET_SECONDS", default=30.0)
+    per_url_cap = _cfg_float("WEB_FETCH_PER_URL_CAP", default=8.0)  # URL당 최대 N초 캡
     t0 = time.time()
 
     # ✅ METRICS: 시작
@@ -952,8 +964,8 @@ def _resolve_persist_dir(namespace: str, persist_directory: Optional[str]) -> st
         if s:
             return s
 
-    # CFG.CHROMA_DIR 우선 → 환경변수 → 기본(DATA_DIR/chroma_store/ns)
-    chroma_dir = getattr(CFG, "CHROMA_DIR", None) or os.getenv("CHROMA_DIR")
+    # CFG.CHROMA_DIR 우선 → 기본(DATA_DIR/chroma_store/ns)
+    chroma_dir = _cfg_str("CHROMA_DIR", default="")
     if chroma_dir is not None:
         s = chroma_dir.strip()
         if s:
@@ -973,9 +985,8 @@ __all__ = [
     "session", "http_get",
     "_normalize_unicode",
     "PROJECT_ROOT", "DATA_DIR",
-    "_now", "_now_iso", "_truthy",
+    "_now", "_now_iso", "refresh_runtime_config",
     "_save_results",
-    "_env_int", "_env_str",
     "_ell", "_host_of",
     "_normalize_url", "_dedupe_keep_order_dicts", "_pick_top",
     "_simplify_for_naver", "_should_skip_naver", "_is_naver_safe",

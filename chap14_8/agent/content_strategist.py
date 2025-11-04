@@ -1,6 +1,4 @@
 from __future__ import annotations
-from langchain_core.output_parsers.string import StrOutputParser
-from utils.tasks import AIMessage
 
 import logging
 logger = logging.getLogger(__name__)
@@ -11,8 +9,11 @@ from utils.tasks import AIMessage
 import core.config as config
 from core.paths import current_path, now_str as _now_str
 from core.state_types import State
-from core.models import Task
+from core.models import Task, AgentName
+from core.config import DocMode
 from utils.sanitize import sanitize_state
+from typing import cast
+from core.state_types import State
 from prompts import get_content_strategist_prompt
 from utils.outline import read_outline, save_outline
 from utils.outline import normalize_outline_headings as _normalize_outline_headings
@@ -21,21 +22,36 @@ from utils.outline import get_topic_outline_text
 
 from core.llm import get_llm
 import re
+from typing import cast
 
 
 def content_strategist(state: State):
     logger.info("============ CONTENT STRATEGIST ============")
     llm = get_llm()
-    state = sanitize_state(state)
+    state = cast(State, sanitize_state(state))
 
     # 공통 준비
     messages = list(state.get("messages") or [])
     tasks = list(state.get("task_history") or [])
 
-    # outline 파일명 결정 및 상태 반영
-    mode = config.CFG.DOC_MODE  # "book" | "report"
-    fname = state.get("outline_fname") or ("outline_book.md" if mode == "book" else "outline_report.md")
+    # outline 파일명 결정 및 상태 반영 (런타임 CFG → DocMode 강제)
+    def _coerce_doc_mode(x: object) -> DocMode:
+        try:
+            s = str(x).strip().lower()
+        except Exception:
+            s = "report"
+        # Literal["book","report"]로 안전 캐스팅
+        return cast(DocMode, ("book" if s == "book" else "report"))
+
+    MODE: DocMode = _coerce_doc_mode(getattr(config.CFG, "DOC_MODE", "report"))
+    fname = state.get("outline_fname") or ("outline_book.md" if MODE == "book" else "outline_report.md")
     state["outline_fname"] = fname
+
+    # AgentName 캐스팅 헬퍼 (Task 생성 시 타입 안전)
+    def _agent(name: str) -> AgentName:
+        # Python에서는 typing.cast로 처리해야 합니다.
+        return cast(AgentName, name)
+
 
     # ─────────────────────────────────────────────────────────
     # FAST-PATH: 장 제목 리네임 (LLM 건너뛰고 즉시 수정/저장)
@@ -58,7 +74,7 @@ def content_strategist(state: State):
             filename=fname,
             root_dir=str(current_path),
             topic_slug=state.get("topic_slug"),
-            mode=mode,
+            mode=MODE,
         )
         if not raw:
             raw = get_topic_outline_text(state) or ""
@@ -80,7 +96,7 @@ def content_strategist(state: State):
             filename=fname,
             root_dir=str(current_path),
             topic_slug=state.get("topic_slug"),
-            mode=mode,
+            mode=MODE,
             backup=True,
         )
 
@@ -101,23 +117,27 @@ def content_strategist(state: State):
         except Exception:
             already = any((not getattr(t, "done", False)) and getattr(t, "agent", "") == "communicator" for t in tasks)
         if not already:
-            tasks.append(Task(agent="communicator", done=False, description=f"show_outline:{fname}", done_at=""))
+            tasks.append(Task(agent=_agent("communicator"), done=False, description=f"show_outline:{fname}", done_at=""))
 
         return {"messages": messages, "task_history": tasks}
 
     # ─────────────────────────────────────────────────────────
     # 일반 경로: 목차 생성 (LLM 호출)
-    strategist_prompt = get_content_strategist_prompt(mode)
+    strategist_prompt = get_content_strategist_prompt(MODE)
     chain = strategist_prompt | llm | StrOutputParser()
 
     outline_text = get_topic_outline_text(state)
+    # refs / references 키 모두를 지원 (호환)
+    _refs = (state.get("refs")
+             or state.get("references")
+             or {"queries": [], "docs": []})
     gathered = ""
-    logger.info("[Content Strategist] outline generation started (fname=%s, mode=%s)", fname, mode)
+    logger.info("[Content Strategist] outline generation started (fname=%s, mode=%s)", fname, MODE)
     for chunk in chain.stream(
         {
             "messages": messages,
             "outline": outline_text,
-            "references": state.get("references", {"queries": [], "docs": []}),
+            "references": _refs,
             "topic_title": state.get("topic_title") or "",
         }
     ):
@@ -137,7 +157,7 @@ def content_strategist(state: State):
         filename=fname,
         root_dir=str(current_path),
         topic_slug=state.get("topic_slug"),
-        mode=mode,
+        mode=MODE,
         backup=True,
     )
     messages.append(AIMessage(
@@ -163,6 +183,6 @@ def content_strategist(state: State):
     except Exception:
         already = any((not getattr(t, "done", False)) and getattr(t, "agent", "") == "communicator" for t in tasks)
     if not already:
-        tasks.append(Task(agent="communicator", done=False, description=f"show_outline:{fname}", done_at=""))
+        tasks.append(Task(agent=_agent("communicator"), done=False, description=f"show_outline:{fname}", done_at=""))
 
     return {"messages": messages, "task_history": tasks}

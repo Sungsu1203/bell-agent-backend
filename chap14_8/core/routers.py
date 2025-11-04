@@ -2,17 +2,22 @@ from __future__ import annotations
 
 import os
 import logging
-from typing import MutableMapping, Any, cast, Optional
+from typing import MutableMapping, Any, cast, Optional, Dict, Callable
 
 logger = logging.getLogger(__name__)
 
+# NOTE: communicator가 outline 표시 후 반드시 outline_shown=True를 세팅한다는 전제
 # [ADD] ── Metrics (optional) ────────────────────────────────────────────────
+# 타입 안정화를 위해 Optional[Callable]로 어노테이션
+_metrics_snapshot: Optional[Callable[[str], Any]] = None
+_metrics_check_alerts: Optional[Callable[[Any], Any]] = None
 try:
-    from tools.metrics import snapshot as _metrics_snapshot
-    from tools.metrics import check_thresholds_and_alert as _metrics_check_alerts
+    from tools.metrics import snapshot as _ms
+    from tools.metrics import check_thresholds_and_alert as _mca
+    _metrics_snapshot = cast(Callable[[str], Any], _ms)
+    _metrics_check_alerts = cast(Callable[[Any], Any], _mca)
 except Exception:
-    _metrics_snapshot = None
-    _metrics_check_alerts = None
+    pass
 
 # CFG / 경로 유틸 (동적 접근)
 import core.config as config
@@ -24,15 +29,52 @@ from utils.writer_scheduler import schedule_writer_if_needed
 from core.paths import research_resources_dir  # 중앙 경로 유틸 사용
 
 
+# ─────────────────────────────────────────────────────────────
+# Helpers: 동적 CFG 접근 & 공통 라우팅 유틸
+# ─────────────────────────────────────────────────────────────
+def _cfg_bool(name: str, default: bool = False) -> bool:
+    try:
+        v = getattr(config.CFG, name, default)
+        if isinstance(v, bool):
+            return v
+        return str(v).strip().lower() in {"1","true","yes","on","y"}
+    except Exception:
+        return default
+
+def _doc_mode() -> str:
+    try:
+        m = getattr(config.CFG, "DOC_MODE", "report")
+        return "book" if m == "book" else "report"
+    except Exception:
+        return "report"
+    
+def _safe_int(x: Any, default: int = 0) -> int:
+    """object → int 안전 변환(실패 시 default)."""
+    try:
+        return int(cast(Any, x))
+    except Exception:
+        return default
+
+
+def _preferred_writer() -> str:
+    return "section_writer" if _doc_mode() == "report" else "chapter_writer"
+
+def _alt_writer() -> str:
+    return "chapter_writer" if _preferred_writer() == "section_writer" else "section_writer"
+
+def _skip_web_search(state: State) -> bool:
+    flags = state.get("flags") or {}
+    return _cfg_bool("SKIP_WEB_SEARCH", False) or bool(flags.get("skip_web_search"))
+
 def _metrics_snapshot_and_alert(state: State) -> None:
     """연구 라운드 종료 시 스냅샷 저장 및 임계치 알람(있으면) 처리."""
     try:
         # 알람 체크
-        if _metrics_check_alerts:
+        if _metrics_check_alerts is not None:
             _metrics_check_alerts(logger)
 
         # 스냅샷 저장 (경로 구성)
-        if _metrics_snapshot:
+        if _metrics_snapshot is not None:
             import time  # 지역 임포트로 의존 최소화
             topic_slug = (state.get("topic_slug") or config.CFG.TOPIC_SLUG or "default").strip()
             base_dir = research_resources_dir(topic_slug)  # <project>/resources/<topic>
@@ -47,38 +89,49 @@ def _metrics_snapshot_and_alert(state: State) -> None:
 
 def tail_task_router(state: State) -> str:
     """작성 단계(테일)에서 다음 노드를 선택."""
+    # 아웃라인 존재/표시 상태 점검
     outline_text = get_topic_outline_text(state)
     outline_missing = not (outline_text or "").strip()
-    outline_not_shown = state.get("outline_shown") is False
+    outline_fname = (state.get("outline_fname") or "").strip()
+    # 가드 조건:
+    #  - outline_shown이 True면 재표시 금지
+    #  - outline_fname이 비어있으면 커뮤니케이터로 보내지 않음(불필요 반복 방지)
+    outline_already_shown = (state.get("outline_shown") is True)
+    need_outline_display = (not outline_already_shown) and bool(outline_fname)
 
     if outline_missing:
         logger.info("[router.tail] outline missing → content_strategist")
         return "content_strategist"
 
-    if outline_not_shown:
+    if need_outline_display:
         # writer-락(pending_write_title) 우선 라우팅
         flags = state.get("flags") or {}
         if flags.get("pending_write_title"):
             tasks = state.get("task_history", []) or []
-            preferred_writer = "section_writer" if config.CFG.DOC_MODE == "report" else "chapter_writer"
-            alt_writer = "chapter_writer" if preferred_writer == "section_writer" else "section_writer"
+            preferred_writer = _preferred_writer()
+            alt_writer = _alt_writer()
             if has_pending(tasks, preferred_writer, prefix="write:") or has_pending(tasks, alt_writer, prefix="write:"):
                 logger.info("[router.tail] outline exists but not shown — writer lock → %s", preferred_writer)
                 return preferred_writer
-        logger.info("[router.tail] outline exists but not shown → communicator")
+        # outline 파일명도 있고 아직 표시 안 됨 → communicator로 1회 전달
+        logger.info(
+            "[router.tail] outline exists but not shown → communicator "
+            "(fname=%s, shown=%s)",
+            outline_fname, state.get("outline_shown")
+        )
         return "communicator"
 
     tasks = state.get("task_history", []) or []
 
     # 1) 선호 writer가 미완료면 우선
-    preferred_writer = "section_writer" if config.CFG.DOC_MODE == "report" else "chapter_writer"
+    preferred_writer = _preferred_writer()
     for t in reversed(tasks):
         if (not getattr(t, "done", False)) and getattr(t, "agent", "") == preferred_writer:
             logger.debug("[router.tail] preferred writer pending → %s", preferred_writer)
             return preferred_writer
 
     # 2) 대안 writer가 미완료면 그 다음
-    alt_writer = "chapter_writer" if preferred_writer == "section_writer" else "section_writer"
+    alt_writer = _alt_writer()
     for t in reversed(tasks):
         if (not getattr(t, "done", False)) and getattr(t, "agent", "") == alt_writer:
             logger.debug("[router.tail] alt writer pending → %s", alt_writer)
@@ -124,10 +177,8 @@ def after_web_search_agent(state: State) -> str:
     def _first_int(keys: list[str], default: int = 0) -> int:
         for k in keys:
             if k in state:
-                try:
-                    return int(state.get(k) or 0)
-                except Exception:
-                    pass
+                # 프로젝트의 안전 변환기 사용(Union/object 대응)
+                return as_int(state, k, default)
         return default
 
     # 신규 URL/청크 지표
@@ -139,7 +190,7 @@ def after_web_search_agent(state: State) -> str:
     has_urls_in_refs = bool(refs_light.get("docs") or [])  # 경량 refs(문자열 URL 리스트)
 
     rag_on_disk = bool(state.get("rag_on_disk"))
-    skip_web = bool(config.CFG.SKIP_WEB_SEARCH) or bool(flags.get("skip_web_search"))
+    skip_web = _skip_web_search(state)
 
     # 0) pending 리스트로 강제 지정된 경우 우선
     if "vector_search_agent" in (state.get("pending") or []):
@@ -164,19 +215,23 @@ def after_web_search_agent(state: State) -> str:
         )
         return "vector_search_agent"
 
-    # 4) 여기까지 왔다는 건 '비어있음' → web_search 로 재시도 (1회 한정)
-    recent_ws_done = False
-    for t in reversed(tasks):
-        # 바로 직전에 web_search_agent가 완료되었는지 확인
-        if getattr(t, "agent", "") == "web_search_agent":
-            recent_ws_done = bool(getattr(t, "done", False))
-            break
-        # 다른 완료된 태스크를 만나면 최근 web_search가 아님
-        if getattr(t, "done", False):
-            break
-
-    if not recent_ws_done:
-        logger.info("[router.after_web] refs empty & no new URLs → web_search_agent (retry 1/1)")
+    # 4) 여기까지 왔다는 건 '비어있음' → web_search 로 재시도 (최대 1회)
+    #    ※ setdefault 타입오류 회피: dict 복사/병합 후 되돌려쓰기
+    router_flags: Dict[str, Any] = dict((state.get("flags") or {}).get("router") or {})
+    retries = _safe_int(router_flags.get("after_web_ws_retries", 0), 0)
+    if retries < 1:
+        router_flags["after_web_ws_retries"] = retries + 1
+        # TypedDict(Flags) 안전 갱신: 가능하면 in-place, 없으면 최소 폴백
+        _flags = state.get("flags")
+        if isinstance(_flags, dict):
+            _flags_mm = cast(MutableMapping[str, Any], _flags)
+            _flags_mm["router"] = router_flags
+            # 재부착: State TypedDict에 맞춰 명시적 캐스트 후 대입
+            cast(MutableMapping[str, Any], state)["flags"] = _flags_mm
+        else:
+            state_flags: Dict[str, Any] = {"router": router_flags}
+            cast(MutableMapping[str, Any], state)["flags"] = state_flags
+        logger.info("[router.after_web] refs empty & no new URLs → web_search_agent (retry %d/1)", retries + 1)
         return "web_search_agent"
 
     # 5) 재시도까지 했는데도 비어있다면 tail 라우터에 위임
@@ -206,8 +261,8 @@ def after_vector_router(state: State) -> str:
     )
 
     # refs 가드: refs 비어있으면 write: 펜딩이어도 우선 RAG(Web)
-    preferred_writer = "section_writer" if config.CFG.DOC_MODE == "report" else "chapter_writer"
-    alt_writer = "chapter_writer" if preferred_writer == "section_writer" else "section_writer"
+    preferred_writer = _preferred_writer()
+    alt_writer = _alt_writer()
     has_write_pending = (
         has_pending(tasks, preferred_writer, prefix="write:") or
         has_pending(tasks, alt_writer, prefix="write:")
@@ -228,7 +283,7 @@ def after_vector_router(state: State) -> str:
 
     # 3) 연구 루프 조건 충족 시 → synthesizer
     role = (state.get("agent_role") or "").strip().lower()
-    rounds_done = int(state.get("research_round") or 0)
+    rounds_done = as_int(state, "research_round", 0)
     max_iter = as_int(state, "iteration_count", 0)
     has_objs = bool(state.get("research_objectives"))
 
@@ -262,11 +317,11 @@ def after_planner_router(state: State) -> str:
             pass
 
     def _pending_writer() -> Optional[str]:
-        preferred = "section_writer" if config.CFG.DOC_MODE == "report" else "chapter_writer"
+        preferred = _preferred_writer()
         for t in reversed(tasks):
             if (not getattr(t, "done", False)) and getattr(t, "agent", "") == preferred:
                 return preferred
-        alt = "chapter_writer" if preferred == "section_writer" else "section_writer"
+        alt = _alt_writer()
         for t in reversed(tasks):
             if (not getattr(t, "done", False)) and getattr(t, "agent", "") == alt:
                 return alt
@@ -292,7 +347,7 @@ def after_planner_router(state: State) -> str:
         return "communicator"
 
     flags = state.get("flags") or {}
-    skip_web = bool(config.CFG.SKIP_WEB_SEARCH) or bool(flags.get("skip_web_search"))
+    skip_web = _skip_web_search(state)
     if skip_web:
         logger.info("[router.after_planner] SKIP_WEB_SEARCH=1 → vector_search_agent")
         return "vector_search_agent"
@@ -301,7 +356,7 @@ def after_planner_router(state: State) -> str:
     refs = state.get("references") or {}
     has_refs_docs = bool(refs.get("docs") or [])
     rag_on_disk = bool(state.get("rag_on_disk"))
-    doc_count = int(state.get("doc_count") or 0)  # 있으면 활용(없어도 무시)
+    doc_count = _safe_int(state.get("doc_count"), 0)  # 있으면 활용(없어도 무시)
 
     if has_refs_docs or rag_on_disk or doc_count > 0:
         logger.info("[router.after_planner] refs/docs or rag_on_disk detected → vector_search_agent")
@@ -328,8 +383,8 @@ def after_synthesizer_router(state: State) -> str:
     )
 
     # write: 펜딩이 있으면 writer 우선
-    preferred_writer = "section_writer" if config.CFG.DOC_MODE == "report" else "chapter_writer"
-    alt_writer = "chapter_writer" if preferred_writer == "section_writer" else "section_writer"
+    preferred_writer = _preferred_writer()
+    alt_writer = _alt_writer()
     if has_pending(tasks, preferred_writer, prefix="write:") or has_pending(tasks, alt_writer, prefix="write:"):
         logger.info("[router.after_synth] writer pending(write:) → %s", preferred_writer)
         # 합성 이후 writer로 즉시 전이되는 경우도 라운드 종료로 간주하여 스냅샷/알람
@@ -357,9 +412,9 @@ def after_synthesizer_router(state: State) -> str:
     )
 
     # 합성 루프/중단 파라미터
-    halt_threshold = as_int(state, "research_halt_threshold", config.CFG.RESEARCH_HALT_THRESHOLD)
-    min_rounds = as_int(state, "research_min_rounds", config.CFG.RESEARCH_MIN_ROUNDS)
-    max_no_new = as_int(state, "research_max_no_new_rounds", config.CFG.RESEARCH_MAX_NO_NEW_ROUNDS)
+    halt_threshold = as_int(state, "research_halt_threshold", getattr(config.CFG, "RESEARCH_HALT_THRESHOLD", 0))
+    min_rounds = as_int(state, "research_min_rounds", getattr(config.CFG, "RESEARCH_MIN_ROUNDS", 0))
+    max_no_new = as_int(state, "research_max_no_new_rounds", getattr(config.CFG, "RESEARCH_MAX_NO_NEW_ROUNDS", 0))
     no_new_streak = as_int(state, "no_new_url_streak", 0)
 
     can_continue = (

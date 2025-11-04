@@ -6,6 +6,15 @@ import os
 from pathlib import Path
 import json, re
 
+import threading
+
+# ── dotenv (선택적) ───────────────────────────────────────────
+try:
+    from dotenv import load_dotenv, find_dotenv
+    _DOTENV_READY = True
+except Exception:  # pragma: no cover
+    _DOTENV_READY = False
+
 # 기존 코드 호환: AgentName 타입 유지
 from core.models import AgentName
 
@@ -67,7 +76,9 @@ def _split_csv_set(v: str) -> Set[str]:
 
 def _split_loose(s: str) -> list[str]:
     # 콤마/세미콜론/파이프/개행/과다 공백 구분자 처리
-    return [p.strip() for p in re.split(r"[,\|;|\r?\n]+|\s{2,}", s) if p and p.strip()]
+    #   - 문자클래스 내부의 '?', '|' 오작동 방지
+    pat = r"[,\|;]|\r?\n|\s{2,}"
+    return [p.strip() for p in re.split(pat, s) if p and p.strip()]
 
 def _parse_hints(raw: str) -> List[str]:
     # GOOGLEISH_HINTS = "site:| OR | AND |(|)"
@@ -76,6 +87,16 @@ def _parse_hints(raw: str) -> List[str]:
 # ── 기본 PROJECT_ROOT 추론 ────────────────────────────────────
 _HERE = Path(__file__).resolve()
 _DEFAULT_PROJECT_ROOT = _HERE.parents[1]  # .../chap14_8
+
+# ── dotenv 1회 로드 ───────────────────────────────────────────
+_cfg_lock = threading.RLock()
+def _load_dotenv_once() -> None:
+    if not _DOTENV_READY:
+        return
+    try:
+        load_dotenv(find_dotenv(usecwd=True), override=False)
+    except Exception:
+        pass
 
 # ── 연구 목적 ENV 로더(호환 유지 + 확장) ───────────────────────
 def load_research_objectives_from_env(
@@ -285,6 +306,8 @@ class Config:
 
 # ── 구성 빌더 ────────────────────────────────────────────────
 def _build_config() -> Config:
+    # .env → os.environ 주입 (최초 1회)
+    _load_dotenv_once()
     doc_mode = _coerce_doc_mode(_env_str("DOC_MODE", "report"))
     writer_agent: AgentName = ("section_writer" if doc_mode == "report" else "chapter_writer")
     return Config(
@@ -441,14 +464,46 @@ def reload_config_inplace() -> Config:
     '같은 객체'의 필드만 갱신(in-place)합니다.
     """
     global CFG
-    new_cfg = _build_config()
-    for f in fields(CFG):
-        setattr(CFG, f.name, getattr(new_cfg, f.name))
-    return CFG
+    with _cfg_lock:
+        # .env 재적용(override=True) → os.environ 갱신
+        if _DOTENV_READY:
+            try:
+                load_dotenv(find_dotenv(usecwd=True), override=True)
+            except Exception:
+                pass
+        new_cfg = _build_config()
+        for f in fields(CFG):
+            setattr(CFG, f.name, getattr(new_cfg, f.name))
+        return CFG
 
 def reload_config() -> Config:
     """호환용 엔트리포인트: in-place 갱신을 수행."""
     return reload_config_inplace()
+
+# ── 동적 접근 헬퍼(개별 모듈 편의) ───────────────────────────
+from typing import Any, Callable
+
+def get(name: str, default: Any = None, coerce: Callable[[Any], Any] | None = None) -> Any:
+    """CFG → ENV → default 순서로 읽되, 필요 시 coerce 적용"""
+    val = getattr(CFG, name, os.getenv(name, default))
+    return coerce(val) if (coerce and val is not None) else (val if val is not None else default)
+
+def truthy(name: str, default: bool = False) -> bool:
+    """불리언 해석(1/true/yes/on/y) — CFG → ENV → default"""
+    if hasattr(CFG, name):
+        v = getattr(CFG, name)
+        if isinstance(v, bool): return v
+        if isinstance(v, (int,)): return bool(v)
+        if isinstance(v, str): return v.strip().lower() in {"1","true","yes","on","y"}
+    v = os.getenv(name)
+    if v is None: return default
+    return v.strip().lower() in {"1","true","yes","on","y"}
+
+# ── 하위호환: 모듈 속성처럼 접근 허용(점진 제거 권장) ────────
+def __getattr__(name: str):
+    if hasattr(CFG, name):
+        return getattr(CFG, name)
+    raise AttributeError(name)
 
 # ── 프로젝트 루트(하위호환 상수; CFG 우선) ───────────────────
 PROJECT_ROOT: Final[str] = str(getattr(CFG, "PROJECT_ROOT", _DEFAULT_PROJECT_ROOT))

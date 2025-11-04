@@ -30,11 +30,11 @@ except Exception:
 # 외부에서 import * 시 노출 대상
 __all__ = ["refs_preview_text", "merge_refs", "score_doc", "vector_count"]
 
-# 외부 노출 이름 고정
-refs_preview_text = _refs_preview_text  # type: ignore
+# 외부 노출 이름 고정 (불필요한 ignore 제거)
+refs_preview_text = _refs_preview_text
 
 # ─────────────────────────────────────────────────────────────
-# Config helpers & defaults
+# Config helpers & defaults (per-call read; no module-level cache)
 # ─────────────────────────────────────────────────────────────
 
 def _get_cfg_attr(name: str, default):
@@ -49,27 +49,86 @@ def _get_cfg_attr(name: str, default):
         pass
     return default
 
-# Signature & scoring defaults
-_SIG_HEAD_CHARS: int = int(_get_cfg_attr("DOC_SIGNATURE_HEAD_CHARS", 500))
-_GOV_EDU_BONUS: float = float(_get_cfg_attr("SCORE_GOV_EDU_BONUS", 3.0))
-_IFI_BONUS: float = float(_get_cfg_attr("SCORE_IFI_BONUS", 2.0))
-_CONSULT_BONUS: float = float(_get_cfg_attr("SCORE_CONSULT_BONUS", 1.5))
-_RECENCY_WINDOW_YEARS: int = int(_get_cfg_attr("RECENCY_WINDOW_YEARS", 6))
-_RECENCY_WEIGHT: float = float(_get_cfg_attr("RECENCY_WEIGHT", 0.2))
-_BOT_PENALTY: float = float(_get_cfg_attr("SCORE_BOTPAGE_PENALTY", 2.0))
+def _as_list(v: Any, *, lower: bool = False) -> List[str]:
+    try:
+        seq = list(v or [])
+    except Exception:
+        return []
+    out: List[str] = []
+    for x in seq:
+        s = str(x).strip()
+        if not s:
+            continue
+        out.append(s.lower() if lower else s)
+    return out
 
-_IFI_DOMAINS: List[str] = [
-    *(_get_cfg_attr("SCORE_IFI_DOMAINS", []) or []),
-    "imf.org", "kostat.go", "kotra.or",
-]
-_CONSULT_DOMAINS: List[str] = [
-    *(_get_cfg_attr("SCORE_CONSULT_DOMAINS", []) or []),
-    "kpmg", "mckinsey", "gartner", "idc",
-]
-_BOT_TERMS: List[str] = [
-    *(_get_cfg_attr("SCORE_BOT_TERMS", []) or []),
-    "enable javascript", "captcha", "access denied", "just a moment",
-]
+# ── per-call getters (reload_config() 즉시 반영) ─────────────────
+def _sig_head_chars() -> int:
+    try:
+        return int(_get_cfg_attr("DOC_SIGNATURE_HEAD_CHARS", 500) or 500)
+    except Exception:
+        return 500
+
+def _gov_edu_bonus() -> float:
+    try:
+        return float(_get_cfg_attr("SCORE_GOV_EDU_BONUS", 3.0) or 3.0)
+    except Exception:
+        return 3.0
+
+def _ifi_bonus() -> float:
+    try:
+        return float(_get_cfg_attr("SCORE_IFI_BONUS", 2.0) or 2.0)
+    except Exception:
+        return 2.0
+
+def _consult_bonus() -> float:
+    try:
+        return float(_get_cfg_attr("SCORE_CONSULT_BONUS", 1.5) or 1.5)
+    except Exception:
+        return 1.5
+
+def _recency_window_years() -> int:
+    try:
+        return int(_get_cfg_attr("RECENCY_WINDOW_YEARS", 6) or 6)
+    except Exception:
+        return 6
+
+def _recency_weight() -> float:
+    try:
+        return float(_get_cfg_attr("RECENCY_WEIGHT", 0.2) or 0.2)
+    except Exception:
+        return 0.2
+
+def _bot_penalty() -> float:
+    try:
+        return float(_get_cfg_attr("SCORE_BOTPAGE_PENALTY", 2.0) or 2.0)
+    except Exception:
+        return 2.0
+
+def _ifi_domains() -> List[str]:
+    # 하드코어 디폴트 + CFG 추가 목록(소문자 비교)
+    base = ["imf.org", "kostat.go", "kotra.or"]
+    return list({*base, *(_as_list(_get_cfg_attr("SCORE_IFI_DOMAINS", []), lower=True))})
+
+def _consult_domains() -> List[str]:
+    base = ["kpmg", "mckinsey", "gartner", "idc"]
+    return list({*base, *(_as_list(_get_cfg_attr("SCORE_CONSULT_DOMAINS", []), lower=True))})
+
+def _bot_terms() -> List[str]:
+    base = ["enable javascript", "captcha", "access denied", "just a moment"]
+    return list({*base, *(_as_list(_get_cfg_attr("SCORE_BOT_TERMS", []), lower=True))})
+
+def _merge_refs_max_queries() -> int:
+    try:
+        return int(_get_cfg_attr("MERGE_REFS_MAX_QUERIES", 0) or 0)
+    except Exception:
+        return 0
+
+def _merge_refs_max_docs() -> int:
+    try:
+        return int(_get_cfg_attr("MERGE_REFS_MAX_DOCS", 0) or 0)
+    except Exception:
+        return 0
 
 # ─────────────────────────────────────────────────────────────
 # Refs 타입(문서화/정적체커 친화)
@@ -92,8 +151,8 @@ def _coerce_docs_list(objs: Optional[Sequence[Any]]) -> List[Any]:
     try:
         return list(objs)
     except Exception:
-        # 혹시 모르는 예외 대비
-        return [objs]  # type: ignore[list-item]
+        # objs가 어떤 타입이든 Any로 처리해 1-요소 리스트로 감싼다
+        return [cast(Any, objs)]
     
 def _norm_queries(seq: Sequence[str] | None) -> List[str]:
     if not seq:
@@ -136,7 +195,7 @@ def _signature_for_doc_like(d: Any) -> str:
             pc = getattr(d, "page_content", "") or ""
             meta = getattr(d, "metadata", {}) or {}
 
-        pc_head = " ".join(str(pc).split())[:_SIG_HEAD_CHARS]
+        pc_head = " ".join(str(pc).split())[:_sig_head_chars()]
         src = (meta.get("source") or meta.get("url") or "").strip()
         base = f"{src}|{pc_head}"
     except Exception as e:
@@ -166,11 +225,11 @@ def merge_refs(
     - limit_*: 상한 적용(CFG.MERGE_REFS_MAX_QUERIES / CFG.MERGE_REFS_MAX_DOCS 기본값 사용)
     - sort_docs_by_score=True: score_doc 기준 내림차순 정렬 후 상한 적용
     """
-    # CFG 기반 상한 기본값
+    # CFG 기반 상한 기본값(동적)
     if limit_queries is None:
-        limit_queries = int(_get_cfg_attr("MERGE_REFS_MAX_QUERIES", 0) or 0)
+        limit_queries = _merge_refs_max_queries()
     if limit_docs is None:
-        limit_docs = int(_get_cfg_attr("MERGE_REFS_MAX_DOCS", 0) or 0)
+        limit_docs = _merge_refs_max_docs()
 
     base: Dict[str, Any] = dict(existing or {})  # shallow copy(입력 보호)
     base_q = _norm_queries(cast(Sequence[str] | None, base.get("queries")))
@@ -217,20 +276,21 @@ def merge_refs(
         docs_out = docs_out[:limit_docs]
 
     # 4) 순수 새 객체 구성(입력 불변 보장)
-    out: Refs = {"queries": list(merged_q), "docs": list(docs_out)}
+    # TypedDict에 동적 키 대입은 금지되므로, 우선 일반 dict로 구성 후 마지막에 cast
+    out_dict: Dict[str, Any] = {"queries": list(merged_q), "docs": list(docs_out)}
     if preserve_extra:
         # 나머지 키(meta 등)는 얕은 복사로 보존(참조 공유 허용)
         for k, v in base.items():
             if k not in ("queries", "docs"):
-                out[k] = v  # 그대로 보존
+                out_dict[k] = v  # 그대로 보존
 
     logger.debug(
         "merge_refs(pure): queries %d→%d, docs %d→%d (sorted=%s, cap_q=%s, cap_d=%s)",
-        len(base_q) + len(add_q), len(out["queries"]),
-        len(base_d) + len(add_d), len(out["docs"]),
+        len(base_q) + len(add_q), len(out_dict["queries"]),
+        len(base_d) + len(add_d), len(out_dict["docs"]),
         sort_docs_by_score, limit_queries, limit_docs,
     )
-    return out
+    return cast(Refs, out_dict)
 
 
 def score_doc(d: Document, year_now: int | None = None) -> float:
@@ -269,22 +329,22 @@ def score_doc(d: Document, year_now: int | None = None) -> float:
         or domain.endswith(".ac.kr") or domain.endswith(".edu")
     )
     if gov_edu:
-        score += _GOV_EDU_BONUS
+        score += _gov_edu_bonus()
 
-    if any(k in domain for k in _IFI_DOMAINS):
-        score += _IFI_BONUS
-    if any(k in domain for k in _CONSULT_DOMAINS):
-        score += _CONSULT_BONUS
+    if any(k in domain for k in _ifi_domains()):
+        score += _ifi_bonus()
+    if any(k in domain for k in _consult_domains()):
+        score += _consult_bonus()
 
     m = re.search(r"\b(20\d{2})\b", src) or re.search(r"\b(20\d{2})\b", text)
     if m:
         yr = int(m.group(1))
-        recency = max(0, _RECENCY_WINDOW_YEARS - (year_now - yr))
-        score += recency * _RECENCY_WEIGHT
+        recency = max(0, _recency_window_years() - (year_now - yr))
+        score += recency * _recency_weight()
 
     lt = text.lower()
-    if any(b in lt for b in _BOT_TERMS):
-        score -= _BOT_PENALTY
+    if any(b in lt for b in _bot_terms()):
+        score -= _bot_penalty()
 
     return score
 
@@ -324,3 +384,11 @@ def vector_count(collection_name: str, persist_directory: str | os.PathLike[str]
     except Exception as e:
         logger.debug("vector_count failed: %s: %s", type(e).__name__, e)
         return -1
+
+# ─────────────────────────────────────────────────────────────
+# (옵션) 캐시 무효화 훅 — 현재 구현은 per-call 조회이므로 no-op
+# ─────────────────────────────────────────────────────────────
+def refresh_rag_utils() -> None:  # pragma: no cover
+    """향후 lru_cache 최적화 시 캐시 무효화를 위해 호출 가능.
+    현재 버전은 per-call 조회로 즉시 반영되므로 동작 없음."""
+    return

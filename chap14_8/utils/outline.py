@@ -8,6 +8,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Mapping, Any, List, Tuple, TYPE_CHECKING
+import os
 
 # ─────────────────────────────────────────────────────────────
 # Dynamic config access (avoid static binding to CFG/DOC_MODE)
@@ -45,17 +46,65 @@ __all__ = [
 ]
 
 # ─────────────────────────────────────────────────────────────
-# Internal helpers (config with safe defaults)
+# Internal helpers (config/env with safe defaults; runtime-evaluated)
 # ─────────────────────────────────────────────────────────────
 _DEF_MODE: "DocMode" = "report"  # default if config.DOC_MODE missing
 
+_DEF_REPORT_NAME = "outline_report.md"
+_DEF_BOOK_NAME   = "outline_book.md"
+
+def _cfg_str(name: str, default: str) -> str:
+    """CFG → ENV → default (공백은 무시)"""
+    try:
+        v = getattr(config, name)  # reload_config() 이후 최신값
+        if v is not None and str(v).strip():
+            return str(v).strip()
+    except Exception:
+        pass
+    ev = os.getenv(name, "")
+    return ev.strip() or default
+
+def _cfg_bool(name: str, default: bool) -> bool:
+    try:
+        v = getattr(config, name)
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.strip().lower() in ("1", "true", "yes", "on")
+        if v is not None:
+            return bool(v)
+    except Exception:
+        pass
+    ev = os.getenv(name)
+    return (ev or "").strip().lower() in ("1", "true", "yes", "on") if ev is not None else default
+
+def _cfg_doc_mode() -> DocMode:
+    """
+    DOC_MODE은 CFG 우선, 없으면 ENV.DOC_MODE, 최종 기본 'report'.
+    값은 'report'/'book' 이외는 강제로 'book'으로 수렴(이 파일 내 일관성 목적).
+    """
+    try:
+        dm = getattr(config, "DOC_MODE", None)
+        if isinstance(dm, str) and dm.strip():
+            return "report" if dm.strip().lower() == "report" else "book"
+    except Exception:
+        pass
+    env = (os.getenv("DOC_MODE") or "").strip().lower()
+    if env:
+        return "report" if env == "report" else "book"
+    return _DEF_MODE
+
+def _outline_report_name() -> str:
+    # CFG.OUTLINE_REPORT_FILENAME → ENV.OUTLINE_REPORT_FILENAME → 기본
+    return _cfg_str("OUTLINE_REPORT_FILENAME", _DEF_REPORT_NAME)
+
+def _outline_book_name() -> str:
+    # CFG.OUTLINE_BOOK_FILENAME → ENV.OUTLINE_BOOK_FILENAME → 기본
+    return _cfg_str("OUTLINE_BOOK_FILENAME", _DEF_BOOK_NAME)
 
 def _get_doc_mode() -> DocMode:
-    try:
-        dm = getattr(config, "DOC_MODE", _DEF_MODE)
-        return "report" if dm == "report" else "book"
-    except Exception:
-        return _DEF_MODE  # fail-safe
+    # 런타임 평가(환경/CFG 갱신 반영)
+    return _cfg_doc_mode()
 
 
 def _get_project_root() -> str:
@@ -93,11 +142,14 @@ def pick_outline_filename(user_text: Optional[str], doc_mode: Optional[DocMode] 
     """
     dm: DocMode = _coerce_doc_mode(doc_mode)
     text = (user_text or "")
+    # 동적 기본 파일명(ENV/CFG 반영)
+    book_name   = _outline_book_name()
+    report_name = _outline_report_name()
     if re.search(r"(?:ai|인공지능)?\s*.*책.*(목차|outline)", text, flags=re.I):
-        return "outline_book.md"
+        return book_name
     if re.search(r"(보고서|report).*(목차|outline)", text, flags=re.I):
-        return "outline_report.md"
-    return "outline_report.md" if dm == "report" else "outline_book.md"
+        return report_name
+    return report_name if dm == "report" else book_name
 
 
 def get_topic_outline_text(
@@ -112,7 +164,8 @@ def get_topic_outline_text(
     dm: DocMode = _coerce_doc_mode(doc_mode)
     rd = root_dir or _get_project_root()
 
-    default_fname = "outline_report.md" if dm == "report" else "outline_book.md"
+    # 동적 기본 파일명(ENV/CFG 반영)
+    default_fname = _outline_report_name() if dm == "report" else _outline_book_name()
     fname = state.get("outline_fname") or default_fname
 
     txt, p = read_outline(
@@ -174,7 +227,7 @@ def title_by_index(outline_text: Optional[str], idx: int) -> Optional[str]:
 
 def outline_default_filename(mode: DocMode) -> str:
     """모드에 따른 기본 outline 파일명."""
-    return "outline_report.md" if mode == "report" else "outline_book.md"
+    return _outline_report_name() if mode == "report" else _outline_book_name()
 
 
 def save_outline(

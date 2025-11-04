@@ -4,8 +4,7 @@ logger = logging.getLogger(__name__)
 
 from langgraph.graph import StateGraph, START, END
 from core.state_types import State
-
-from typing import Mapping, Hashable, cast
+from typing import Mapping, Hashable, cast, Dict, Callable, Any, Protocol, runtime_checkable
 
 # ─────────────────────────────────────────────────────────────
 # Dynamic config (avoid static CFG/DOC_MODE binding)
@@ -54,6 +53,10 @@ from core.routers import (
     after_synthesizer_router,
 )
 
+@runtime_checkable
+class InvokableGraph(Protocol):
+    def invoke(self, state: State, config: Dict[str, Any] | None = ...) -> Any: ...
+
 def build_graph():
     g = StateGraph(State)
     nodes: dict[str, bool] = {}
@@ -71,19 +74,24 @@ def build_graph():
         else:
             logger.debug("edge skipped (disabled node): %s -> %s", src, dst)
 
-    def _add_conditional_edges_safe(src: str, router, mapping: Mapping[str, str]) -> None:
+    def _add_conditional_edges_safe(
+        src: str,
+        router: Callable[[State], Hashable] | Any,   # LangGraph 라우터 시그니처 유연 허용
+        mapping: Mapping[str, str],
+    ) -> None:
         if not nodes.get(src):
             logger.debug("conditional edges skipped (src disabled): %s", src)
             return
-        filt_dict: dict[Hashable, str] = {
-            cast(Hashable, k): v
-            for k, v in mapping.items()
-            if nodes.get(v)
-        }
+        # 목적지 노드가 enable 된 것만 남긴다.
+        filt_dict: Dict[Hashable, str] = {}
+        for k, v in mapping.items():
+            if nodes.get(v):
+                filt_dict[cast(Hashable, k)] = v
         if not filt_dict:
             logger.debug("conditional edges skipped (no enabled dests) from %s", src)
             return
-        g.add_conditional_edges(src, router, cast("dict[Hashable, str]", filt_dict))
+        # cast에 문자열 타입을 넘기지 말 것!
+        g.add_conditional_edges(src, router, cast(Dict[Hashable, str], filt_dict))
 
     # Add nodes (respect toggles)
     _add_node("supervisor", supervisor, _EN_SUPERVISOR)
@@ -178,4 +186,6 @@ def build_graph():
         if nodes.get("supervisor"):
             _add_edge_safe("supervisor", END)
 
-    return g.compile()
+    compiled = g.compile()
+    # 타입체커 힌트: CompiledGraph는 invoke를 갖는다.
+    return cast(InvokableGraph, compiled)

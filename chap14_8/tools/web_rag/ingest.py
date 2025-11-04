@@ -6,7 +6,8 @@ logger = logging.getLogger(__name__)
 
 import os, re, io, json, time, hashlib
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple, Sequence
+from typing import List, Dict, Optional, Tuple, Sequence, Callable, Any
+from types import ModuleType
 
 import requests
 from requests.exceptions import SSLError as _SSLError
@@ -17,13 +18,39 @@ class _PdfSslError(_SSLError):
     """PDF 다운로드 중 SSL 오류. verify=False 폴백 없이 상부에서 처리하도록 신호."""
     pass
 
+# ── CFG helpers (ENV 직접 접근 금지) ─────────────────────────────────────────
+def _cfg_str(key: str, default: str = "") -> str:
+    try:
+        v = getattr(CFG, key)
+        return (str(v).strip() if v is not None else default)
+    except Exception:
+        return default
+
+def _cfg_bool(key: str, default: bool = False) -> bool:
+    try:
+        v = getattr(CFG, key)
+        return bool(v)
+    except Exception:
+        return default
+
+def _cfg_int(key: str, default: int) -> int:
+    try:
+        v = getattr(CFG, key)
+        if v is None or v == "":
+            return default
+        return int(str(v).strip())
+    except Exception:
+        return default
+
+
 def _record_retry_candidate(url: str, reason: str = "ssl_error") -> None:
     """
     재시도 후보를 jsonl로 남깁니다. (예: DATA_DIR/retry_candidates.jsonl)
     분석/재처리 파이프라인에서 이 파일을 스캔하여 재시도할 수 있습니다.
     """
     try:
-        base = Path(os.getenv("RETRY_CANDIDATE_DIR", "")) or (DATA_DIR / "quarantine")
+        base_dir = _cfg_str("RETRY_CANDIDATE_DIR", "")
+        base = Path(base_dir) if base_dir else (DATA_DIR / "quarantine")
         base.mkdir(parents=True, exist_ok=True)
         f = base / "ingest_retry_candidates.jsonl"
         payload = {"url": url, "reason": reason, "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
@@ -40,6 +67,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 # 중앙 LLM(임베딩) 헬퍼
 from core.llm import get_embedding_model
 from core.config import CFG
+from core.config import reload_config as reload_config  # in-place 갱신만 허용
 
 # 게이트키핑/호스트 정규화
 from settings_gatekeep import (
@@ -50,7 +78,7 @@ from settings_gatekeep import (
 
 # web_rag 유틸 모듈
 from .utils import (
-    session, http_get, DATA_DIR, _truthy, _is_block_page, _looks_like_pdf_bytes,
+    session, http_get, DATA_DIR, _is_block_page, _looks_like_pdf_bytes,
     _looks_like_serialized_blob, _clean_text, _resolve_persist_dir, _FRESH_KEYS
 )
 
@@ -136,6 +164,9 @@ def _save_seen_source_hashes(ns: str, pd: str, m: dict[str, str]) -> None:
         logger.debug("[ingest] save seen hashes failed: %s", p)
 
 # ── Metrics (optional) ───────────────────────────────────────────────────────
+# mypy 친화적: Optional[Callable[..., Any]]로 선언해 None 대입 허용
+from typing import Callable as _CallableAny
+_record_chunks: Optional[_CallableAny[..., Any]]
 try:
     from tools.metrics import record_chunks as _record_chunks
 except Exception:
@@ -160,12 +191,16 @@ def record_chunks(*, chars_sum: int, chunks_cnt: int, ns: str = "", part: str = 
 
 # ---- 선택적 백엔드(존재시 사용, 미설치 OK) ----
 try:
-    import PyPDF2 as _pypdf2
+    import PyPDF2 as _pypdf2_mod
+    _pypdf2: Optional[ModuleType] = _pypdf2_mod  # mypy-friendly: 모듈 또는 None
 except Exception:
     _pypdf2 = None
 
 try:
-    from pdfminer.high_level import extract_text as _pdfminer_extract_text
+    from pdfminer.high_level import extract_text as _pdfminer_extract_text_mod
+    # pdfminer의 extract_text는 다양한 시그니처를 가지므로 가변 콜러블로 표기
+    from typing import Callable as _CallableStr
+    _pdfminer_extract_text: Optional[_CallableStr[..., str]] = _pdfminer_extract_text_mod
 except Exception:
     _pdfminer_extract_text = None
 
@@ -210,8 +245,7 @@ def _looks_like_pdf_url(url: str) -> bool:
 _PDF_HEADERS = {"Accept": "application/pdf"}
 
 def _allow_insecure_ssl() -> bool:
-    v = (os.getenv("ALLOW_INSECURE_SSL") or "").strip().lower()
-    return v in ("1", "true", "yes", "on")
+    return _cfg_bool("ALLOW_INSECURE_SSL", False)
 
 def _fetch_binary(url: str, timeout: int = 10) -> bytes:
     """
@@ -243,14 +277,8 @@ def _pdf_bytes_to_text(data: bytes) -> str:
       WEB_PDF_MAX_PAGES (기본 40)
       WEB_PDF_MAX_CHARS (기본 200000)
     """
-    try:
-        max_pages = int(os.getenv("WEB_PDF_MAX_PAGES", "40") or "40")
-    except Exception:
-        max_pages = 40
-    try:
-        max_chars = int(os.getenv("WEB_PDF_MAX_CHARS", "200000") or "200000")
-    except Exception:
-        max_chars = 200000
+    max_pages = _cfg_int("WEB_PDF_MAX_PAGES", 40)
+    max_chars = _cfg_int("WEB_PDF_MAX_CHARS", 200_000)
 
     # 1) PyPDF2 우선
     if _pypdf2 is not None:
@@ -499,6 +527,20 @@ _CLEARED_ONCE_KEYS: set[tuple[str, str]] = set()
 def _default_chroma_dir(namespace: str) -> str:
     return _resolve_persist_dir(namespace, persist_directory=None)
 
+# 런타임 중 중복 초기화 방지(프로세스 수명 내 1회) 가드
+_CLEARED_RUNTIME_KEYS: set[tuple[str, str]] = set()
+
+def _clear_once_guard(pd: str, ns: str, *, reason: str = "") -> bool:
+    if _cfg_bool("CLEAR_GUARD_DISABLE", False):
+        return True
+    key = (pd, ns)
+    if key in _CLEARED_RUNTIME_KEYS:
+        logger.debug("[INIT] clear skipped (once-guard): ns='%s' dir='%s' reason=%s", ns, pd, reason or "-")
+        return False
+    _CLEARED_RUNTIME_KEYS.add(key)
+    return True
+
+
 def _resolve_ns_for_docs(base_ns: str, is_web: Optional[bool]) -> tuple[str, bool]:
     """
     split NS 모드면 CHROMA_NAMESPACE_WEB/LOCAL 중 하나를 사용.
@@ -522,6 +564,43 @@ def _is_web_source(meta: dict) -> Optional[bool]:
         return False
     return None
 
+def _extract_local_path(meta: dict) -> Optional[str]:
+    """
+    Document 메타에서 로컬 경로를 추출합니다.
+    우선순위: file_path → source(file:// 또는 로컬 경로) → url
+    """
+    from urllib.parse import urlparse, unquote
+    src = (meta or {}).get("file_path") or (meta or {}).get("source") or (meta or {}).get("url") or ""
+    s = (src or "").strip()
+    if not s:
+        return None
+    # file:// 스킴
+    if s.lower().startswith("file://"):
+        try:
+            parsed = urlparse(s)
+            return unquote(parsed.path or "") or None
+        except Exception:
+            return None
+    # Windows/UNC or POSIX 경로
+    import re as _re
+    if _re.match(r"^[a-zA-Z]:[\\/]", s) or s.startswith("\\\\") or s.startswith("/"):
+        return s
+    return None
+
+
+def _local_mtime_key(meta: dict) -> str:
+    """
+    로컬 파일이면 mtime(초단위 정수)을 문자열로 반환. 없으면 "".
+    """
+    try:
+        p = _extract_local_path(meta) or ""
+        if not p:
+            return ""
+        import os
+        ts = os.path.getmtime(p)
+        return str(int(ts))
+    except Exception:
+        return ""
 
 def clear_vector_store(namespace: Optional[str] = None, persist_directory: Optional[str] = None) -> str:
     """
@@ -533,7 +612,11 @@ def clear_vector_store(namespace: Optional[str] = None, persist_directory: Optio
     ns = _resolve_ns(namespace=namespace, collection_name=None)
     pd = _resolve_persist_dir(ns, persist_directory)
 
-    if (namespace is None and persist_directory is None) and os.getenv("ALLOW_GLOBAL_CLEAR", "0") != "1":
+    # 런타임 가드: 동일 (pd, ns) 중복 초기화를 억제
+    if not _clear_once_guard(pd, ns, reason="clear_vector_store()"):
+        return pd
+
+    if (namespace is None and persist_directory is None) and (not _cfg_bool("ALLOW_GLOBAL_CLEAR", False)):
         logger.info("[INIT] clear_vector_store skipped (global clear disabled). ns='%s' dir='%s'", ns, pd)
         return pd
 
@@ -549,8 +632,7 @@ def clear_vector_store(namespace: Optional[str] = None, persist_directory: Optio
         pass
     try: _VS_CACHE.clear()
     except Exception: pass
-    try: del vs  # type: ignore
-    except Exception: pass
+    vs = None  # drop reference for GC
     gc.collect()
     _t.sleep(0.15)
 
@@ -602,14 +684,18 @@ def ensure_vector_store_cleared_once(
     한 번만 초기 클리어. 트리거: CFG.CLEAR_CHROMA_ON_START 또는
     ENV CLEAR_ON_FIRST_VECTOR/CLEAR_CHROMA_ON_START.
     """
-    if not (bool(getattr(CFG, "CLEAR_CHROMA_ON_START", False)) or
-            _truthy("CLEAR_ON_FIRST_VECTOR", default=None) or
-            _truthy("CLEAR_CHROMA_ON_START", default=None)):
+    if not (_cfg_bool("CLEAR_CHROMA_ON_START", False) or
+            _cfg_bool("CLEAR_ON_FIRST_VECTOR", False)):
         return False
 
     ns = _resolve_ns(namespace=namespace, collection_name=None)
     pd = _resolve_persist_dir(ns, persist_directory)
     key = (pd, ns)
+
+    # 런타임 가드도 동시에 마킹(중복 초기화/로그 억제)
+    if key in _CLEARED_RUNTIME_KEYS:
+        logger.debug("[INIT] clear_once skipped (runtime-guard already cleared): ns='%s' dir='%s'", ns, pd)
+        return False
 
     if key in _CLEARED_ONCE_KEYS:
         logger.debug("[INIT] clear_once skipped (already cleared): ns='%s' dir='%s'", ns, pd)
@@ -617,13 +703,13 @@ def ensure_vector_store_cleared_once(
 
     clear_vector_store(namespace=ns, persist_directory=pd)
     _CLEARED_ONCE_KEYS.add(key)
+    _CLEARED_RUNTIME_KEYS.add(key)
     logger.info("[INIT] vector store cleared once (ns='%s', dir='%s')", ns, pd)
     return True
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 임베딩 모델 선택/로그 강화 (정적체커 안전 호출)
 # ─────────────────────────────────────────────────────────────────────────────
-from typing import Any
 import inspect
 
 def _resolve_embedding_model_name() -> str:
@@ -644,7 +730,6 @@ def _get_embeddings(embedding=None):
     """
     if embedding is not None:
         return embedding
-
     model_name = _resolve_embedding_model_name()
     ctor: Any = get_embedding_model  # 정적체커 회피
 
@@ -659,10 +744,10 @@ def _get_embeddings(embedding=None):
             emb = ctor()
             used = "no-arg"
         elif "model_name" in params:
-            emb = ctor(model_name=model_name)  # type: ignore[call-arg]
+            emb = ctor(model_name=model_name)
             used = "model_name"
         elif "model" in params:
-            emb = ctor(model=model_name)       # type: ignore[call-arg]
+            emb = ctor(model=model_name)
             used = "model"
         else:
             # 알 수 없는 케이스 → 무인자 폴백
@@ -673,8 +758,7 @@ def _get_embeddings(embedding=None):
         emb = ctor()
         used = "fallback:typeerror:no-arg"
     except Exception:
-        emb = ctor()
-        used = "fallback:exception:no-arg"
+        emb = ctor(); used = "fallback:exception:no-arg"
 
     try:
         logger.info("[ingest] embedding model resolved: %s (ctor=%s, via=%s)",
@@ -699,8 +783,8 @@ def _get_vs(collection_name: str, persist_directory: str, embedding=None) -> Chr
     return vs
 
 def split_documents(documents: List[Document], *, chunk_size: Optional[int] = None, chunk_overlap: Optional[int] = None) -> List[Document]:
-    cs = int(os.getenv("RAG_CHUNK_CHARS", "2400")) if chunk_size is None else int(chunk_size)
-    ov = int(os.getenv("RAG_CHUNK_OVERLAP", "200")) if chunk_overlap is None else int(chunk_overlap)
+    cs = (_cfg_int("RAG_CHUNK_CHARS", 2400) if chunk_size is None else int(chunk_size))
+    ov = (_cfg_int("RAG_CHUNK_OVERLAP", 200) if chunk_overlap is None else int(chunk_overlap))
     cs = max(300, min(cs, 6000))
     ov = max(0, min(ov, int(cs * 0.5)))
     splitter = RecursiveCharacterTextSplitter(chunk_size=cs, chunk_overlap=ov)
@@ -723,14 +807,15 @@ def _batched_add(
     - 실패 시 이분탐색/단건 업서트
     - max_seconds 초과 시 남은 배치는 중단 (진단을 위한 워치독)
     """
-    MAX_TOKENS = int(os.getenv("RAG_TOKEN_BUDGET_PER_REQ", "250000"))
-    MAX_BATCH  = int(os.getenv("RAG_EMBED_BATCH", os.getenv("CHROMA_MAX_BATCH", "64")))
+    MAX_TOKENS = _cfg_int("RAG_TOKEN_BUDGET_PER_REQ", 250_000)
+    MAX_BATCH  = (_cfg_int("RAG_EMBED_BATCH", _cfg_int("CHROMA_MAX_BATCH", 64)))
     total_added = 0
     t_start = time.time()
 
     if quarantine_dir is None:
         try:
-            base = Path(os.getenv("CHROMA_QUARANTINE_DIR", "") or (DATA_DIR / "quarantine"))
+            qdir = _cfg_str("CHROMA_QUARANTINE_DIR", "")
+            base = Path(qdir) if qdir else (DATA_DIR / "quarantine")
             base.mkdir(parents=True, exist_ok=True)
             quarantine_dir = base
         except Exception:
@@ -774,7 +859,7 @@ def _batched_add(
                 return 0
             try:
                 if ids:
-                    vs.add_documents(splits[lo:hi], ids=ids[lo:hi])  # type: ignore[arg-type]
+                    vs.add_documents(splits[lo:hi], ids=ids[lo:hi])
                 else:
                     vs.add_documents(splits[lo:hi])
                 return n
@@ -807,8 +892,8 @@ def documents_to_chroma(
     Documents → split → Chroma 인덱싱.
     return: (in_docs_count, added_chunks)
     """
-    from typing import cast, DefaultDict as _DefaultDictT
-    from chromadb.api.types import Where, Include
+    from typing import cast, Any, DefaultDict as _DefaultDictT
+    from chromadb.api.types import Include
 
     # 임베딩 모델 로깅(선행)
     try:
@@ -829,24 +914,37 @@ def documents_to_chroma(
     split_mode = bool(ns_web_env and ns_loc_env)
 
     # clear=True면 대상 NS 모두 초기화
+    # (중략 — 기존 clear_once_guard 패치 적용부 유지)
     if clear:
-        def _clear_dir(pd_eff: str, ns_eff: str) -> None:
+        def _clear_dir(pd_eff: str, ns_eff: str, *, label: str) -> bool:
             _VS_CACHE.pop((pd_eff, ns_eff), None)
+            # 런타임 가드: 동일 (pd, ns) 재초기화 방지
+            if not _clear_once_guard(pd_eff, ns_eff, reason=f"documents_to_chroma(clear, part={label})"):
+                return False
             try:
                 import shutil
                 if os.path.isdir(pd_eff):
                     shutil.rmtree(pd_eff)
                 os.makedirs(pd_eff, exist_ok=True)
-                logger.info("documents_to_chroma: cleared vector store (%s, %s)", ns_eff, pd_eff)
-                if total_added == 0:
-                    logger.info("[HINT] 0 chunks overall → check: gatekeep/duplicates/split settings/cleaners/output length limits")
+                logger.info("documents_to_chroma: cleared vector store (ns=%s, dir=%s, part=%s)", ns_eff, pd_eff, label)
             except Exception as e:
                 logger.warning("documents_to_chroma: clear failed for ns=%s dir=%s: %s", ns_eff, pd_eff, e)
+            return True
 
-        _clear_dir(pd_base, ns_base)
+        cleared_labels: list[str] = []
+        if _clear_dir(pd_base, ns_base, label="base"):
+            cleared_labels.append("base")
         if split_mode:
-            _clear_dir(_resolve_persist_dir(ns_web_env, persist_directory), ns_web_env)
-            _clear_dir(_resolve_persist_dir(ns_loc_env, persist_directory), ns_loc_env)
+            if _clear_dir(_resolve_persist_dir(ns_web_env, persist_directory), ns_web_env, label="web"):
+                cleared_labels.append("web")
+            if _clear_dir(_resolve_persist_dir(ns_loc_env, persist_directory), ns_loc_env, label="local"):
+                cleared_labels.append("local")
+        # 요약 로그(다중 노출 대신 1회 요약)
+        if cleared_labels:
+            logger.info("[INIT] vector store cleared once (%s) — ns_base=%s dir_base=%s split=%s",
+                        ",".join(cleared_labels), ns_base, pd_base, bool(split_mode))
+        else:
+            logger.debug("[INIT] clear skipped by runtime guard (already cleared earlier)")
 
     # 1) 블럭/이상치 제거 및 텍스트 정리
     total_in_docs = len(documents or [])
@@ -859,6 +957,21 @@ def documents_to_chroma(
             continue
         d.page_content = _clean_text(txt)
         pre_docs.append(d)
+
+        # (옵션) 로컬 파일이면 메타에 mtime 버전을 주입
+        try:
+            if _cfg_bool("RAG_ID_INCLUDE_MTIME", True):
+                md = getattr(d, "metadata", {}) or {}
+                ver = _local_mtime_key(md)
+                if ver:
+                    md["source_version"] = ver
+                    # LangChain Document는 metadata dict 재할당을 허용합니다.
+                    try:
+                        d.metadata = md
+                    except Exception:
+                        pass
+        except Exception:
+            pass
     pre_docs_count = len(pre_docs)
 
     # 2) 웹/로컬/기타 파티션
@@ -924,43 +1037,76 @@ def documents_to_chroma(
                 continue
             filtered_docs.append(d)
 
-        # 신규 URL만
-        all_urls = {
-            (getattr(d, "metadata", {}) or {}).get("source")
-            for d in filtered_docs if (getattr(d, "metadata", {}) or {}).get("source")
-        }
-        stored_urls = set()
-        if all_urls and not is_fresh:
+        # 신규/변경 판단을 위한 (source, version) 수집
+        def _sv_pair(d) -> tuple[str, str]:
+            m = getattr(d, "metadata", {}) or {}
+            src = m.get("source") or m.get("url") or m.get("file_path") or ""
+            ver = m.get("source_version") or ""
+            # 필요 시 로컬 mtime 강제 산출
+            if not ver and _cfg_bool("RAG_ID_INCLUDE_MTIME", True):
+                lv = _local_mtime_key(m)
+                if lv:
+                    m["source_version"] = lv
+                    ver = lv
+            return (str(src), str(ver))
+
+        all_srcs = []
+        cur_versions: dict[str, str] = {}
+        for d in filtered_docs:
+            src, ver = _sv_pair(d)
+            if src:
+                all_srcs.append(src)
+                if ver and src not in cur_versions:
+                    cur_versions[src] = ver
+
+        stored_map: dict[str, str] = {}
+        if all_srcs and not is_fresh:
             try:
-                urls: list[str] = [u for u in all_urls if isinstance(u, str) and u]
-                where_filter = {"source": {"$in": urls}}
-                include = ["metadatas"]
-                res = vs_eff._collection.get(  # type: ignore[attr-defined]
-                    where=cast(Where, where_filter),
-                    include=cast(Include, include),
-                )
+                urls: list[str] = [u for u in all_srcs if isinstance(u, str) and u]
+                # Chroma Where 타입이 엄격해 mypy가 연산자 표현을 추적하지 못함 → Any로 한정 구간만 완화
+                where_filter: Any = {"source": {"$in": urls}}
+                include: Include = ["metadatas"]
+                col: Any = getattr(vs_eff, "_collection", None)
+                res: Any = {}
+                if col is not None:
+                    res = col.get(where=where_filter, include=include)
                 for m in (res or {}).get("metadatas") or []:
                     if isinstance(m, dict) and m.get("source"):
-                        stored_urls.add(m["source"])
+                        s = str(m.get("source"))
+                        v = str(m.get("source_version") or "")
+                        # 가장 최근/마지막 값을 저장 (버전 필드 없던 기존 인덱스는 "")
+                        stored_map[s] = v
             except Exception as e:
                 logger.debug("chroma get(where=$in) failed(ns=%s): %s", ns_eff, e)
                 try:
-                    res = vs_eff._collection.get(include=["metadatas"])  # type: ignore[attr-defined]
-                    for m in (res or {}).get("metadatas") or []:
+                    col2: Any = getattr(vs_eff, "_collection", None)
+                    res2: Any = {}
+                    if col2 is not None:
+                        res2 = col2.get(include=["metadatas"])
+                    for m in (res2 or {}).get("metadatas") or []:
                         if isinstance(m, dict) and m.get("source"):
-                            stored_urls.add(m["source"])
+                            s = str(m.get("source"))
+                            v = str(m.get("source_version") or "")
+                            stored_map[s] = v
                 except Exception as e2:
                     logger.debug("chroma full metadatas get failed(ns=%s): %s", ns_eff, e2)
-                    stored_urls = set()
+                    stored_map = {}
         elif is_fresh:
             logger.debug("documents_to_chroma[%s]: fresh store detected; skip stored_urls check", label)
 
+        # 신규/변경 분류
         new_documents: List[Document] = []
+        changed_sources: set[str] = set()
         for d in filtered_docs:
             meta = getattr(d, "metadata", {}) or {}
             src = meta.get("source") or meta.get("url") or meta.get("file_path") or ""
-            if src and (is_fresh or src not in stored_urls):
+            cur_ver = str((meta.get("source_version") or ""))
+            if src and (is_fresh or (src not in stored_map)):
                 new_documents.append(d)
+            elif src and (stored_map.get(src, "") != cur_ver):
+                # 버전이 다르면 교체 대상
+                new_documents.append(d)
+                changed_sources.add(src)
             elif not src and is_fresh:
                 new_documents.append(d)
 
@@ -972,8 +1118,22 @@ def documents_to_chroma(
                 )
             return (len(part_docs), 0, 0, 0)
 
+        # (옵션) 버전 변경된 소스는 기존 벡터를 삭제 후 재색인
+        if changed_sources and _cfg_bool("RAG_DELETE_OLD_ON_VERSION_MISMATCH", True):
+            try:
+                col_del: Any = getattr(vs_eff, "_collection", None)
+                if col_del is not None:
+                    for s in changed_sources:
+                        try:
+                            # 동일 이유로 delete의 where도 Any로 완화
+                            col_del.delete(where=cast(Any, {"source": {"$eq": s}}))
+                        except Exception as de:
+                            logger.debug("delete old docs failed(ns=%s, source=%s): %s", ns_eff, s, de)
+            except Exception as e:
+                logger.debug("bulk delete on version mismatch failed(ns=%s): %s", ns_eff, e)
+
         # 스플릿
-        splits = split_documents(new_documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        splits: List[Document] = split_documents(new_documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         if not splits:
             if verbose:
                 logger.info(
@@ -984,7 +1144,7 @@ def documents_to_chroma(
             return (len(part_docs), len(new_documents), 0, 0)
 
         # ID 생성
-        MAX_ID_CHARS = int(os.getenv("CHROMA_MAX_ID_CHARS", "128"))
+        MAX_ID_CHARS = _cfg_int("CHROMA_MAX_ID_CHARS", 128)
         ids: List[str] = []
         counter: _dd[str, int] = _dd(int)
 
@@ -994,10 +1154,24 @@ def documents_to_chroma(
             keep_tail = 12
             return s[: MAX_ID_CHARS - keep_tail] + s[-keep_tail:]
 
-        for s in splits:
-            src = (getattr(s, "metadata", {}) or {}).get("source", "")
-            if src:
-                base = hashlib.sha1(src.encode("utf-8", "ignore")).hexdigest()
+        for doc in splits:
+            meta = getattr(doc, "metadata", {}) or {}
+            src  = meta.get("source", "") or meta.get("url", "") or meta.get("file_path", "")
+            ver  = meta.get("source_version", "")
+            seed = str(src)
+            # (옵션) mtime 기반 버전 키를 ID에 포함
+            if _cfg_bool("RAG_ID_INCLUDE_MTIME", True) and ver:
+                seed = f"{src}|{ver}"
+            # (옵션) 내용 기반 버전 보강 — 대용량에서 비용 큼. 기본 Off
+            if _cfg_bool("RAG_ID_INCLUDE_CONTENT_SHA", False):
+                try:
+                    import hashlib as _hl
+                    seed += "|" + _hl.sha1((doc.page_content or "").encode("utf-8","ignore")).hexdigest()[:16]
+                except Exception:
+                    pass
+            if seed:
+                import hashlib as _hl2
+                base = _hl2.sha1(seed.encode("utf-8", "ignore")).hexdigest()
                 counter[base] += 1
                 raw_id = f"{base}-{counter[base]:06d}"
             else:
@@ -1006,9 +1180,10 @@ def documents_to_chroma(
             ids.append(_cap_id(raw_id))
 
         # 업서트 (워치독 적용)
-        INDEX_TIMEOUT_SEC = int(os.getenv("INDEX_TIMEOUT_SEC", "60") or "60")
+        INDEX_TIMEOUT_SEC = _cfg_int("INDEX_TIMEOUT_SEC", 60)
         t0 = time.time()
-        qdir = Path(os.getenv("CHROMA_QUARANTINE_DIR", "") or (Path(pd_eff) / "quarantine"))
+        _qdir_cfg = _cfg_str("CHROMA_QUARANTINE_DIR", "")
+        qdir = Path(_qdir_cfg) if _qdir_cfg else (Path(pd_eff) / "quarantine")
         try: qdir.mkdir(parents=True, exist_ok=True)
         except Exception: pass
 
@@ -1045,25 +1220,25 @@ def documents_to_chroma(
             try: persist_fn()
             except Exception as e: logger.debug("vs.persist failed(ns=%s): %s", ns_eff, e)
         else:
-            client = getattr(vs_eff, "_client", None)
+            client: Any = getattr(vs_eff, "_client", None)
             client_persist = getattr(client, "persist", None)
             if callable(client_persist):
                 try: client_persist()
                 except Exception as e: logger.debug("client.persist failed(ns=%s): %s", ns_eff, e)
 
         try:
-            total_chars = sum(len(d.page_content or "") for d in splits)
-            avg_len = int(total_chars / len(splits)) if splits else 0
+            total_chars: int = sum(len(d.page_content or "") for d in splits)
+            avg_len: int = int(total_chars / len(splits)) if splits else 0
         except Exception:
             avg_len = 0
 
         elapsed = time.time() - t0
         logger.info(
-            "documents_to_chroma(part:%s): %d docs → %d chunks (ns=%s, dir=%s) | new=%d, splits=%d, avg_chunk_chars=%d, time=%.2fs",
-            label, len(part_docs), added_chunks, ns_eff, pd_eff, len(new_documents), len(splits), avg_len, elapsed
+            "documents_to_chroma(part:%s): %d docs → %d chunks (ns=%s, dir=%s) | new=%d, changed=%d, splits=%d, avg_chunk_chars=%d, time=%.2fs",
+            label, len(part_docs), added_chunks, ns_eff, pd_eff, len(new_documents), len(changed_sources), len(splits), avg_len, elapsed
         )
         try:
-            total_chars_for_splits = sum(len(d.page_content or "") for d in splits)
+            total_chars_for_splits: int = sum(len(d.page_content or "") for d in splits)
             record_chunks(chars_sum=total_chars_for_splits, chunks_cnt=added_chunks, ns=ns_eff, part=label)
         except Exception:
             pass
@@ -1176,9 +1351,9 @@ def retrieve(
     emb_fn = getattr(vs, "_embedding_function", None) or embedding or _get_embeddings(embedding)
 
     try:
-        q_emb = emb_fn.embed_query(q) if hasattr(emb_fn, "embed_query") else emb_fn(q)  # type: ignore
+        q_emb = emb_fn.embed_query(q) if hasattr(emb_fn, "embed_query") else emb_fn(q)  
         n = max(1, int(top_k or 5))
-        res = vs._collection.query(  # type: ignore[attr-defined]
+        res = vs._collection.query(  
             query_embeddings=[q_emb],
             n_results=n,
             include=["documents", "metadatas"],

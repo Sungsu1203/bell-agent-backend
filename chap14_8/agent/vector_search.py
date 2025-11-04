@@ -69,11 +69,46 @@ def _to_refs(raw: Mapping[str, Any] | None) -> Refs:
 def get_refs(state: Mapping[str, Any]) -> Refs:
     return _to_refs(cast(Mapping[str, Any] | None, state.get("references")))
 
-# ── logging helpers ───────────────────────────────────────────────────────────
-_LOG_TOPK = int(getattr(config.CFG, "LOG_TOPK", 5))
-_LOG_WRAP = int(getattr(config.CFG, "LOG_WRAP", 120))
+# ── config helpers (env → CFG → module default) ───────────────────────────────
+def _cfg_str(name: str, default: str = "") -> str:
+    try:
+        v = getattr(config.CFG, name, None)
+        if v is None:
+            v = getattr(config, name, None)
+    except Exception:
+        v = None
+    if v is None:
+        v = os.getenv(name, default)
+    return str(v) if v is not None else default
 
-def _ell(s: str, n: int = _LOG_WRAP) -> str:
+def _cfg_int(name: str, default: int = 0) -> int:
+    v = _cfg_str(name, str(default))
+    try:
+        return int(str(v).strip())
+    except Exception:
+        return default
+
+def _cfg_float(name: str, default: float = 0.0) -> float:
+    v = _cfg_str(name, str(default))
+    try:
+        return float(str(v).strip())
+    except Exception:
+        return default
+
+def _cfg_bool(name: str, default: bool = False) -> bool:
+    v = _cfg_str(name, "1" if default else "0").strip().lower()
+    return v in {"1", "true", "yes", "y", "on"}
+
+# ── logging helpers (runtime-config aware) ────────────────────────────────────
+def _log_topk() -> int:
+    return _cfg_int("LOG_TOPK", 5)
+
+def _log_wrap() -> int:
+    return _cfg_int("LOG_WRAP", 120)
+
+def _ell(s: str, n: Optional[int] = None) -> str:
+    if n is None:
+        n = _log_wrap()
     s = (s or "").replace("\n", " ").strip()
     return (s[:n-1] + "…") if len(s) > n else s
 
@@ -144,7 +179,7 @@ def _log_retrieval(query: str, docs: list[Any], tag: str = "vector_search") -> N
             logger.info("[%(tag)s] no hits", {"tag": tag})
             return
 
-        lines, topn = [], min(_LOG_TOPK, len(docs))
+        lines, topn = [], min(_log_topk(), len(docs))
         for i, d in enumerate(docs[:topn], start=1):
             raw_url = _doc_url(d)
             title = _doc_title(d)
@@ -167,7 +202,7 @@ def _log_retrieval(query: str, docs: list[Any], tag: str = "vector_search") -> N
 
 # ── Dual-namespace retrieve (웹/로컬 병합) ────────────────────────────────────
 def _env_ratio() -> float:
-    r = float(getattr(config.CFG, "RETRIEVE_WEB_RATIO", 0.5))
+    r = _cfg_float("RETRIEVE_WEB_RATIO", 0.5)
     return 0.0 if r < 0 else (1.0 if r > 1 else r)
 
 def _split_k(top_k: int) -> Tuple[int, int]:
@@ -206,10 +241,10 @@ def _dual_retrieve(query: str, *, top_k: int, ns_default: str, persist_dir: str)
        ⚠️ 말미에 기본 NS로 '무조건 폴백'을 수행하여 0-hit 반복을 방지한다.
        ⚠️ persist_directory는 호출 인자(persist_dir)를 우선 사용하여 모든 NS에 일관 적용.
     """
-    ns_web = (getattr(config.CFG, "CHROMA_NAMESPACE_WEB", "") or "").strip()
-    ns_loc = (getattr(config.CFG, "CHROMA_NAMESPACE_LOCAL", "") or "").strip()
-    include_base = bool(getattr(config.CFG, "CHROMA_INCLUDE_BASE", False))
-    mode = (getattr(config.CFG, "MERGE_RETRIEVE_MODE", "web_first") or "web_first").lower()
+    ns_web = (_cfg_str("CHROMA_NAMESPACE_WEB", "") or "").strip()
+    ns_loc = (_cfg_str("CHROMA_NAMESPACE_LOCAL", "") or "").strip()
+    include_base = _cfg_bool("CHROMA_INCLUDE_BASE", False)
+    mode = (_cfg_str("MERGE_RETRIEVE_MODE", "web_first") or "web_first").lower()
 
     # persist_directory 일관성: 외부 인자가 있으면 모든 NS에 동일 적용, 없으면 기본 규칙
     def _dir_for(ns: str) -> str:
@@ -319,7 +354,7 @@ def _dual_retrieve(query: str, *, top_k: int, ns_default: str, persist_dir: str)
 def vector_search_agent(state: State):
     logger.info("============ VECTOR SEARCH AGENT ============")
     llm = get_llm()
-    state = sanitize_state(state)
+    state = cast(State, sanitize_state(state))
 
     tasks = state.get("task_history", []) or []
     messages = state.get("messages", []) or []
@@ -346,16 +381,16 @@ def vector_search_agent(state: State):
 
     # Namespace & persist dir
     topic_slug: str = (state.get("topic_slug") or getattr(config.CFG, "TOPIC_SLUG", "") or "default").strip()
-    env_ns = (getattr(config.CFG, "CHROMA_NAMESPACE", "") or "").strip()
+    env_ns = (_cfg_str("CHROMA_NAMESPACE", "") or "").strip()
     ns: str = env_ns or f"{topic_slug}-default"
     persist_dir = _default_chroma_dir(ns)
 
     # ── [ANCHOR: NS_POLICY_INIT] 웹/로컬 NS 병합 정책(환경변수 우선) ─────────────
-    ns_web = (getattr(config.CFG, "CHROMA_NAMESPACE_WEB", "") or "").strip()
-    ns_loc = (getattr(config.CFG, "CHROMA_NAMESPACE_LOCAL", "") or "").strip()
-    merge_mode = (getattr(config.CFG, "MERGE_RETRIEVE_MODE", "web_first") or "web_first").lower()
-    web_ratio = float(getattr(config.CFG, "RETRIEVE_WEB_RATIO", 0.5))
-    include_base = bool(getattr(config.CFG, "CHROMA_INCLUDE_BASE", False))
+    ns_web = (_cfg_str("CHROMA_NAMESPACE_WEB", "") or "").strip()
+    ns_loc = (_cfg_str("CHROMA_NAMESPACE_LOCAL", "") or "").strip()
+    merge_mode = (_cfg_str("MERGE_RETRIEVE_MODE", "web_first") or "web_first").lower()
+    web_ratio = _cfg_float("RETRIEVE_WEB_RATIO", 0.5)
+    include_base = _cfg_bool("CHROMA_INCLUDE_BASE", False)
 
     # 상태/플래그에 NS 정책 기록 (디버그/가시성)
     flags = cast(MutableMapping[str, Any], state.setdefault("flags", {}))
@@ -381,8 +416,9 @@ def vector_search_agent(state: State):
     # 웹/로컬 네임스페이스가 있으면 1회 초기화 가드도 양쪽 적용
     try:
         ensure_vector_store_cleared_once(namespace=ns, persist_directory=persist_dir)
-        ns_web = (getattr(config.CFG, "CHROMA_NAMESPACE_WEB", "") or "").strip()
-        ns_loc = (getattr(config.CFG, "CHROMA_NAMESPACE_LOCAL", "") or "").strip()
+        # reload_config() 이후 값 반영 보장
+        ns_web = (_cfg_str("CHROMA_NAMESPACE_WEB", "") or "").strip()
+        ns_loc = (_cfg_str("CHROMA_NAMESPACE_LOCAL", "") or "").strip()
         if ns_web:
             ensure_vector_store_cleared_once(namespace=ns_web, persist_directory=_default_chroma_dir(ns_web))
         if ns_loc:
@@ -397,12 +433,12 @@ def vector_search_agent(state: State):
     logger.info("[vector_search] ns=%s (CHROMA_NAMESPACE=%r, topic_slug=%r)", ns, env_ns, topic_slug)
     logger.info("[vector_search] persist_dir(default_resolve)=%s", persist_dir)
 
-    TOP_K = int(getattr(config.CFG, "RAG_TOP_K", 5))
+    TOP_K = _cfg_int("RAG_TOP_K", 5)
 
     # Local ingest on-demand (optional)
     try:
-        ensure_local = bool(getattr(config.CFG, "SKIP_WEB_SEARCH", False))
-        local_globs_env = getattr(config.CFG, "LOCAL_RAG_GLOBS", "") or ""
+        ensure_local = _cfg_bool("SKIP_WEB_SEARCH", False)
+        local_globs_env = _cfg_str("LOCAL_RAG_GLOBS", "")
         need_local = ensure_local and bool(local_globs_env.strip())
         not_yet = not state.get("local_ingested_once")
         if need_local and not_yet:
@@ -524,7 +560,7 @@ def vector_search_agent(state: State):
             references = _to_refs(merged_dict)
             cast(MutableMapping[str, Any], state)["references"] = references
 
-            ALLOW_SUMMARY = bool(getattr(config.CFG, "ALLOW_LOCAL_SUMMARY", False))
+            ALLOW_SUMMARY = _cfg_bool("ALLOW_LOCAL_SUMMARY", False)
 
             from utils.tasks import has_pending as _has_p
             def _has_writer_pending(_tasks):
@@ -573,8 +609,8 @@ def vector_search_agent(state: State):
                                 state["new_url_count_round"] = as_int(state, "new_url_count_round", 0)
                                 state["round_new_urls"] = as_int(state, "round_new_urls", 0)
 
-                                flags = state.get("flags") or {}
-                                has_writer_lock = bool(flags.get("pending_write_title"))
+                                flags_mm = cast(MutableMapping[str, Any], state.setdefault("flags", {}))
+                                has_writer_lock = bool(flags_mm.get("pending_write_title"))
                                 has_writer_p = (
                                     has_pending(tasks, "section_writer", prefix="write:")
                                     or has_pending(tasks, "chapter_writer", prefix="write:")
@@ -600,7 +636,7 @@ def vector_search_agent(state: State):
                         except Exception as e:
                             logger.warning("QA 요약 생성 실패: %s", e)
 
-            if not ALLOW_SUMMARY and bool(getattr(config.CFG, "AUTO_WRITE_DURING_RESEARCH", False)):
+            if not ALLOW_SUMMARY and _cfg_bool("AUTO_WRITE_DURING_RESEARCH", False):
                 schedule_writer_if_needed(
                     cast(MutableMapping[str, Any], state),
                     tasks=tasks, messages=messages, outline_text=outline_text, debug=True
@@ -685,7 +721,7 @@ def vector_search_agent(state: State):
     references = _to_refs(merged_dict)
     cast(MutableMapping[str, Any], state)["references"] = references
 
-    if config.CFG.AUTO_WRITE_DURING_RESEARCH:
+    if _cfg_bool("AUTO_WRITE_DURING_RESEARCH", False):
         schedule_writer_if_needed(cast(MutableMapping[str, Any], state),
                                   tasks=tasks, messages=messages, outline_text=outline_text, debug=True)
 
@@ -728,14 +764,14 @@ def vector_search_agent(state: State):
         pipeline_on = _has_research_pipeline(tasks)
         research_loop_active = (role == "research analyst") and (max_iter > 0) and (rounds_done < max_iter) and (has_objective or has_plan or pipeline_on)
 
-    writer_agent = config.CFG.WRITER_AGENT
-    AUTO_WRITE_DURING_RESEARCH = config.CFG.AUTO_WRITE_DURING_RESEARCH
+    writer_agent = getattr(config.CFG, "WRITER_AGENT", "section_writer")
+    AUTO_WRITE_DURING_RESEARCH = _cfg_bool("AUTO_WRITE_DURING_RESEARCH", False)
  
 
     logger.debug("[writer_guard] %s", {
-        "DOC_MODE": config.CFG.DOC_MODE,
+        "DOC_MODE": getattr(config.CFG, "DOC_MODE", "report"),
         "WRITER_AGENT": writer_agent,
-        "AUTO_WRITE_AFTER_RAG": config.CFG.AUTO_WRITE_AFTER_RAG,
+        "AUTO_WRITE_AFTER_RAG": _cfg_bool("AUTO_WRITE_AFTER_RAG", True),
         "AUTO_WRITE_DURING_RESEARCH": AUTO_WRITE_DURING_RESEARCH,
         "research_loop_active": research_loop_active,
         "has_writer_pending": has_pending(tasks, writer_agent, prefix="write:"),
@@ -774,7 +810,7 @@ def vector_search_agent(state: State):
         if did:
             writer_task_scheduled = True
 
-        flags = state.get("flags") or {}
+        flags_mm2 = cast(MutableMapping[str, Any], state.setdefault("flags", {}))
         has_writer_p = (
             has_pending(tasks, "section_writer", prefix="write:")
             or has_pending(tasks, "chapter_writer", prefix="write:")
@@ -796,15 +832,4 @@ def vector_search_agent(state: State):
 
         return {"messages": messages, "task_history": tasks, "references": references}
     
-# ── Compatibility aliases (optional) ─────────────────────────────────────────
-from typing import Final
-
-WRITER_AGENT: Final[str] = getattr(config.CFG, "WRITER_AGENT", "section_writer")
-RAG_TOP_K: Final[int] = int(getattr(config.CFG, "RAG_TOP_K", 5))
-RETRIEVE_WEB_RATIO: Final[float] = float(getattr(config.CFG, "RETRIEVE_WEB_RATIO", 0.5))
-MERGE_RETRIEVE_MODE: Final[str] = getattr(config.CFG, "MERGE_RETRIEVE_MODE", "web_first")
-CHROMA_NAMESPACE_WEB: Final[str] = getattr(config.CFG, "CHROMA_NAMESPACE_WEB", "")
-CHROMA_NAMESPACE_LOCAL: Final[str] = getattr(config.CFG, "CHROMA_NAMESPACE_LOCAL", "")
-CHROMA_INCLUDE_BASE: Final[bool] = bool(getattr(config.CFG, "CHROMA_INCLUDE_BASE", False))
-ALLOW_LOCAL_SUMMARY: Final[bool] = bool(getattr(config.CFG, "ALLOW_LOCAL_SUMMARY", False))
-AUTO_WRITE_DURING_RESEARCH: Final[bool] = bool(getattr(config.CFG, "AUTO_WRITE_DURING_RESEARCH", False))
+# (모듈 하단의 정적 상수는 제거하여 reload_config() 이후에도 값이 반영되도록 함)

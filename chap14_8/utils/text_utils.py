@@ -2,7 +2,7 @@
 from __future__ import annotations
 import re, unicodedata
 import html
-from typing import Optional
+from typing import Optional, Any, Iterable, List
 
 import logging
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ def _get_cfg_attr(name: str, default):
         pass
     return default
 
-__all__ = ["slugify", "section_slugify", "strip_number_prefix", "clean_snip", "plain_snip"]
+__all__ = ["slugify", "section_slugify", "strip_number_prefix", "clean_snip", "plain_snip", "refresh_text_utils"]
 
 # Windows 파일명에서 금지 문자를 우선 제거
 _WIN_FORBIDDEN = re.compile(r'[\/\\:\\*\?"<>\|]+')
@@ -38,13 +38,9 @@ _WIN_RESERVED = {
      *(f"lpt{i}" for i in range(1,10)),
  }
 
-# 기본 동작을 설정으로 제어(런타임에 읽음)
-_DEF_ALLOW_UNICODE = bool(_get_cfg_attr("SLUG_ALLOW_UNICODE", True))
-_DEF_MAX_LEN = int(_get_cfg_attr("SLUG_MAX_LEN", 120))
-_DEF_NORMALIZE_NFKC = bool(_get_cfg_attr("SLUG_NORMALIZE_NFKC", True))
-_DEF_PROTECT_WIN_RESERVED = bool(_get_cfg_attr("SLUG_PROTECT_WIN_RESERVED", True))
-
-
+# ─────────────────────────────────────────────────────────────
+# Per-call dynamic getters (reload_config() 즉시 반영)
+# ─────────────────────────────────────────────────────────────
 def _cfg_bool(name: str, default: bool) -> bool:
     v = _get_cfg_attr(name, default)
     try:
@@ -53,7 +49,6 @@ def _cfg_bool(name: str, default: bool) -> bool:
         return str(v).strip().lower() in {"1","true","yes","on","y"}
     except Exception:
         return default
-
 
 def _cfg_int(name: str, default: int) -> int:
     v = _get_cfg_attr(name, default)
@@ -65,6 +60,47 @@ def _cfg_int(name: str, default: int) -> int:
     except Exception:
         return default
 
+def _as_list(v: Any) -> List[str]:
+    if not v:
+        return []
+    try:
+        return [str(x).strip() for x in (v if isinstance(v, (list,tuple)) else str(v).split(";")) if str(x).strip()]
+    except Exception:
+        return []
+
+def _slug_allow_unicode() -> bool:
+    return _cfg_bool("SLUG_ALLOW_UNICODE", True)
+def _slug_max_len() -> int:
+    return _cfg_int("SLUG_MAX_LEN", 120)
+def _slug_normalize_nfkc() -> bool:
+    return _cfg_bool("SLUG_NORMALIZE_NFKC", True)
+def _slug_protect_win_reserved() -> bool:
+    return _cfg_bool("SLUG_PROTECT_WIN_RESERVED", True)
+def _slug_use_unidecode() -> bool:
+    # ASCII 모드에서 unidecode 우선 사용 여부
+    return _cfg_bool("SLUG_USE_UNIDECODE", True)
+def _slug_strip_emoji() -> bool:
+    return _cfg_bool("SLUG_STRIP_EMOJI", True)
+
+# 간단한 이모지/픽토 범위(완벽하진 않지만 일반 케이스에 유용)
+_EMOJI = re.compile(
+    "["                                     # noqa: W605
+    "\U0001F300-\U0001F64F"                 # Misc Symbols and Pictographs
+    "\U0001F680-\U0001F6FF"                 # Transport & Map
+    "\U0001F700-\U0001F77F"                 # Alchemical Symbols
+    "\U0001F780-\U0001F7FF"
+    "\U0001F800-\U0001F8FF"
+    "\U0001F900-\U0001F9FF"
+    "\U0001FA00-\U0001FAFF"
+    "\U00002700-\U000027BF"                 # Dingbats
+    "\U00002600-\U000026FF"                 # Misc symbols
+    "]"
+)
+
+# 번호/챕터 접두 커스터마이즈(세미콜론 구분식 또는 리스트)
+def _extra_strip_prefix_patterns() -> List[str]:
+    raw = _get_cfg_attr("STRIP_PREFIX_EXTRA_REGEX", [])
+    return _as_list(raw)
 
 def slugify(
     title: str,
@@ -80,13 +116,13 @@ def slugify(
     - 윈도우 예약어/끝점·공백/제로폭 문자 제거, 길이 제한(max_len)
     설정 기본값은 CFG에서 읽어 동적으로 적용됩니다.
     """
-    # CFG 기본값 일원화 (없으면 기존 디폴트 유지)
+    # CFG 기본값(런타임 조회)
     if allow_unicode is None:
-        allow_unicode = _cfg_bool("SLUG_ALLOW_UNICODE", _DEF_ALLOW_UNICODE)
+        allow_unicode = _slug_allow_unicode()
     if max_len is None:
-        max_len = _cfg_int("SLUG_MAX_LEN", _DEF_MAX_LEN)
-    normalize_nfkc = _cfg_bool("SLUG_NORMALIZE_NFKC", _DEF_NORMALIZE_NFKC)
-    protect_win_reserved = _cfg_bool("SLUG_PROTECT_WIN_RESERVED", _DEF_PROTECT_WIN_RESERVED)
+        max_len = _slug_max_len()
+    normalize_nfkc = _slug_normalize_nfkc()
+    protect_win_reserved = _slug_protect_win_reserved()
 
     s = (title or "").strip()
     if not s:
@@ -97,6 +133,8 @@ def slugify(
         s = unicodedata.normalize("NFKC", s)
     s = _ZERO_WIDTH.sub("", s)
     s = _WIN_FORBIDDEN.sub(" ", s)
+    if _slug_strip_emoji():
+        s = _EMOJI.sub(" ", s)
 
     # 공백을 하이픈으로 -> 소문자화
     s = re.sub(r"\s+", "-", s).lower()
@@ -107,8 +145,11 @@ def slugify(
         # ASCII만 남기기 (transliteration)
         try:
             # 더 자연스러운 라틴 변환
-            from unidecode import unidecode  # type: ignore
-            s = unidecode(s)
+            if _slug_use_unidecode():
+                from unidecode import unidecode  # type: ignore
+                s = unidecode(s)
+            else:
+                raise ImportError()
         except Exception:
             s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
         s = _ALLOWED_ASCII.sub("", s)
@@ -120,7 +161,7 @@ def slugify(
     s = s.rstrip(" .")
 
     # 예약어 회피
-    if protect_win_reserved and s in _WIN_RESERVED:
+    if protect_win_reserved and s.lower() in _WIN_RESERVED:
         s = f"{s}-file"
 
     # 길이 제한
@@ -153,6 +194,12 @@ def strip_number_prefix(text: str) -> str:
     s = re.sub(r"^(작성|write)\s*[:：]\s*", "", s, flags=re.I)
     # 흔한 불릿/대시 제거
     s = s.strip(" -–—•·\t")
+    # (옵션) 추가 패턴 제거(CFG)
+    for pat in _extra_strip_prefix_patterns():
+        try:
+            s = re.sub(pat, "", s, flags=re.I)
+        except Exception:
+            continue
     return s
 
 
@@ -184,3 +231,11 @@ def plain_snip(text: str, n: int = 160) -> str:
     # 태그 제거
     t = re.sub(r"<[^>]+>", " ", t)
     return clean_snip(t, n)
+
+# ─────────────────────────────────────────────────────────────
+# (옵션) 캐시 무효화 훅 — 현재 구현은 per-call 조회이므로 no-op
+# ─────────────────────────────────────────────────────────────
+def refresh_text_utils() -> None:  # pragma: no cover
+    """향후 lru_cache 최적화 시 cache_clear() 연결용 훅.
+    현재 버전은 per-call 조회로 즉시 반영되므로 동작 없음."""
+    return

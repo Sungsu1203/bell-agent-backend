@@ -16,6 +16,10 @@ DocMode: TypeAlias = Literal["report", "book"]
 
 
 def _get_cfg_attr(name: str, default):
+    """
+    CFG(우선) → 모듈 레벨 상수 → 기본값 순으로 안전 조회.
+    예외가 나더라도 default를 반환하여 호출부 안정성 보장.
+    """
     try:
         cfg = getattr(config, "CFG", None)
         if cfg is not None and hasattr(cfg, name):
@@ -23,13 +27,23 @@ def _get_cfg_attr(name: str, default):
         if hasattr(config, name):
             return getattr(config, name)
     except Exception:
-        pass
+        return default
     return default
 
 
-def _as_doc_mode(val: str | None) -> DocMode:
-    s = (val or _get_cfg_attr("DOC_MODE", "report")).strip().lower()
-    return "report" if s == "report" else "book"
+def _as_doc_mode(val: str | None = None) -> DocMode:
+    """
+    입력값이 없거나 이상해도 report/book 중 하나로 강제.
+    """
+    raw = val or str(_get_cfg_attr("DOC_MODE", "report"))
+    s = str(raw).strip().lower()
+    if s == "report":
+        return "report"
+    if s == "book":
+        return "book"
+    # 알 수 없는 값이면 기본 report로 강제
+    logger.debug("Unknown DOC_MODE=%r → fallback to 'report'", s)
+    return "report"
 
 
 # 공통 출력 규칙 상수 (재사용)

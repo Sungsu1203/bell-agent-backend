@@ -4,7 +4,7 @@ from urllib.parse import urlparse, unquote, parse_qs
 from pathlib import Path
 import os
 import re
-from typing import Iterable, Optional, Set, List
+from typing import Iterable, Optional, Set, List, Dict
 
 # ─────────────────────────────────────────────────────────────
 # Dynamic config access (avoid static binding at import)
@@ -33,29 +33,52 @@ def _as_set(v: Optional[Iterable[str]]) -> Set[str]:
     except Exception:
         return set()
 
+# ─────────────────────────────────────────────────────────────
+# Per-call dynamic getters (reload_config() 즉시 반영)
+# ─────────────────────────────────────────────────────────────
+def _project_root() -> str:
+    val = str(_get_cfg_attr("PROJECT_ROOT", os.getenv("PROJECT_ROOT", "")) or "")
+    return val.strip().rstrip("\\/")
 
-# 프로젝트 루트: config 우선, 마지막 폴백은 환경변수
-_PROJECT_ROOT = (
-    str(_get_cfg_attr("PROJECT_ROOT", os.getenv("PROJECT_ROOT", "")))
-    .strip()
-    .rstrip("\\/")
-)
+def _tracking_params() -> Set[str]:
+    default = {
+        "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+        "gclid", "fbclid", "igshid", "igsh", "mc_cid", "mc_eid",
+    }
+    return _as_set(_get_cfg_attr("REF_TRACKING_PARAMS", default))
 
-# 흔한 추적 파라미터(로그 가독성 위해 제거): 설정에서 덮어쓰기 가능
-_TRACKING_PARAMS: Set[str] = _as_set(
-    _get_cfg_attr(
-        "REF_TRACKING_PARAMS",
-        {
-            "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
-            "gclid", "fbclid", "igshid", "igsh", "mc_cid", "mc_eid",
-        },
-    )
-)
+def _title_max_len() -> int:
+    try:
+        return int(_get_cfg_attr("REF_TITLE_MAX_LEN", 96) or 96)
+    except Exception:
+        return 96
+
+def _link_max_len() -> int:
+    try:
+        return int(_get_cfg_attr("REF_LINK_MAX_LEN", 96) or 96)
+    except Exception:
+        return 96
+
+def _path_tail_segments() -> int:
+    # 마지막 몇 개의 path 세그먼트를 표시할지 (2~3 권장)
+    try:
+        n = int(_get_cfg_attr("REF_TAIL_SEGMENTS", 3) or 3)
+        return 3 if n < 1 else n
+    except Exception:
+        return 3
+
+def _strip_www() -> bool:
+    try:
+        return bool(_get_cfg_attr("REF_STRIP_WWW", True))
+    except Exception:
+        return True
 
 
-def _shorten(text: str, max_len: int = 96) -> str:
+def _shorten(text: str, max_len: Optional[int] = None) -> str:
     if not text:
         return ""
+    if max_len is None:
+        max_len = 96
     if len(text) <= max_len:
         return text
     head = max_len - 10
@@ -81,18 +104,20 @@ def _posix_to_windows(path: str) -> str:
 def _relativize(path: str) -> str:
     if not path:
         return path
-    if _PROJECT_ROOT:
+    pr = _project_root()
+    if pr:
         try:
-            pr_low = _PROJECT_ROOT.lower()
-            p_low = path.lower()
+            # Windows 대소문자 무시 경로 대비
+            pr_low = os.path.normcase(pr)
+            p_low = os.path.normcase(path)
             if p_low.startswith(pr_low):
-                return os.path.relpath(path, _PROJECT_ROOT)
+                return os.path.relpath(path, pr)
         except Exception:
             pass
     return path
 
 
-def _strip_tracking_qs(q: str) -> dict[str, list[str]]:
+def _strip_tracking_qs(q: str) -> Dict[str, List[str]]:
     try:
         qs = parse_qs(q or "")
     except Exception:
@@ -100,7 +125,8 @@ def _strip_tracking_qs(q: str) -> dict[str, list[str]]:
     if not qs:
         return {}
     # 추적 파라미터 제거 (동적 목록 사용)
-    clean = {k: v for k, v in qs.items() if k.lower() not in _TRACKING_PARAMS}
+    tparams = {p.lower() for p in _tracking_params()}
+    clean = {k: v for k, v in qs.items() if k.lower() not in tparams}
     return clean
 
 
@@ -170,7 +196,7 @@ def format_ref_for_log(raw_url: str) -> tuple[str, str]:
                 parts.append(f"{k}={','.join(v)}")
             suffix = f"  [{' ; '.join(parts)}]" if parts else ""
             title = _basename_or(win_path, win_path) + suffix
-            return _shorten(title), _shorten(win_path)
+            return _shorten(title, _title_max_len()), _shorten(win_path, _link_max_len())
 
         # ── 웹 URL
         # 스킴 누락 시에도 urlparse는 netloc이 비니까, host 인식 실패할 수 있다.
@@ -179,27 +205,38 @@ def format_ref_for_log(raw_url: str) -> tuple[str, str]:
             u = urlparse("http://" + raw)
 
         host = (u.netloc or "").lower()
+        if _strip_www() and host.startswith("www."):
+            host = host[4:]
         path = unquote(u.path or "/").strip("/")
 
         # 추적 쿼리를 제거한 요약을 만들되, 로그에서는 경로 중심으로만 표시
         _ = _strip_tracking_qs(u.query or "")  # 현재 링크 라인엔 사용하지 않지만 추후 확장을 위해 남김
 
         segs = [s for s in path.split("/") if s]
-        # 마지막 2~3 세그먼트만 사용해 가독성 확보
-        if len(segs) >= 3:
-            pretty_path = "/".join(segs[-3:])
-        elif len(segs) == 2:
+        # 마지막 N 세그먼트만 표시 (CFG: REF_TAIL_SEGMENTS)
+        n_tail = _path_tail_segments()
+        if len(segs) >= n_tail:
+            pretty_path = "/".join(segs[-n_tail:])
+        elif len(segs) > 0:
             pretty_path = "/".join(segs)
         else:
-            pretty_path = segs[0] if segs else "/"
+            pretty_path = "/"
 
         name = segs[-1] if segs else (host or "/")
         title_line = name or "/"
         link_line = f"{host} / {pretty_path or '/'}"
-        return _shorten(title_line), _shorten(link_line)
+        return _shorten(title_line, _title_max_len()), _shorten(link_line, _link_max_len())
 
     except Exception:
         # 완전 실패 시: 퍼센트 디코드 후 동일 문자열 반환
         dec = unquote(raw_url or "")
-        s = _shorten(dec)
+        s = _shorten(dec, _title_max_len())
         return s, s
+
+# ─────────────────────────────────────────────────────────────
+# (옵션) 캐시 무효화 훅 — 현재 구현은 per-call 조회이므로 no-op
+# ─────────────────────────────────────────────────────────────
+def refresh_ref_format() -> None:  # pragma: no cover
+    """향후 최적화로 캐시 도입 시 cache_clear()를 연결하기 위한 훅.
+    현재 버전은 per-call 조회로 즉시 반영되므로 동작 없음."""
+    return

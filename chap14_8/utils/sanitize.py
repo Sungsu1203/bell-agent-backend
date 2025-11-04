@@ -1,6 +1,6 @@
 # utils/sanitize.py — dynamic config access (v2025-10-27)
 from __future__ import annotations
-from typing import Any, Mapping, MutableMapping, overload, TYPE_CHECKING, Dict, Iterable, cast
+from typing import Any, Mapping, MutableMapping, TYPE_CHECKING, Dict, Iterable, cast, overload
 
 import re
 
@@ -33,14 +33,10 @@ def _as_set(v: Iterable[str] | None) -> set[str]:
     except Exception:
         return set()
 
-# ── Type alias for State (tooling-friendly) ──────────────────────────────────
-# 타입체커 환경에선 실제 State를 사용하고, 런타임/비타입체커 환경에선
-# 넓은 MutableMapping[str, Any]로 대체하여 "unknown import symbol"을 방지.
+# ── State typing helper (optional; not strictly required here) ───────────────
+# We avoid importing State at runtime; only for type checkers if needed.
 if TYPE_CHECKING:
-    from core.state_types import State as StateT  # typed
-else:
-    # 런타임/비타입체커용 관대한 별칭
-    from typing import MutableMapping as StateT  # type: ignore[assignment]
+    from core.state_types import State  # TypedDict (type checker 전용)
 
 __all__ = [
     "coerce_int",
@@ -49,23 +45,35 @@ __all__ = [
     "sanitize_numeric_state_generic",
     "sanitize_state",
     "sanitize_state_copy",
+    # 선택: 캐시 도입 시 무해한 리프레시 훅
+    "refresh_sanitize",
 ]
 
 # ─────────────────────────────────────────────────────────────
-# Configurable knobs (runtime)
+# Configurable knobs (runtime; per-call getters로 전환)
 # ─────────────────────────────────────────────────────────────
 _DEFAULT_NUMERIC_KEYS = {
     "iteration_count", "research_round", "no_new_url_streak", "round_added_urls",
     "new_url_count", "new_url_count_round", "round_new_urls",
     "research_halt_threshold", "research_min_rounds", "research_max_no_new_rounds",
 }
-_NUMERIC_KEYS = _as_set(_get_cfg_attr("NUMERIC_STATE_KEYS", None)) or _DEFAULT_NUMERIC_KEYS
+def _numeric_keys() -> set[str]:
+    base = _as_set(_get_cfg_attr("NUMERIC_STATE_KEYS", None)) or _DEFAULT_NUMERIC_KEYS
+    extra = _as_set(_get_cfg_attr("NUMERIC_STATE_KEYS_EXTRA", None))
+    return set(base) | set(extra)
 
-# coerce_int 동작 튜닝(필요시 CFG에서 덮어쓰기)
-_COERCE_ALLOW_FLOAT: bool = bool(_get_cfg_attr("COERCE_INT_ALLOW_FLOAT", True))
-_COERCE_ALLOW_SCI: bool = bool(_get_cfg_attr("COERCE_INT_ALLOW_SCI", True))  # 3e2
-_COERCE_STRIP_SEPARATORS: bool = bool(_get_cfg_attr("COERCE_INT_STRIP_SEPARATORS", True))  # 1,234 / 1_234
-_COERCE_ON_NAN_INF_DEFAULT: int = int(_get_cfg_attr("COERCE_INT_NAN_INF_DEFAULT", 0))
+# coerce_int 동작 튜닝(필요시 CFG에서 덮어쓰기) — per-call getters
+def _coerce_allow_float() -> bool:
+    return bool(_get_cfg_attr("COERCE_INT_ALLOW_FLOAT", True))
+def _coerce_allow_sci() -> bool:   # 3e2
+    return bool(_get_cfg_attr("COERCE_INT_ALLOW_SCI", True))
+def _coerce_strip_separators() -> bool:  # 1,234 / 1_234
+    return bool(_get_cfg_attr("COERCE_INT_STRIP_SEPARATORS", True))
+def _coerce_on_nan_inf_default() -> int:
+    try:
+        return int(_get_cfg_attr("COERCE_INT_NAN_INF_DEFAULT", 0) or 0)
+    except Exception:
+        return 0
 
 # 불리언 플래그 키(기본 + CFG로 오버라이드 가능)
 _DEFAULT_BOOL_FLAG_KEYS = {
@@ -76,7 +84,13 @@ _DEFAULT_BOOL_FLAG_KEYS = {
     "RAG_FIRST",
 }
 _BOOL_FLAG_KEYS = _as_set(_get_cfg_attr("BOOL_STATE_FLAG_KEYS", None)) or _DEFAULT_BOOL_FLAG_KEYS
-
+def _bool_flag_keys() -> set[str]:
+    base = _as_set(_get_cfg_attr("BOOL_STATE_FLAG_KEYS", None)) or _DEFAULT_BOOL_FLAG_KEYS
+    extra = _as_set(_get_cfg_attr("BOOL_STATE_FLAG_KEYS_EXTRA", None))
+    return set(base) | set(extra)
+def _bool_coerce_all() -> bool:
+    # 알려진 키 외의 문자열 불리언도 강제로 정규화할지 여부
+    return bool(_get_cfg_attr("BOOL_STATE_COERCE_ALL", False))
 
 # ─────────────────────────────────────────────────────────────
 # 숫자 유틸
@@ -96,7 +110,7 @@ def coerce_int(v: object, default: int = 0) -> int:
         if isinstance(v, float):
             # NaN/Inf 방지
             if v != v or v in (float("inf"), float("-inf")):
-                return _COERCE_ON_NAN_INF_DEFAULT if default == 0 else default
+                return _coerce_on_nan_inf_default() if default == 0 else default
             return int(v)
         if isinstance(v, (bytes, bytearray)):
             s = v.decode("utf-8", "ignore")
@@ -113,13 +127,13 @@ def coerce_int(v: object, default: int = 0) -> int:
         # 비정상 표기 빠르게 차단
         low = s.lower()
         if "nan" in low or "inf" in low or "infinity" in low or "∞" in low:
-            return _COERCE_ON_NAN_INF_DEFAULT if default == 0 else default
+            return _coerce_on_nan_inf_default() if default == 0 else default
 
-        if _COERCE_STRIP_SEPARATORS:
+        if _coerce_strip_separators():
             # 구분자 제거 (1,234 / 1_234)
             s = s.replace(",", "").replace("_", "")
 
-        if not _COERCE_ALLOW_FLOAT and not _COERCE_ALLOW_SCI:
+        if not _coerce_allow_float() and not _coerce_allow_sci():
             # 순수 정수만 허용
             m = re.match(r"^[+-]?\d+$", s)
             return int(m.group(0)) if m else default
@@ -147,7 +161,12 @@ def as_bool(v: object) -> bool:
             return False
     if isinstance(v, str):
         s = v.strip().lower()
-        return s in ("1", "true", "yes", "y", "on", "t")
+        if s in ("1", "true", "yes", "y", "on", "t"):
+            return True
+        if s in ("0", "false", "no", "n", "off", "f", "null", "none"):
+            return False
+        # 기타 문자열은 False로 취급(보수적으로)
+        return False
     return False
 
 
@@ -169,7 +188,7 @@ def sanitize_numeric_state_generic(st: Any) -> Any:
 
     if isinstance(st, MutableMapping):
         mm: MutableMapping[str, Any] = st
-        for k in _NUMERIC_KEYS:
+        for k in _numeric_keys():
             if k not in mm:
                 continue
             v = mm[k]
@@ -185,7 +204,7 @@ def sanitize_numeric_state_generic(st: Any) -> Any:
 
     if isinstance(st, Mapping):
         mm2: Dict[str, Any] = dict(st)  # 불변 Mapping은 dict 복사
-        for k in _NUMERIC_KEYS:
+        for k in _numeric_keys():
             if k not in mm2:
                 continue
             v = mm2[k]
@@ -201,7 +220,7 @@ def sanitize_numeric_state_generic(st: Any) -> Any:
 
     # 그 외 타입
     mm3: Dict[str, Any] = dict(st) if hasattr(st, "items") else {}
-    for k in _NUMERIC_KEYS:
+    for k in _numeric_keys():
         if k not in mm3:
             continue
         v = mm3[k]
@@ -224,9 +243,17 @@ def _sanitize_bool_flags_inplace(st: _MM[str, Any]) -> int:
         if not isinstance(flags, _MM):
             return 0
         changed = 0
-        for k in _BOOL_FLAG_KEYS:
+        # 알려진 키 우선 정규화
+        for k in _bool_flag_keys():
             if k in flags:
                 old = flags[k]
+                new = as_bool(old)
+                if new != old:
+                    flags[k] = new
+                    changed += 1
+        # (옵션) 전체 키 일괄 정규화
+        if _bool_coerce_all():
+            for k, old in list(flags.items()):
                 new = as_bool(old)
                 if new != old:
                     flags[k] = new
@@ -238,18 +265,22 @@ def _sanitize_bool_flags_inplace(st: _MM[str, Any]) -> int:
         return 0
 
 
-@overload
-def sanitize_state(st: StateT) -> StateT: ...
+# Precise overloads so callers keep mutability semantics.
 @overload
 def sanitize_state(st: MutableMapping[str, Any]) -> MutableMapping[str, Any]: ...
 @overload
-def sanitize_state(st: Mapping[str, Any]) -> Dict[str, Any]: ...
+def sanitize_state(st: Mapping[str, Any]) -> Mapping[str, Any]: ...
+@overload
+def sanitize_state(st: None) -> Mapping[str, Any]: ...
 
-def sanitize_state(st: Any) -> Any:
+def sanitize_state(
+    st: Mapping[str, Any] | MutableMapping[str, Any] | None,
+) -> Mapping[str, Any]:
     """
-    숫자 필드(int)와 flags의 불리언 필드를 정규화합니다.
-    - State/MutableMapping: in-place 정규화 후 원본 반환(부작용 있음)
-    - Mapping: dict(st) 복사본을 만들어 정규화 후 반환(부작용 없음)
+    Normalize numeric fields and boolean flags.
+    - MutableMapping: in-place; return the SAME mutable object.
+    - Mapping: return a dict copy with normalization applied.
+    - None: return a new empty dict().
     """
     if isinstance(st, MutableMapping):  # in-place
         sanitize_numeric_state_generic(st)
@@ -260,14 +291,27 @@ def sanitize_state(st: Any) -> Any:
         return st
 
     if isinstance(st, Mapping):
-        mm = sanitize_numeric_state_generic(dict(st))  # 복사 정규화
+        mm: Dict[str, Any] = sanitize_numeric_state_generic(dict(st))  # copy-normalize
         _sanitize_bool_flags_inplace(cast(MutableMapping[str, Any], mm))  # [ADD]
         return mm
 
     mm3 = sanitize_numeric_state_generic(st)
     if isinstance(mm3, MutableMapping):
         _sanitize_bool_flags_inplace(cast(MutableMapping[str, Any], mm3))  # [ADD]
-    return mm3
+    return cast(Dict[str, Any], mm3)
+
+
+# ─────────────────────────────────────────────────────────────
+# State 요구 시그니처를 위한 얇은 래퍼 (에이전트 쪽 타입폭발 방지)
+# ─────────────────────────────────────────────────────────────
+def sanitize_state_as_state(st: "State") -> "State":
+    """
+    State(TypedDict) 입력을 in-place 정규화하고 그대로 State로 돌려준다.
+    - 내부적으로 sanitize_state(st)를 호출(가변이라 제자리 수정)
+    - 반환 타입을 State로 고정하여 mypy가 만족하도록 캐스팅
+    """
+    sanitize_state(st)  # in-place normalize
+    return cast("State", st)
 
 def sanitize_state_copy(st: Mapping[str, Any] | None) -> dict[str, Any]:
     """원본을 보존하고 싶은 경우 사용: 항상 dict 복사본을 반환."""
@@ -276,3 +320,11 @@ def sanitize_state_copy(st: Mapping[str, Any] | None) -> dict[str, Any]:
     # 복사본에서도 불리언 플래그 정규화 수행
     _sanitize_bool_flags_inplace(cast(MutableMapping[str, Any], base))
     return base
+
+# ─────────────────────────────────────────────────────────────
+# (옵션) 캐시 무효화 훅 — 현재 구현은 per-call 조회이므로 no-op
+# ─────────────────────────────────────────────────────────────
+def refresh_sanitize() -> None:  # pragma: no cover
+    """향후 lru_cache 최적화 시 cache_clear() 연결용 훅.
+    현재 버전은 per-call 조회로 즉시 반영되므로 동작 없음."""
+    return

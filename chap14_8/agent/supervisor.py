@@ -3,10 +3,11 @@ from __future__ import annotations
 import logging
 logger = logging.getLogger(__name__)
 
+import os
 import re
-from typing import Any, Mapping, MutableMapping, cast
+from typing import Any, Mapping, MutableMapping, cast, Dict, List, Iterable, Optional, Protocol
 from utils.tasks import HumanMessage, AIMessage, schedule_writer_if_needed
-from core.models import Task
+from core.models import Task, AgentName
 from utils.sanitize import sanitize_state, coerce_int
 from rag_expression import (
     is_outline_display,
@@ -24,8 +25,14 @@ from utils.forced_queries import extract_forced_queries_from_messages
 from core.topic import start_new_topic, sanitize_title as _sanitize_title
 from core.llm import get_llm
 from prompts import get_supervisor_prompt
+from core.state_types import State  # TypedDict
 
 # ── Safe has_pending ─────────────────────────────────────────────────────────
+# utils.tasks.has_pending이 keyword-only 인자(prefix)를 갖는 시그니처를 가짐.
+class _HasPendingProto(Protocol):
+    def __call__(self, tasks: Iterable[Any], agent: str, *, prefix: str | None = ...) -> bool: ...
+
+_HAS_PENDING: Optional[_HasPendingProto]
 try:
     from utils.tasks import has_pending as _HAS_PENDING
 except Exception:
@@ -50,12 +57,50 @@ def _safe_has_pending(tasks, agent: str, prefix: str | None = None) -> bool:
     except Exception:
         return False
 
+# ── Config helpers (env → CFG → module default) ──────────────────────────────
+def _cfg_str(name: str, default: str = "") -> str:
+    try:
+        v = getattr(config.CFG, name, None)
+        if v is None:
+            v = getattr(config, name, None)
+    except Exception:
+        v = None
+    if v is None:
+        v = os.getenv(name, default)
+    return str(v) if v is not None else default
+
+def _cfg_int(name: str, default: int = 0) -> int:
+    s = _cfg_str(name, str(default))
+    try:
+        return int(str(s).strip())
+    except Exception:
+        return default
+
+def _cfg_bool(name: str, default: bool = False) -> bool:
+    s = _cfg_str(name, "1" if default else "0").strip().lower()
+    return s in {"1", "true", "yes", "y", "on"}
+
+def _doc_mode() -> str:
+    return (_cfg_str("DOC_MODE", "report") or "report").lower()
+
+def _writer_agent() -> str:
+    return _cfg_str("WRITER_AGENT", "section_writer")
+
+# AgentName 강제 보정: 임의 문자열을 안전한 리터럴로 변환
+def _writer_agent_name() -> AgentName:
+    w = (_writer_agent() or "").strip().lower()
+    if w not in ("section_writer", "chapter_writer"):
+        # 설정이 이상하면 DOC_MODE에 맞춰 기본값으로 보정
+        w = "section_writer" if _doc_mode() == "report" else "chapter_writer"
+    # mypy/pyright 만족을 위한 캐스트 (값은 위에서 보정)
+    return cast(AgentName, w)
+
 # ── Dashboard (optional) ─────────────────────────────────────────────────────
 def _dash_on() -> bool:
-    return bool(getattr(config.CFG, "SHOW_DASHBOARD", False))
+    return _cfg_bool("SHOW_DASHBOARD", False)
 
 def _wrap_val() -> int:
-    return int(getattr(config.CFG, "DASH_WRAP", 120))
+    return _cfg_int("DASH_WRAP", 120)
 
 def _ell(s: str, n: int | None = None) -> str:
     n = n if isinstance(n, int) else _wrap_val()
@@ -77,7 +122,7 @@ def _tcount(tasks) -> dict:
         else: d["other"] += 1
     return d
 
-def _dash_emit(state, *, where: str, picked: str | None = None, reason: str | None = None):
+def _dash_emit(state: Mapping[str, Any], *, where: str, picked: str | None = None, reason: str | None = None):
     if not _dash_on():
         return
     tasks = state.get("task_history", []) or []
@@ -101,22 +146,23 @@ def _dash_emit(state, *, where: str, picked: str | None = None, reason: str | No
         f = dict(state.get("flags") or {})
         f["dash_last_ts"] = float(_t.time())
         f["dash_count"] = int(f.get("dash_count") or 0) + 1
-        state["flags"] = f
+        # 가변 상태일 때만 쓰기
+        if isinstance(state, MutableMapping):
+            cast(MutableMapping[str, Any], state)["flags"] = f
     except Exception:
         pass
     logger.info("\n" + bar + "\n" + "\n".join(lines) + "\n" + bar)
 
 def _is_research_mode(st: Mapping[str, Any]) -> bool:
-    role_src = (st.get("agent_role") or getattr(config.CFG, "BLOCKAGI_AGENT_ROLE", "")).strip().lower()
+    role_src = (st.get("agent_role") or _cfg_str("BLOCKAGI_AGENT_ROLE", "")).strip().lower()
     has_objs = bool(st.get("research_objectives"))
-    max_iter = coerce_int(st.get("iteration_count", getattr(config.CFG, "ITERATION_COUNT", 0)), default=0)
+    max_iter = coerce_int(st.get("iteration_count", _cfg_int("ITERATION_COUNT", 0)), default=0)
     return (role_src == "research analyst") and has_objs and (max_iter > 0)
 
 def _ensure_agent_env(state: MutableMapping[str, Any]) -> None:
     raw_role = state.get("agent_role")
-    state["agent_role"] = raw_role.strip() if isinstance(raw_role, str) and raw_role.strip() else getattr(config.CFG, "BLOCKAGI_AGENT_ROLE", "")
-    state["iteration_count"] = coerce_int(state.get("iteration_count", getattr(config.CFG, "ITERATION_COUNT", 0)), default=0)
-    # ↓↓↓ 이 라인을 추가하거나 수정합니다. ↓↓↓
+    state["agent_role"] = raw_role.strip() if isinstance(raw_role, str) and raw_role.strip() else _cfg_str("BLOCKAGI_AGENT_ROLE", "")
+    state["iteration_count"] = coerce_int(state.get("iteration_count", _cfg_int("ITERATION_COUNT", 0)), default=0)
     state["research_round"] = coerce_int(state.get("research_round", 0), default=0)
 
 def _seed_objectives(state: MutableMapping[str, Any]) -> None:
@@ -154,22 +200,22 @@ def _title_by_index(outline_text: str | None, idx: int) -> str | None:
         return numbered[idx - 1]
     return None
 
-def supervisor(state):
+def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
     logger.info("============ SUPERVISOR ============")
     _dash_emit(state, where="supervisor.enter")
     llm = get_llm()
-    state = sanitize_state(state)
-    _ensure_agent_env(cast(MutableMapping[str, Any], state))
-    _seed_objectives(cast(MutableMapping[str, Any], state))
+    state = sanitize_state(state)  # Mapping -> dict (copy) or in-place if mutable
+    mstate: MutableMapping[str, Any] = cast(MutableMapping[str, Any], state)
+
+    _ensure_agent_env(mstate)
+    _seed_objectives(mstate)
 
     # ↓↓↓ Round 0 고착 문제 해결 로직(메타 기반 승격) ↓↓↓
     rnd = int(state.get("research_round", 0))
     refs = state.get("references", {}) or {}
     has_refs = bool((refs.get("docs") or []) or (refs.get("queries") or []))
-    # 연구 플랜(플래너가 저장한 queries)이 있으면 실제로 라운드가 진행된 것으로 간주 가능
     plan = state.get("research_plan") or {}
     has_plan = bool((plan.get("queries") or []))
-    # web_search/vector가 기록하는 경량 메타(예: collection count)를 신호로 사용
     rag_meta = state.get("rag_stats") or {}
     has_on_disk = bool(int(rag_meta.get("doc_count") or 0) > 0)
 
@@ -178,24 +224,20 @@ def supervisor(state):
         rnd, has_refs, has_plan, has_on_disk, len(refs.get("docs") or [])
     )
 
-    # 승격 조건:
-    #  - 라운드가 0이고
-    #  - (refs 있거나) (플랜이 있거나) (온디스크 RAG가 있다고 기록되어 있고)
-    #  - iteration_count > 0  → 연구 라운드 모드가 실제 활성화 상태
     if rnd == 0 and (has_refs or has_plan or has_on_disk) and int(state.get("iteration_count", 0)) > 0:
-        cast(MutableMapping[str, Any], state)["research_round"] = 1
+        mstate["research_round"] = 1
         logger.warning("[Supervisor] promote research_round=1 (basis: %s)",
                        "refs" if has_refs else ("plan" if has_plan else "rag_on_disk"))
     # ↑↑↑ Round 0 고착 문제 해결 로직(메타 기반 승격) ↑↑↑
 
-    tasks = list(state.get("task_history", []) or [])
-    messages = list(state.get("messages", []) or [])
-    state["task_history"], state["messages"] = tasks, messages
+    tasks: List[Task] = list(state.get("task_history", []) or [])
+    messages: List[Any] = list(state.get("messages", []) or [])
+    mstate["task_history"], mstate["messages"] = tasks, messages
 
     # [ANCHOR-1] writer 예약이 있으면 qa_direct_reply 차단
     _flags = state.get("flags") or {}
     if _flags.get("suppress_vector_qa"):
-        state["qa_direct_reply"] = False
+        mstate["qa_direct_reply"] = False
 
     if state.get("qa_direct_reply"):
         _flags = state.get("flags") or {}
@@ -236,30 +278,23 @@ def supervisor(state):
         if not isinstance(s, str): return False
         s = s.strip()
         if not s: return False
-        # 집필 지시(명령형) 신호가 있으면 QA로 보지 않음 (오탐 방지)
         write_verbs = ("작성", "집필", "써줘", "작성해", "만들어", "생성", "write:", "write ", "draft")
         if any(k in s.lower() for k in write_verbs):
             return False
-
-        # QA 시그널 키워드 확장
         qa_signals = (
             "요약","정리","설명해줘","알려줘",
             "무엇","뭐야","어떻게","왜","누가","어디","언제","비교",
             "분석","평가","시사점","인사이트",
             "해석","의견","추천","제안","해설","논의","고찰","해답","답변"
         )
-
-        # 물음표 포함은 강한 QA 신호
         if "?" in s:
             return True
-
-        # 확장된 QA 신호 단어 중 하나라도 포함되면 QA로 판단
         return any(k in s for k in qa_signals)
 
     if last_text and _is_qa_like(last_text):
         if not _safe_has_pending(tasks, "vector_search_agent"):
             tasks.append(Task(agent="vector_search_agent", done=False, description=f"qa_query:{last_text}", done_at=""))
-            state["qa_direct_reply"] = True
+            mstate["qa_direct_reply"] = True
             logger.info("[Supervisor fast-path] QA-like → vector_search_agent scheduled")
             _dash_emit(state, where="supervisor", picked="vector_search_agent", reason="qa_like_new_task")
         else:
@@ -270,9 +305,16 @@ def supervisor(state):
     new_title = extract_new_topic_title(last_text)
     if new_title:
         maybe_title = _sanitize_title(new_title or "untitled report")
-        state = start_new_topic(state, maybe_title, outline_fname=_pick_outline_filename(last_text))
-        _ensure_agent_env(cast(MutableMapping[str, Any], state))
-        _seed_objectives(cast(MutableMapping[str, Any], state))
+        # Mapping → dict 물리화 후 TypedDict(State)로 캐스팅
+        state_for_start: State = cast(State, dict(state))
+        state = start_new_topic(
+            state_for_start,
+            maybe_title,
+            outline_fname=_pick_outline_filename(last_text),
+        )
+        mstate = cast(MutableMapping[str, Any], state)
+        _ensure_agent_env(mstate)
+        _seed_objectives(mstate)
         msg = f"[Supervisor] 새 주제 세션 시작: '{state.get('topic_title','')}' (ns={state.get('chroma_ns','')})"
         messages.append(AIMessage(content=msg)); logger.info(msg)
         _dash_emit(state, where="supervisor", picked="content_strategist/web_search_agent", reason="new_topic_boot")
@@ -292,22 +334,19 @@ def supervisor(state):
                 "flags": state.get("flags", {})}
 
     # 연구 라운드 부트스트랩
-    def _is_research_mode_local(st): return _is_research_mode(st)
+    def _is_research_mode_local(st: Mapping[str, Any]) -> bool: return _is_research_mode(st)
     if _is_research_mode_local(state):
         research_agents = ("research_planner","web_search_agent","vector_search_agent","research_synthesizer")
         has_research_pending = any(_safe_has_pending(tasks, a) for a in research_agents)
         if not has_research_pending:
-            # ↓↓↓ 라운드 종료 조건 체크 로직 추가 ↓↓↓
-            rnd = int(state.get("research_round", 0)) # 현재 완료된 라운드 수 (0, 1, 2...)
-            max_iter = int(state.get("iteration_count", 0)) # 최대 라운드 수 (예: 2)
+            rnd = int(state.get("research_round", 0))
+            max_iter = int(state.get("iteration_count", 0))
 
             if max_iter > 0 and rnd >= max_iter:
                 logger.info("[Supervisor] All research rounds completed (%d/%d). Terminating research loop.", rnd, max_iter)
                 messages.append(AIMessage(content=f"[Supervisor] 모든 연구 라운드({max_iter}회)가 완료되었습니다. 최종 보고서 작성을 지시해주세요."))
-                # research_planner 예약을 건너뛰고, 연구 모드를 종료함.
                 _dash_emit(state, where="supervisor", picked="communicator", reason="research_loop_end")
                 return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
-            # ↑↑↑ 라운드 종료 조건 체크 로직 추가 ↑↑↑
 
             now = _now_str()
             for t in tasks:
@@ -407,18 +446,17 @@ def supervisor(state):
 
         if refs_empty or has_pending_rag:
             f = dict(state.get("flags") or {})
-            # [CHANGE] bool 락 + 제목 보관
             f["pending_write_title"] = True
             f["requested_write_title"] = target_from_line
-            f["suppress_vector_qa"] = True  # 그대로 유지
-            state["flags"] = f
+            f["suppress_vector_qa"] = True
+            mstate["flags"] = f
             logger.debug("[Supervisor] writer lock set (empty/ongoing refs) → requested='%s'", target_from_line)
             desc = f"rag_update:write:{target_from_line}"
             if not _safe_has_pending(tasks, "web_search_agent"):
                 tasks.append(Task(agent="web_search_agent", done=False, description=desc, done_at=""))
             try:
                 schedule_writer_if_needed(
-                    cast(MutableMapping[str, Any], state),
+                    mstate,
                     tasks=tasks, messages=messages,
                     outline_text=get_topic_outline_text(state),
                     requested_title=target_from_line,
@@ -428,39 +466,37 @@ def supervisor(state):
             except Exception:
                 logger.exception("[Supervisor fast-path] pre-schedule writer failed (non-fatal)")
 
-            if not _safe_has_pending(tasks, config.CFG.WRITER_AGENT, prefix="write:"):
-                tasks.append(Task(agent=config.CFG.WRITER_AGENT, done=False, description=f"write: {target_from_line}", done_at=""))
+            if not _safe_has_pending(tasks, _writer_agent_name(), prefix="write:"):
+                tasks.append(Task(agent=_writer_agent_name(), done=False, description=f"write: {target_from_line}", done_at=""))
                 logger.info("[Supervisor fast-path] writer pre-scheduled (fallback) → %s | title=%s",
-                            config.CFG.WRITER_AGENT, target_from_line)
+                            _writer_agent_name(), target_from_line)
 
-            state["qa_direct_reply"] = False
+            mstate["qa_direct_reply"] = False
             messages.append(AIMessage(content="[Supervisor fast-path] 레퍼런스 비어있음/진행중 → RAG 먼저(web_search_agent). (writer pre-scheduled)"))
             _dash_emit(state, where="supervisor", picked="web_search_agent", reason="write_but_refs_empty")
             return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
         
-        # [ADD] refs 있음 분기: writer 예약 전에 제목 잠금 플래그 세팅
+        # refs 있음
         ff = dict(state.get("flags") or {})
         if not ff.get("pending_write_title"):
-            ff["pending_write_title"] = True          # [CHANGE] bool로 고정
-        ff["requested_write_title"] = target_from_line  # [ADD] 실제 제목 보관
-        # 필요 시 QA 억제를 강화하려면 아래 라인 활성화
-        # ff["suppress_vector_qa"] = True
-        state["flags"] = ff
+            ff["pending_write_title"] = True
+        ff["requested_write_title"] = target_from_line
+        mstate["flags"] = ff
         logger.debug("[Supervisor] writer lock set (with refs) → requested='%s'", target_from_line)
 
         did = schedule_writer_if_needed(
-            cast(MutableMapping[str, Any], state),
+            mstate,
             tasks=tasks, messages=messages,
             outline_text=get_topic_outline_text(state),
             requested_title=target_from_line,
-            allow_during_research=config.CFG.AUTO_WRITE_DURING_RESEARCH,
+            allow_during_research=_cfg_bool("AUTO_WRITE_DURING_RESEARCH", False),
             debug=True,
         )
         if did:
-            _writer_agent = getattr(config.CFG, "WRITER_AGENT", "section_writer")
-            _doc_mode = getattr(config.CFG, "DOC_MODE", "report")
-            messages.append(AIMessage(content=f"[Supervisor fast-path] → {config.CFG.WRITER_AGENT} (mode={config.CFG.DOC_MODE}, write: {target_from_line})"))
-            _dash_emit(state, where="supervisor", picked=config.CFG.WRITER_AGENT, reason="write_with_refs")
+            _writer = _writer_agent()
+            _mode = _doc_mode()
+            messages.append(AIMessage(content=f"[Supervisor fast-path] → {_writer} (mode={_mode}, write: {target_from_line})"))
+            _dash_emit(state, where="supervisor", picked=_writer, reason="write_with_refs")
         else:
             messages.append(AIMessage(content="[Supervisor] writer 예약이 생략되었습니다(조건 부적합 또는 중복)."))
         return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
@@ -500,27 +536,23 @@ def supervisor(state):
     if task.agent in ("chapter_writer", "section_writer"):
         requested = extract_write_title(task.description or "") or None
         did = schedule_writer_if_needed(
-            cast(MutableMapping[str, Any], state),
+            mstate,
             tasks=tasks, messages=messages,
             outline_text=get_topic_outline_text(state),
             requested_title=requested,
-            allow_during_research=config.CFG.AUTO_WRITE_DURING_RESEARCH,
+            allow_during_research=_cfg_bool("AUTO_WRITE_DURING_RESEARCH", False),
             debug=True,
         )
         if did:
-            _doc_mode = getattr(config.CFG, "DOC_MODE", "report")
-            messages.append(AIMessage(content=f"[Supervisor reconcile] writer 예약 완료 (mode={config.CFG.DOC_MODE}, requested={requested or '(auto)'})"))
-            # [ADD] LLM 지시로 writer가 예약된 경우에도 제목이 명시되었으면 잠금
+            _mode = _doc_mode()
+            messages.append(AIMessage(content=f"[Supervisor reconcile] writer 예약 완료 (mode={_mode}, requested={requested or '(auto)'})"))
             if requested:
                 ff2 = dict(state.get("flags") or {})
-                ff2["pending_write_title"] = True            # [CHANGE] bool로 고정
-                ff2["requested_write_title"] = requested     # [ADD]
-                # 필요 시 아래 라인을 켜 QA 억제 범위를 확대할 수 있음
-                # ff2["suppress_vector_qa"] = True
-                state["flags"] = ff2
+                ff2["pending_write_title"] = True
+                ff2["requested_write_title"] = requested
+                mstate["flags"] = ff2
                 logger.debug("[Supervisor] writer lock set (LLM reconcile) → requested='%s'", requested)
-            # [OPT] 직후 QA 새는 것 선제 차단 (선택)
-            state["qa_direct_reply"] = False
+            mstate["qa_direct_reply"] = False
 
             return {"messages": messages, "task_history": tasks,
                     "topic_title": state.get("topic_title"),
@@ -545,7 +577,7 @@ def supervisor(state):
     _dash_emit(state, where="supervisor", picked=task.agent, reason="supervisor_fallback_route")
     return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
 
-def supervisor_router(state) -> str:
+def supervisor_router(state: Mapping[str, Any]) -> str:
     from utils.tasks import HumanMessage
     state = sanitize_state(state)
     tasks = state.get("task_history", []) or []
@@ -565,14 +597,14 @@ def supervisor_router(state) -> str:
         if refs_empty:
             _dash_emit(state, where="router", picked="web_search_agent", reason="writer_locked_but_refs_empty")
             return "web_search_agent"
-        ret = "section_writer" if config.CFG.DOC_MODE == "report" else "chapter_writer"
+        ret = "section_writer" if _doc_mode() == "report" else "chapter_writer"
         _dash_emit(state, where="router", picked=ret, reason="writer_pending_locked_title_refs_ok")
         return ret
 
-    preferred = "section_writer" if config.CFG.DOC_MODE == "report" else "chapter_writer"
+    preferred = "section_writer" if _doc_mode() == "report" else "chapter_writer"
     alt = "chapter_writer" if preferred == "section_writer" else "section_writer"
 
-    def _is_research_mode_local(st): return _is_research_mode(st)
+    def _is_research_mode_local(st: Mapping[str, Any]) -> bool: return _is_research_mode(st)
     last_human = next((m for m in reversed(state.get("messages", [])) if isinstance(m, HumanMessage)), None)
     last_text = coerce_message_content_to_str(getattr(last_human, "content", ""))
 
@@ -616,7 +648,7 @@ def supervisor_router(state) -> str:
         ret = "vector_search_agent"
     elif _has("research_synthesizer"):
         ret = "research_synthesizer"
-    elif _has(preferred, prefix="write:"):  # ← 미세수정: "write:" 콜론 포함 일관화
+    elif _has(preferred, prefix="write:"):  # 콜론 포함 일관화
         ret = preferred
     elif _has("communicator"):
         ret = "communicator"

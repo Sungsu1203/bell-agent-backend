@@ -21,10 +21,36 @@ from utils.rag_utils import score_doc as _score_doc
 from core.llm import get_llm
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Config helpers (env → CFG → module default)  ※ reload_config() 반영
+# ─────────────────────────────────────────────────────────────────────────────
+def _cfg_str(name: str, default: str = "") -> str:
+    try:
+        v = getattr(config.CFG, name, None)
+        if v is None:
+            v = getattr(config, name, None)
+    except Exception:
+        v = None
+    if v is None:
+        v = os.getenv(name, default)
+    return str(v) if v is not None else default
+
+def _cfg_int(name: str, default: int = 0) -> int:
+    s = _cfg_str(name, str(default))
+    try:
+        return int(str(s).strip())
+    except Exception:
+        return default
+
+def _cfg_bool(name: str, default: bool = False) -> bool:
+    s = _cfg_str(name, "1" if default else "0").strip().lower()
+    return s in {"1","true","yes","y","on"}
+
+
 def research_synthesizer(state: State):
     logger.info("============ RESEARCH SYNTHESIZER ============")
     llm = get_llm()
-    state = sanitize_state(state)
+    state = cast(State, sanitize_state(state))
 
     # [ANCHOR: LOOP_FLAG_ON_ENTRY]
     state["research_loop_active"] = True
@@ -104,7 +130,7 @@ def research_synthesizer(state: State):
                 except Exception:
                     pass
 
-        # 2) CFG 값 시도
+        # 2) CFG 값 시도 (env/CFG 동적 반영)
         if cfg_value is not None:
             try:
                 return int(cfg_value)
@@ -114,7 +140,7 @@ def research_synthesizer(state: State):
         # 3) 최종 기본값
         return int(default)
 
-    halt_threshold = _as_int_cfg_first(config.CFG.RESEARCH_HALT_THRESHOLD, "research_halt_threshold", 0)
+    halt_threshold = _as_int_cfg_first(_cfg_int("RESEARCH_HALT_THRESHOLD", 0), "research_halt_threshold", 0)
     prev_streak = as_int(state, "no_new_url_streak", 0)
 
     if round_new_urls is None:
@@ -188,7 +214,7 @@ LLM 호출 실패로 간략 요약을 제공합니다.
     state["findings_md"] = findings_md
 
     # ── 결과 저장 직후 ~ 다음 단계 결정 직전
-    if config.CFG.AUTO_WRITE_DURING_RESEARCH:
+    if _cfg_bool("AUTO_WRITE_DURING_RESEARCH", False):
         outline_text = get_topic_outline_text(state)
         schedule_writer_if_needed(
             cast(MutableMapping[str, Any], state),
@@ -200,8 +226,8 @@ LLM 호출 실패로 간략 요약을 제공합니다.
         )
 
     # ---- 다음 단계 결정 ----
-    min_rounds = _as_int_cfg_first(config.CFG.RESEARCH_MIN_ROUNDS, "research_min_rounds", 1)
-    max_no_new = _as_int_cfg_first(config.CFG.RESEARCH_MAX_NO_NEW_ROUNDS, "research_max_no_new_rounds", 1)
+    min_rounds = _as_int_cfg_first(_cfg_int("RESEARCH_MIN_ROUNDS", 1), "research_min_rounds", 1)
+    max_no_new = _as_int_cfg_first(_cfg_int("RESEARCH_MAX_NO_NEW_ROUNDS", 1), "research_max_no_new_rounds", 1)
     max_no_new = max(1, max_no_new)
 
     streak_now = as_int(state, "no_new_url_streak", 0)

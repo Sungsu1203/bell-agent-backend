@@ -1,10 +1,27 @@
 # rag_expression.py — dynamic config access (v2025-10-27)
 import re
+import sys
 from typing import Any, Optional
-from re import Pattern  # 3.12+ 호환
+
+# re.Pattern (3.12+) / typing.Pattern (3.10~3.11) 호환 별칭 (type: ignore 제거)
+if sys.version_info >= (3, 12):
+    from re import Pattern as RePattern
+else:
+    from typing import Pattern as RePattern
 
 import logging
 logger = logging.getLogger(__name__)
+
+# LangChain BaseMessage 존재 여부를 런타임에만 검사하는 안전 헬퍼
+def _is_langchain_message(obj: Any) -> bool:
+    try:
+        from langchain_core.messages import BaseMessage  # 런타임 의존성
+    except Exception:  # 미설치/버전 차이 등
+        return False
+    try:
+        return isinstance(obj, BaseMessage)
+    except Exception:
+        return False
 
 # --- safe tail-trim patterns (quote/paren/bracket) ---
 _TAIL_PUNCT_RE = re.compile(r"""[\"“”'’)\]]+$""")
@@ -28,6 +45,7 @@ __all__ = [
 import core.config as config
 
 def _get_cfg_attr(name: str, default):
+    """CFG → 모듈 상수 → 기본값 순 안전 조회(예외시 기본값)."""
     try:
         cfg = getattr(config, "CFG", None)
         if cfg is not None and hasattr(cfg, name):
@@ -35,7 +53,7 @@ def _get_cfg_attr(name: str, default):
         if hasattr(config, name):
             return getattr(config, name)
     except Exception:
-        pass
+        return default
     return default
 
 
@@ -49,11 +67,12 @@ def _cfg_bool(name: str, default: bool) -> bool:
         return default
 
 
-def _re_compile(name: str, default_pattern: str, flags: int = 0) -> Pattern[str]:
+def _re_compile(name: str, default_pattern: str, flags: int = 0) -> RePattern[str]:
     pat = _get_cfg_attr(name, default_pattern)
     try:
         return re.compile(str(pat), flags)
     except Exception:
+        # 설정 오타 등으로 컴파일 실패 시 기본 패턴으로 폴백
         logger.debug("regex compile failed for %s; using default", name, exc_info=True)
         return re.compile(default_pattern, flags)
 
@@ -64,17 +83,12 @@ def _re_compile(name: str, default_pattern: str, flags: int = 0) -> Pattern[str]
 
 def coerce_message_content_to_str(content: Any) -> str:
     """LangChain/OpenAI 멀티모달 content까지 안전하게 문자열로 정규화."""
-    # 0) LangChain BaseMessage 호환 (state_io._to_plain과 정합)
-    try:
-        from langchain_core.messages import BaseMessage as _LCBaseMessage  # type: ignore
-    except Exception:
-        _LCBaseMessage = None
-    if _LCBaseMessage and isinstance(content, _LCBaseMessage):
+    # 0) LangChain BaseMessage 호환 (런타임 안전 검사)
+    if _is_langchain_message(content):
         try:
             return str(getattr(content, "content", "") or "")
         except Exception:
             return ""
-
     if isinstance(content, str):
         return content
 
@@ -108,13 +122,14 @@ def coerce_message_content_to_str(content: Any) -> str:
 # 정량 문장 탐지용 정규식/도우미 (config로 오버라이드 가능)
 # ─────────────────────────────────────────────────────────────
 _RE_QUANT_DEFAULT = r"(?<!\d)(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)(\s?(?:%|퍼센트|배|억|만|조|달러|원|억원|조원|년|월|일|건|명|개|pt|포인트))?"
-RE_QUANT_NUMBER: Pattern[str] = _re_compile("QUANT_NUMBER_REGEX", _RE_QUANT_DEFAULT, re.IGNORECASE)
+RE_QUANT_NUMBER: RePattern[str] = _re_compile("QUANT_NUMBER_REGEX", _RE_QUANT_DEFAULT, re.IGNORECASE)
+
 
 _RE_QUANT_HINTS_DEFAULT = r"(증가|감소|성장|하락|상승|점유율|시장|매출|CAGR|연평균|ROI|전년|YoY|QoQ|전월|예상|전망|통계|조사|데이터|지표)"
-RE_QUANT_SENT_HINTS: Pattern[str] = _re_compile("QUANT_HINTS_REGEX", _RE_QUANT_HINTS_DEFAULT, re.IGNORECASE)
+RE_QUANT_SENT_HINTS: RePattern[str] = _re_compile("QUANT_HINTS_REGEX", _RE_QUANT_HINTS_DEFAULT, re.IGNORECASE)
 
 _SENT_SPLIT_DEFAULT = r'(?<=[.!?])\s+|(?<=다)\s+|(?<=요)\s+|(?<=습니다)\s+'
-_SENT_SPLIT_RE: Pattern[str] = _re_compile("SENT_SPLIT_REGEX", _SENT_SPLIT_DEFAULT)
+_SENT_SPLIT_RE: RePattern[str] = _re_compile("SENT_SPLIT_REGEX", _SENT_SPLIT_DEFAULT)
 
 
 def split_sentences_ko_en(text: str) -> list[str]:
@@ -128,10 +143,10 @@ def split_sentences_ko_en(text: str) -> list[str]:
 # 라인/인라인/자연어 write 패턴 (config로 오버라이드 가능)
 # ─────────────────────────────────────────────────────────────
 _RE_WRITE_LINE_DEFAULT = r"^\s*(?:write|작성|집필)\s*[:：]\s*(.+)$"
-RE_WRITE_LINE: Pattern[str] = _re_compile("WRITE_LINE_REGEX", _RE_WRITE_LINE_DEFAULT, re.IGNORECASE)
+RE_WRITE_LINE: RePattern[str] = _re_compile("WRITE_LINE_REGEX", _RE_WRITE_LINE_DEFAULT, re.IGNORECASE)
 
 _RE_WRITE_INLINE_DEFAULT = r"(?:^|[\s().,;])(?:write|작성|집필)\s*[:：]\s*(.+?)\s*(?=$|[\r\n)\]]|[.;])"
-RE_WRITE_INLINE: Pattern[str] = _re_compile("WRITE_INLINE_REGEX", _RE_WRITE_INLINE_DEFAULT, re.IGNORECASE)
+RE_WRITE_INLINE: RePattern[str] = _re_compile("WRITE_INLINE_REGEX", _RE_WRITE_INLINE_DEFAULT, re.IGNORECASE)
 
 # 한국어 자연어형: "4. XXX 섹션 작성해주세요", "XXX 작성해줘", "4) XXX 작성" 등
 _RE_WRITE_KO_DEFAULT = (
@@ -142,12 +157,12 @@ _RE_WRITE_KO_DEFAULT = (
     r"(?:작성|집필)"                                     # 동사
     r"(?:해줘|해\s*줘|해주세요|해\s*주세요|해주시오|해\s*주시오)?"  # 공손 표현
 )
-RE_WRITE_REQUEST_KO: Pattern[str] = _re_compile("WRITE_REQUEST_KO_REGEX", _RE_WRITE_KO_DEFAULT, re.IGNORECASE)
+RE_WRITE_REQUEST_KO: RePattern[str] = _re_compile("WRITE_REQUEST_KO_REGEX", _RE_WRITE_KO_DEFAULT, re.IGNORECASE)
 _ENABLE_KO_NATURAL_WRITE: bool = _cfg_bool("ENABLE_KO_NATURAL_WRITE", True)
 
 # "목차 보여줘/보기/출력/display/show" 등
 _RE_SHOW_OUTLINE_DEFAULT = r"(?:목차|outline).*(?:보여|보기|출력|display|show)|^(?:책|ai).*(?:목차)$"
-RE_SHOW_OUTLINE: Pattern[str] = _re_compile("SHOW_OUTLINE_REGEX", _RE_SHOW_OUTLINE_DEFAULT, re.IGNORECASE)
+RE_SHOW_OUTLINE: RePattern[str] = _re_compile("SHOW_OUTLINE_REGEX", _RE_SHOW_OUTLINE_DEFAULT, re.IGNORECASE)
 
 # 새 주제/새 보고서 전환
 _RE_NEW_TOPIC_DEFAULT = (
@@ -157,11 +172,11 @@ _RE_NEW_TOPIC_DEFAULT = (
     r"switch\s*(?:topic|report|project|book))"
     r"\s*[:：]?\s*(?P<title>.*)$"
 )
-RE_NEW_TOPIC: Pattern[str] = _re_compile("NEW_TOPIC_REGEX", _RE_NEW_TOPIC_DEFAULT, re.IGNORECASE)
+RE_NEW_TOPIC: RePattern[str] = _re_compile("NEW_TOPIC_REGEX", _RE_NEW_TOPIC_DEFAULT, re.IGNORECASE)
 
 # --- Rename chapter intent ---
 _RE_RENAME_CHAPTER_DEFAULT = r"^\s*(\d+)\s*장\s*제목.*?['\"](.+?)['\"]\s*로\s*변경"
-RE_RENAME_CHAPTER: Pattern[str] = _re_compile("RENAME_CHAPTER_REGEX", _RE_RENAME_CHAPTER_DEFAULT, re.IGNORECASE)
+RE_RENAME_CHAPTER: RePattern[str] = _re_compile("RENAME_CHAPTER_REGEX", _RE_RENAME_CHAPTER_DEFAULT, re.IGNORECASE)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -255,7 +270,8 @@ def extract_new_topic_title(text_like: Any) -> Optional[str]:
     # ✅ 제목 앞에 "작성:/집필:/write:"가 붙은 경우 제거 (예: "작성: 샘플 북 프로젝트")
     if t:
         t = re.sub(r"^(?:작성|집필|write)\s*[:：]\s*", "", t, flags=re.IGNORECASE).strip()
-    return _strip_smart_quotes(t) or None
+    t = _strip_smart_quotes(t)
+    return (t or None)
 
 
 def extract_rename_chapter(text_like: Any) -> Optional[tuple[int, str]]:

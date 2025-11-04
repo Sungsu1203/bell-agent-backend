@@ -13,26 +13,83 @@ _METRICS_LOCK = threading.Lock()
 # CFG/경로 정책
 # ─────────────────────────────────────────────────────────────────────────────
 try:
-    from core.config import CFG  # type: ignore
+    from core.config import CFG  
 except Exception:  # pragma: no cover
     class _Dummy:  # 최소 폴백
         pass
     CFG = _Dummy()  # type: ignore
 
+from pathlib import Path
 try:
-    from core.paths import research_base_dir  # type: ignore
+    from core.paths import research_base_dir as _rbd  # 실제 구현 import
 except Exception:  # pragma: no cover
-    def research_base_dir() -> str:
-        return os.path.abspath(os.path.join(os.getcwd(), "research"))
+    _rbd = None  # type: ignore[assignment]
+
+def research_base_dir() -> Path:
+    """항상 Path를 반환하도록 통일."""
+    if _rbd is not None:
+        p = _rbd()
+        return p if isinstance(p, Path) else Path(str(p))
+    # 폴백: CWD/research
+    return Path.cwd() / "research"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 환경/설정
+# 환경/설정: CFG → ENV → 기본값 (런타임 재평가 지원)
 # ─────────────────────────────────────────────────────────────────────────────
 def _truthy(v: object, *, default: bool = False) -> bool:
     if v is None:
         return default
     s = str(v).strip().lower()
     return s in ("1", "true", "yes", "on")
+
+def _cfg_str(name: str, default: str = "") -> str:
+    """CFG 우선, 없으면 ENV, 마지막 기본값. 공백은 무시."""
+    try:
+        cv = getattr(CFG, name, None)
+        if cv is not None and str(cv).strip() != "":
+            return str(cv).strip()
+    except Exception:
+        pass
+    ev = os.getenv(name, "")
+    return ev.strip() if ev and ev.strip() != "" else default
+
+def _cfg_int(name: str, default: int = 0) -> int:
+    try:
+        cv = getattr(CFG, name, None)
+        if cv is not None and str(cv).strip() != "":
+            return int(str(cv).strip())
+    except Exception:
+        pass
+    try:
+        ev = os.getenv(name, "")
+        return int(ev.strip()) if ev and ev.strip() != "" else default
+    except Exception:
+        return default
+
+def _cfg_float(name: str, default: float = 0.0) -> float:
+    try:
+        cv = getattr(CFG, name, None)
+        if cv is not None and str(cv).strip() != "":
+            return float(str(cv).strip())
+    except Exception:
+        pass
+    try:
+        ev = os.getenv(name, "")
+        return float(ev.strip()) if ev and ev.strip() != "" else default
+    except Exception:
+        return default
+
+def _cfg_bool(name: str, default: bool = False) -> bool:
+    # CFG에 명시되면 우선 해석
+    try:
+        cv = getattr(CFG, name, None)
+        if cv is not None:
+            return _truthy(cv, default=default)
+    except Exception:
+        pass
+    # ENV 폴백
+    return _truthy(os.getenv(name), default=default)
+
 
 def _enabled() -> bool:
     """
@@ -47,10 +104,7 @@ def _enabled() -> bool:
         return False
     if _truthy(os.getenv("POSTHOG_DISABLE"), default=False):
         return False
-    cfg_val = getattr(CFG, "METRICS_ENABLED", None)
-    if cfg_val is not None:
-        return _truthy(cfg_val, default=True)
-    return _truthy(os.getenv("METRICS_ENABLED", "1"), default=True)
+    return _cfg_bool("METRICS_ENABLED", default=True)
 
 def _now_ts() -> float:
     return time.time()
@@ -69,7 +123,7 @@ def _get_out_dir() -> str:
     METRICS_OUT_DIR > research_base_dir()/metrics
     (snapshot(path=...)가 우선)
     """
-    base = (getattr(CFG, "METRICS_OUT_DIR", "") or "").strip()
+    base = _cfg_str("METRICS_OUT_DIR", "")
     if base:
         return os.path.abspath(os.path.expanduser(base))
     return os.path.join(str(research_base_dir()), "metrics")
@@ -92,13 +146,24 @@ def _rotate_keep(dirpath: str, pattern: str, keep: int) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # 논블로킹 싱크(Queue + Worker)
 # ─────────────────────────────────────────────────────────────────────────────
-_SINK = (os.getenv("METRICS_SINK") or "file").strip().lower()  # "file"|"stdout"|"null"
-_FILE = (os.getenv("METRICS_FILE") or "logs/metrics.ndjson").strip()
-_QSIZE = int(os.getenv("METRICS_QUEUE_SIZE") or "1024")
-_FLUSH_INTERVAL = float(os.getenv("METRICS_FLUSH_SEC") or "0.5")
-_EVENTS_MAX = int(os.getenv("METRICS_EVENTS_MAX") or "500")  # 메모리 상한
+def _get_sink() -> str:
+    """런타임 재평가되는 sink 종류: file|stdout|null"""
+    s = _cfg_str("METRICS_SINK", os.getenv("METRICS_SINK", "file") or "file").lower()
+    return s if s in ("file", "stdout", "null") else "file"
 
-_Q: "Queue[dict]" = Queue(maxsize=_QSIZE)
+def _get_file() -> str:
+    return _cfg_str("METRICS_FILE", os.getenv("METRICS_FILE", "logs/metrics.ndjson") or "logs/metrics.ndjson")
+
+def _get_qsize() -> int:
+    return max(1, _cfg_int("METRICS_QUEUE_SIZE", int(os.getenv("METRICS_QUEUE_SIZE") or "1024")))
+
+def _get_flush_interval() -> float:
+    return max(0.05, _cfg_float("METRICS_FLUSH_SEC", float(os.getenv("METRICS_FLUSH_SEC") or "0.5")))
+
+def _get_events_max() -> int:
+    return max(0, _cfg_int("METRICS_EVENTS_MAX", int(os.getenv("METRICS_EVENTS_MAX") or "500")))
+
+_Q: "Queue[dict]" = Queue(maxsize=_get_qsize())
 _WORKER_STARTED = False
 _STOP = False
 _FH = None  # lazy-opened file handle for "file" sink
@@ -107,7 +172,7 @@ def _start_worker_once() -> None:
     global _WORKER_STARTED
     if not _enabled():
         return
-    if _SINK == "null":
+    if _get_sink() == "null":
         return
     if _WORKER_STARTED:
         return
@@ -118,7 +183,7 @@ def _start_worker_once() -> None:
 
 def _emit(ev: dict) -> None:
     """메인 스레드에서 절대 블로킹하지 않음. 큐가 가득 차면 조용히 드롭."""
-    if not _enabled() or _SINK == "null":
+    if not _enabled() or _get_sink() == "null":
         return
     _start_worker_once()
     try:
@@ -132,7 +197,7 @@ def _worker() -> None:
     while not _STOP:
         try:
             try:
-                item = _Q.get(timeout=_FLUSH_INTERVAL)
+                item = _Q.get(timeout=_get_flush_interval())
             except Empty:
                 item = None
             if not item:
@@ -145,16 +210,18 @@ def _worker() -> None:
                 continue
 
             # 일반 이벤트는 NDJSON 라인으로 기록
-            if _SINK == "stdout":
+            sink = _get_sink()
+            if sink == "stdout":
                 try:
                     print(json.dumps(item, ensure_ascii=False), flush=False)
                 except Exception:
                     pass
-            elif _SINK == "file":
+            elif sink == "file":
                 try:
                     if _FH is None:
-                        os.makedirs(os.path.dirname(_FILE), exist_ok=True)
-                        _FH = open(_FILE, "a", encoding="utf-8")
+                        fpath = _get_file()
+                        os.makedirs(os.path.dirname(fpath), exist_ok=True)
+                        _FH = open(fpath, "a", encoding="utf-8")
                     _FH.write(json.dumps(item, ensure_ascii=False) + "\n")
                 except Exception:
                     # 파일 쓰기 실패는 무시(드롭)
@@ -306,9 +373,12 @@ def event(kind: str, **payload):
     ev = {"ts": _now_ts(), "ts_iso": _iso(), "kind": kind, **payload}
     with _METRICS_LOCK:
         REG.events.append(ev)
-        # 메모리 상한 유지(오래된 것부터 드롭)
-        if _EVENTS_MAX > 0 and len(REG.events) > _EVENTS_MAX:
-            del REG.events[0: max(0, len(REG.events) - _EVENTS_MAX)]
+        # 메모리 상한 유지(오래된 것부터 드롭) — 런타임 설정값 사용
+        max_events = _get_events_max()
+        if max_events > 0 and len(REG.events) > max_events:
+            over = len(REG.events) - max_events
+            if over > 0:
+                del REG.events[0:over]
     _emit({"type": "event", **ev})
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -458,3 +528,13 @@ def reset() -> None:
         REG.events.clear()
         REG.cur_round_id = "default"
         REG.topic_slug = None
+
+    # 파일 핸들 초기화 (테스트/세션 리셋 시 안전)
+    global _FH
+    try:
+        if _FH:
+            _FH.flush()
+            _FH.close()
+    except Exception:
+        pass
+    _FH = None

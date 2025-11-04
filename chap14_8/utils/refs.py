@@ -1,6 +1,6 @@
 # utils/refs.py — dynamic config access (v2025-10-27)
 from __future__ import annotations
-from typing import Mapping, Any, TYPE_CHECKING, Dict, List, Tuple, Iterable, Optional
+from typing import Mapping, Any, TYPE_CHECKING, Dict, List, Tuple, Iterable, Optional, Sequence
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse, unquote
 import os
@@ -73,11 +73,19 @@ __all__ = [
     "_extract_meta",
     "_canonicalize_src_for_dedup",
     "_auto_footnote_label",
+    # 선택: 캐시 도입 시 무해한 리프레시 훅
+    "refresh_refs",
 ]
 
 # ── 상수/공용 헬퍼 ──────────────────────────────────────────────
 FOOTNOTE_DEF_RE = re.compile(r"^\[\^\d+\]:", re.MULTILINE)
-FOOTER_HEADER_RE = re.compile(r"^\s*#{1,6}\s*참고 문헌\s*/?\s*각주\s*$", re.I | re.M)
+# 푸터 헤더 패턴은 CFG에서 커스터마이즈 가능(기본: "참고 문헌 / 각주")
+def _footer_header_pattern() -> re.Pattern[str]:
+    pat = _cfg_str("AUTO_FOOTNOTE_HEADER_PATTERN", "AUTO_FOOTNOTE_HEADER_PATTERN", r"^\s*#{1,6}\s*참고 문헌\s*/?\s*각주\s*$")
+    try:
+        return re.compile(pat, re.I | re.M)
+    except Exception:
+        return re.compile(r"^\s*#{1,6}\s*참고 문헌\s*/?\s*각주\s*$", re.I | re.M)
 
 # 키워드 → 대표 도메인 매핑(정규식)
 _DEFAULT_KEYWORD_MAP: Dict[str, str] = {
@@ -89,9 +97,17 @@ _DEFAULT_KEYWORD_MAP: Dict[str, str] = {
     r"국회미래연구원|NAFI": "nafi.re.kr",
     r"KOTRA": "kotra.or.kr",
 }
-_KEYWORD_MAP_RAW: Dict[str, str] = _as_kv_map(_get_cfg_attr("REFS_KEYWORD_DOMAIN_MAP", None)) or _DEFAULT_KEYWORD_MAP
-# 사전 컴파일
-KEYWORD_MAP: List[Tuple[re.Pattern[str], str]] = [(re.compile(pat, re.I), dom) for pat, dom in _KEYWORD_MAP_RAW.items()]
+def _keyword_map() -> List[Tuple[re.Pattern[str], str]]:
+    """CFG 반영: reload_config() 직후 최신 매핑 사용."""
+    raw = _as_kv_map(_get_cfg_attr("REFS_KEYWORD_DOMAIN_MAP", None))
+    base = raw or _DEFAULT_KEYWORD_MAP
+    out: List[Tuple[re.Pattern[str], str]] = []
+    for pat, dom in base.items():
+        try:
+            out.append((re.compile(pat, re.I), dom))
+        except Exception:
+            continue
+    return out
 
 
 def _netloc(u: str) -> str:
@@ -117,7 +133,7 @@ def _extract_meta(doc: Any) -> dict:
             return md
         # 아니면 doc 자체에서 url/source/title 시도
         if any(k in doc for k in ("url", "source", "title")):
-            return doc  # type: ignore[return-value]
+            return doc 
         return {}
 
     # 객체 계열 (Document 등)
@@ -245,12 +261,14 @@ def merge_refs(existing: dict | None, new_queries: list[str] | None, new_docs: l
     if new_docs:
         merged_d.extend([d for d in new_docs if d is not None])
 
-    # queries dedup
-    seen_q, dedup_q = set(), []
+    # queries dedup(대소문자/공백 정규화 보존-무시 전략)
+    seen_q: set[str] = set()
+    dedup_q: list[str] = []
     for q in merged_q:
         qq = (q or "").strip()
-        if qq and qq not in seen_q:
-            dedup_q.append(qq); seen_q.add(qq)
+        key = qq.lower()
+        if qq and key not in seen_q:
+            dedup_q.append(qq); seen_q.add(key)
 
     def _doc_sig(d: Any) -> str:
         # meta
@@ -335,7 +353,7 @@ def attach_auto_citations(gathered: str, state: Mapping[str, Any] | None = None)
         return gathered
 
     # 이미 각주 블록/정의가 있으면 중복 추가 방지
-    if FOOTNOTE_DEF_RE.search(gathered) or FOOTER_HEADER_RE.search(gathered):
+    if FOOTNOTE_DEF_RE.search(gathered) or _footer_header_pattern().search(gathered):
         logger.debug("attach_auto_citations: existing footnotes detected; skipping")
         return gathered
 
@@ -346,7 +364,7 @@ def attach_auto_citations(gathered: str, state: Mapping[str, Any] | None = None)
     # ── quant 모드 ─────────────────────────────────────────────
     if mode == "quant":
         try:
-            from rag_expression import RE_QUANT_NUMBER, RE_QUANT_SENT_HINTS, split_sentences_ko_en  # type: ignore
+            from rag_expression import RE_QUANT_NUMBER, RE_QUANT_SENT_HINTS, split_sentences_ko_en  
         except Exception:
             mode = "footer"
         else:
@@ -400,7 +418,7 @@ def attach_auto_citations(gathered: str, state: Mapping[str, Any] | None = None)
                 continue
 
             # (b) 키워드 → 대표 도메인 매칭
-            for pat, dom in KEYWORD_MAP:
+            for pat, dom in _keyword_map():
                 if pat.search(line):
                     for k, net in domain_by_key.items():
                         if dom in net:
@@ -421,11 +439,11 @@ def attach_auto_citations(gathered: str, state: Mapping[str, Any] | None = None)
     if not footnotes_lines:
         return gathered
 
-    if _cfg_str("AUTO_FOOTNOTE_INLINE", "AUTO_FOOTNOTE_INLINE", "0") in {"1", "true", "yes"}:
+    if _cfg_str("AUTO_FOOTNOTE_INLINE", "AUTO_FOOTNOTE_INLINE", "0").lower() in {"1", "true", "yes"}:
         domain_by_key = {k: _netloc(u) for k, u in url_by_key.items()}
         lines = text.splitlines()
         for i, line in enumerate(lines):
-            for pat, dom in KEYWORD_MAP:
+            for pat, dom in _keyword_map():
                 if pat.search(line):
                     for k, net in domain_by_key.items():
                         if dom in net:
@@ -437,5 +455,14 @@ def attach_auto_citations(gathered: str, state: Mapping[str, Any] | None = None)
                     break
         text = "\n".join(lines)
 
+    footer_title = _cfg_str("AUTO_FOOTNOTE_HEADER", "AUTO_FOOTNOTE_HEADER", "### 참고 문헌 / 각주")
     footer_block = "\n".join(footnotes_lines)
-    return text.rstrip() + "\n\n---\n\n### 참고 문헌 / 각주\n" + footer_block + "\n"
+    return text.rstrip() + "\n\n---\n\n" + footer_title + "\n" + footer_block + "\n"
+
+# ─────────────────────────────────────────────────────────────
+# (옵션) 캐시 무효화 훅 — 현재 구현은 per-call 조회이므로 no-op
+# ─────────────────────────────────────────────────────────────
+def refresh_refs() -> None:  # pragma: no cover
+    """향후 lru_cache 최적화 시 cache_clear() 연결용 훅.
+    현재 버전은 per-call 조회로 즉시 반영되므로 동작 없음."""
+    return

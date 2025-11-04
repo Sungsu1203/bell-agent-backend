@@ -12,38 +12,108 @@ logger = logging.getLogger(__name__)
 # Config 일원화: core/config.CFG 사용 (없어도 안전하게 동작)
 # ─────────────────────────────────────────────────────────────────────────────
 try:
-    from core.config import CFG  # 권장 경로
+    from core.config import CFG  # 권장 경로 (reload_config()로 갱신됨)
 except Exception:  # pragma: no cover
     class _DummyCFG:  # 최소 폴백
-        ALLOW_FORCED_QUERIES: bool = True
-        FORCED_QUERY_LOOKBACK: int = 15
-        FORCED_QUERY_MAX_PER_RUN: int = 20
-        FORCED_QUERY_MIN_LEN: int = 3
-        FORCED_QUERY_EXPAND_YEAR_RANGES: bool = True
-        FORCED_QUERY_YEAR_SPAN_LIMIT: int = 6  # 2020..2025 → span=6(포함)
-        FORCED_QUERY_ENABLE_SITE_SPLIT: bool = True
-        FORCED_QUERY_ENFORCE_GATEKEEP: bool = True
-        # 게이트키핑 연동(있으면 사용)
-        GATE_KEEP_SOURCES: bool = False
-        ALLOWED_DOMAINS: set[str] = set()
+        pass
     CFG = _DummyCFG()  # type: ignore
 
-# 하위호환 상수(다른 코드가 import 할 수 있음)
-ALLOW_FORCED_QUERIES: bool = getattr(CFG, "ALLOW_FORCED_QUERIES", True)
-FORCED_QUERY_LOOKBACK: int = getattr(CFG, "FORCED_QUERY_LOOKBACK", 15)
-FORCED_QUERY_MAX_PER_RUN: int = getattr(CFG, "FORCED_QUERY_MAX_PER_RUN", 20)
-FORCED_QUERY_MIN_LEN: int = getattr(CFG, "FORCED_QUERY_MIN_LEN", 3)
-FORCED_QUERY_EXPAND_YEAR_RANGES: bool = getattr(CFG, "FORCED_QUERY_EXPAND_YEAR_RANGES", True)
-FORCED_QUERY_YEAR_SPAN_LIMIT: int = getattr(CFG, "FORCED_QUERY_YEAR_SPAN_LIMIT", 6)
-FORCED_QUERY_ENABLE_SITE_SPLIT: bool = getattr(CFG, "FORCED_QUERY_ENABLE_SITE_SPLIT", True)
-FORCED_QUERY_ENFORCE_GATEKEEP: bool = getattr(CFG, "FORCED_QUERY_ENFORCE_GATEKEEP", True)
+# ── 런타임 게터: .env → CFG → 기본값 (reload_config 후 즉시 반영)
+import os
 
-GATE_KEEP_SOURCES: bool = getattr(CFG, "GATE_KEEP_SOURCES", False)
-ALLOWED_DOMAINS: set[str] = set(getattr(CFG, "ALLOWED_DOMAINS", set()) or [])
+def _cfg_bool(key: str, *, default: bool) -> bool:
+    try:
+        v = getattr(CFG, key)  # True/False/"1"/"true" 등 허용
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.strip().lower() in ("1", "true", "yes", "on")
+        if v is not None:
+            return bool(v)
+    except Exception:
+        pass
+    ev = os.getenv(key)
+    if ev is not None:
+        return ev.strip().lower() in ("1", "true", "yes", "on")
+    return default
+
+def _cfg_int(key: str, *, default: int) -> int:
+    try:
+        v = getattr(CFG, key)
+        if v is not None and str(v).strip() != "":
+            return int(str(v))
+    except Exception:
+        pass
+    ev = os.getenv(key)
+    if ev is not None and ev.strip() != "":
+        try:
+            return int(ev.strip())
+        except Exception:
+            pass
+    return default
+
+def _cfg_str(key: str, *, default: str = "") -> str:
+    try:
+        v = getattr(CFG, key)
+        if v is not None and str(v).strip() != "":
+            return str(v).strip()
+    except Exception:
+        pass
+    ev = os.getenv(key)
+    if ev is not None and ev.strip() != "":
+        return ev.strip()
+    return default
+
+# ⚠️ 과거 모듈 고정 상수 대신, 하위호환을 위한 "동적 프로퍼티" 제공
+# (다른 코드가 import 해가도 매 호출 시 최신 CFG/ENV를 반영)
+class _Compat:
+    @property
+    def ALLOW_FORCED_QUERIES(self) -> bool:
+        return _cfg_bool("ALLOW_FORCED_QUERIES", default=True)
+    @property
+    def FORCED_QUERY_LOOKBACK(self) -> int:
+        return _cfg_int("FORCED_QUERY_LOOKBACK", default=15)
+    @property
+    def FORCED_QUERY_MAX_PER_RUN(self) -> int:
+        return _cfg_int("FORCED_QUERY_MAX_PER_RUN", default=20)
+    @property
+    def FORCED_QUERY_MIN_LEN(self) -> int:
+        return _cfg_int("FORCED_QUERY_MIN_LEN", default=3)
+    @property
+    def FORCED_QUERY_EXPAND_YEAR_RANGES(self) -> bool:
+        return _cfg_bool("FORCED_QUERY_EXPAND_YEAR_RANGES", default=True)
+    @property
+    def FORCED_QUERY_YEAR_SPAN_LIMIT(self) -> int:
+        return _cfg_int("FORCED_QUERY_YEAR_SPAN_LIMIT", default=6)
+    @property
+    def FORCED_QUERY_ENABLE_SITE_SPLIT(self) -> bool:
+        return _cfg_bool("FORCED_QUERY_ENABLE_SITE_SPLIT", default=True)
+    @property
+    def FORCED_QUERY_ENFORCE_GATEKEEP(self) -> bool:
+        return _cfg_bool("FORCED_QUERY_ENFORCE_GATEKEEP", default=True)
+    @property
+    def GATE_KEEP_SOURCES(self) -> bool:
+        return _cfg_bool("GATE_KEEP_SOURCES", default=False)
+    @property
+    def ALLOWED_DOMAINS(self) -> set[str]:
+        # CFG가 set/list/tuple 모두 허용
+        v = getattr(CFG, "ALLOWED_DOMAINS", None)
+        if v is None:
+            ev = os.getenv("ALLOWED_DOMAINS", "")
+            if ev.strip():
+                return set(x.strip().lower() for x in ev.split(",") if x.strip())
+            return set()
+        try:
+            return set(str(x).strip().lower() for x in (list(v) if not isinstance(v, (list, set, tuple)) else v))
+        except Exception:
+            return set()
+
+COMPAT = _Compat()
 
 __all__ = [
     "extract_forced_queries_from_messages",
     "normalize_forced_query",
+    "COMPAT",  # 하위호환(필요 시 외부에서 참조 가능)
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -75,7 +145,7 @@ def _dedupe(seq: Iterable[str]) -> List[str]:
     seen, out = set(), []
     for s in seq:
         k = (s or "").strip()
-        if not k or len(k) < FORCED_QUERY_MIN_LEN:
+        if not k or len(k) < COMPAT.FORCED_QUERY_MIN_LEN:
             continue
         if k not in seen:
             seen.add(k)
@@ -96,7 +166,7 @@ def _expand_year_range_once(q: str) -> str:
     '2023..2025' → '(2023 OR 2024 OR 2025)'
     스팬이 FORCED_QUERY_YEAR_SPAN_LIMIT를 초과하면 확장하지 않음.
     """
-    if not FORCED_QUERY_EXPAND_YEAR_RANGES:
+    if not COMPAT.FORCED_QUERY_EXPAND_YEAR_RANGES:
         return q
 
     def _repl(m: re.Match) -> str:
@@ -109,7 +179,7 @@ def _expand_year_range_once(q: str) -> str:
         if left > right:
             left, right = right, left
         span = right - left + 1
-        if span <= 1 or span > FORCED_QUERY_YEAR_SPAN_LIMIT:
+        if span <= 1 or span > COMPAT.FORCED_QUERY_YEAR_SPAN_LIMIT:
             return m.group(0)  # 과도/무의미 범위는 그대로 둠
         years = " OR ".join(str(y) for y in range(left, right + 1))
         return f"({years})"
@@ -126,9 +196,9 @@ def _filter_sites_by_gatekeep(sites: List[str]) -> List[str]:
     """
     게이트키핑이 강제되는 경우(ALLOWED_DOMAINS가 비어있지 않음) 허용 도메인만 유지
     """
-    if not (FORCED_QUERY_ENFORCE_GATEKEEP and GATE_KEEP_SOURCES and ALLOWED_DOMAINS):
+    if not (COMPAT.FORCED_QUERY_ENFORCE_GATEKEEP and COMPAT.GATE_KEEP_SOURCES and COMPAT.ALLOWED_DOMAINS):
         return sites
-    allowed = set(ALLOWED_DOMAINS)
+    allowed = set(COMPAT.ALLOWED_DOMAINS)
     kept = [s for s in sites if s in allowed]
     if len(kept) != len(sites):
         dropped = set(sites) - set(kept)
@@ -143,7 +213,7 @@ def _split_multi_site_query(q: str) -> Optional[List[str]]:
     '... site:(a OR b OR c)' → ['... site:a', '... site:b', '... site:c']
     게이트키핑이 켜져 있으면 허용 도메인만 유지.
     """
-    if not FORCED_QUERY_ENABLE_SITE_SPLIT:
+    if not COMPAT.FORCED_QUERY_ENABLE_SITE_SPLIT:
         return None
     if "site:" not in q:
         return None
@@ -269,13 +339,13 @@ def extract_forced_queries_from_messages(messages, lookback: Optional[int] = Non
       * FORCED_QUERY_LOOKBACK / MAX_PER_RUN / MIN_LEN 등 반영
       * 게이트키핑 정책과 연동(옵션)
     """
-    if not ALLOW_FORCED_QUERIES:
+    if not COMPAT.ALLOW_FORCED_QUERIES:
         return []
 
     try:
-        _lookback = int(lookback if lookback is not None else FORCED_QUERY_LOOKBACK)
+        _lookback = int(lookback if lookback is not None else COMPAT.FORCED_QUERY_LOOKBACK)
     except Exception:
-        _lookback = FORCED_QUERY_LOOKBACK
+        _lookback = COMPAT.FORCED_QUERY_LOOKBACK
 
     if _lookback <= 0:
         return []
@@ -317,8 +387,8 @@ def extract_forced_queries_from_messages(messages, lookback: Optional[int] = Non
 
     # 5) 중복 제거 및 상한 제한
     deduped = _dedupe(expanded)
-    if len(deduped) > FORCED_QUERY_MAX_PER_RUN:
-        logger.info("[FORCED_QUERY] max cap applied: %d → %d", len(deduped), FORCED_QUERY_MAX_PER_RUN)
-        deduped = deduped[:FORCED_QUERY_MAX_PER_RUN]
+    if len(deduped) > COMPAT.FORCED_QUERY_MAX_PER_RUN:
+        logger.info("[FORCED_QUERY] max cap applied: %d → %d", len(deduped), COMPAT.FORCED_QUERY_MAX_PER_RUN)
+        deduped = deduped[:COMPAT.FORCED_QUERY_MAX_PER_RUN]
 
     return deduped

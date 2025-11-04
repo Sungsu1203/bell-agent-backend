@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import List, Optional, Tuple, Literal, TypeAlias
+from typing import List, Optional, Tuple, Literal, TypeAlias, cast
 
 import logging
 logger = logging.getLogger(__name__)
@@ -55,7 +55,8 @@ def save_md_draft(
     메인 코드 기대 시그니처:
       (title, content, *, mode="book", root_dir, topic_slug=None, ...) -> str
     """
-    m: DocMode = _coerce_mode(mode)
+    # _coerce_mode는 프로젝트 전역 DocMode를 반환할 수 있으므로 로컬 DocMode로 단언
+    m: DocMode = cast(DocMode, _coerce_mode(mode))
     p = path_for_title(title, mode=m, root_dir=root_dir, topic_slug=topic_slug)
     out = _write_text(p, content, backup=backup)
     return str(out.resolve())
@@ -98,7 +99,7 @@ def read_draft(
     root_dir: Optional[str | Path] = None,
     topic_slug: Optional[str] = None,
 ) -> Tuple[str, Path]:
-    m: DocMode = _coerce_mode(mode)
+    m: DocMode = cast(DocMode, _coerce_mode(mode))
     p = path_for_title(title, mode=m, root_dir=root_dir, topic_slug=topic_slug)
     if not p.exists():
         logger.debug("read_draft: not found (title=%s, path=%s)", title, p)
@@ -118,7 +119,7 @@ def list_draft_paths(
     root_dir: Optional[str | Path] = None,
     topic_slug: Optional[str] = None,
 ) -> List[Path]:
-    m: DocMode = _coerce_mode(mode)
+    m: DocMode = cast(DocMode, _coerce_mode(mode))
     d = get_content_dir(m, root_dir=root_dir, topic_slug=topic_slug)
     if not d.exists():
         logger.debug("list_draft_paths: base dir not exists: %s", d)
@@ -138,7 +139,7 @@ def rename_draft_title(
     overwrite: bool = False,
     backup: bool = True,
 ) -> Path:
-    m: DocMode = _coerce_mode(mode)
+    m: DocMode = cast(DocMode, _coerce_mode(mode))
     src = path_for_title(old_title, mode=m, root_dir=root_dir, topic_slug=topic_slug)
     dst = path_for_title(new_title, mode=m, root_dir=root_dir, topic_slug=topic_slug)
     if not src.exists():
@@ -169,7 +170,7 @@ def move_draft_between_topics(
 ) -> Path:
     if src_topic_slug == dst_topic_slug:
         raise ValueError("src_topic_slug and dst_topic_slug are the same.")
-    m: DocMode = _coerce_mode(mode)
+    m: DocMode = cast(DocMode, _coerce_mode(mode))
     src = path_for_title(title, mode=m, root_dir=root_dir, topic_slug=src_topic_slug)
     dst = path_for_title(title, mode=m, root_dir=root_dir, topic_slug=dst_topic_slug)
     if not src.exists():
@@ -207,6 +208,7 @@ def merge_drafts(
 
     sep = separator if separator is not None else "\n\n---\n\n"
 
+    # read_draft 내부에서 다시 _coerce_mode 처리됨
     src_txt, src_path = read_draft(src_title, mode=mode, root_dir=root_dir, topic_slug=topic_slug)
     dst_txt, dst_path = read_draft(dst_title, mode=mode, root_dir=root_dir, topic_slug=topic_slug)
 

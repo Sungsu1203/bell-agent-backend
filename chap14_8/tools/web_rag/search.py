@@ -6,13 +6,14 @@ logger = logging.getLogger(__name__)
 import re
 import os, json, time
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple, Sequence
+from typing import List, Dict, Any, Optional, Tuple, Sequence, Callable
 from datetime import datetime
 import threading
 
 import requests
 from langchain_core.tools import tool
 
+from typing import Any  # for untyped 3rd-party fallbacks
 # ── Metrics (best-effort wrapper) ─────────────────────────────────────────────
 from tools.metrics import (
     record_query_issued,
@@ -22,14 +23,29 @@ from tools.metrics import (
     event,
 )
 
+# ── Config 단일 진입점 ────────────────────────────────────────────────────────
+import core.config as config
+from core.config import CFG, reload_config
+def _truthy_env(name: str, default: bool = False) -> bool:
+    v = (os.getenv(name) or "").strip().lower()
+    if not v:
+        return default
+    return v in {"1","true","yes","y","on"}
+
+def _truthy_cfg(name: str, default: bool = False) -> bool:
+    # config.truthy가 있으면 우선 사용
+    try:
+        return bool(config.truthy(name, default))
+    except Exception:
+        return _truthy_env(name, default)
+
 def _metrics_disabled() -> bool:
-    # 둘 중 하나라도 비활성 신호면 차단
-    v1 = (os.getenv("METRICS_DISABLED") or "").strip().lower()
-    v2 = (os.getenv("DISABLE_METRICS") or "").strip().lower()
-    v3 = (os.getenv("METRICS_ENABLED") or "").strip().lower()
-    if v1 in ("1", "true", "yes", "on"): return True
-    if v2 in ("1", "true", "yes", "on"): return True
-    if v3 in ("0", "false", "no", "off"): return True
+    # CFG/ENV 통합: METRICS_DISABLED, DISABLE_METRICS, METRICS_ENABLED=0 중 하나라도 true면 비활성
+    if _truthy_cfg("METRICS_DISABLED", False): return True
+    if _truthy_cfg("DISABLE_METRICS", False):  return True
+    # enabled 플래그는 반대 의미(0/false → 비활성)
+    v = (os.getenv("METRICS_ENABLED") or "").strip().lower()
+    if v in ("0","false","no","off"): return True
     return False
 
 def _try_call(fn) -> None:
@@ -54,22 +70,23 @@ def _metrics_call(name: str, fn, timeout_s: float = 0.15) -> None:
     except Exception:
         pass
 
-# ── CFG/Paths ────────────────────────────────────────────────────────────────
-from core.config import CFG
 from core.paths import research_base_dir
-
-# (선택) 임베딩 — 이 파일에서는 직접 사용하지 않더라도 주입 지점 유지
-try:
-    from core.llm import get_embedding_model  # noqa: F401
-except Exception:
-    get_embedding_model = None  # type: ignore
 
 # ── Gatekeep ─────────────────────────────────────────────────────────────────
 from settings_gatekeep import (
     gatekeep_enabled,
     url_allowed,
     _normalize_host,    # 로그 요약용 (없으면 제거 가능)
+    get_allowed_domains,
+    set_runtime_allowed_domains,
 )
+
+# Gatekeep 캐시를 모듈 로드시 최신 상태로 강제 동기화
+try:
+    from settings_gatekeep import refresh_gatekeep_cache
+    refresh_gatekeep_cache()  # 인자/ENV 반영 후 항상 최신화
+except Exception:
+    pass
 
 def _infer_intent_from_query(q: str) -> str:
     """쿼리에서 의도 힌트를 추정: stats | news | regulation | generic"""
@@ -146,7 +163,7 @@ from .utils import (
     _ell, _host_of, _LOG_TOPK,
 
     # 쿼리 전처리
-    _append_default_negatives, _cap_minus_tokens, _truthy,
+    _append_default_negatives, _cap_minus_tokens,
 
     # 결과 처리
     _apply_gatekeep_to_results, _normalize_results, _pick_top,
@@ -224,13 +241,19 @@ def _annotate_fetch_meta(items: List[Dict[str, Any]]) -> None:
                 it["content_type"] = "application/pdf"
 
 # ---- 선택적 파서(존재 시 사용, 미설치라면 안전 폴백) ----
+# 모듈은 Optional로, 함수는 Optional[Callable[..., str]]로 표기하여
+# "Module"/"Callable[...] 에 None 대입" 경고 제거
+from types import ModuleType
+
 try:
-    import PyPDF2 as _pypdf2  # noqa: F401
+    import PyPDF2 as _pypdf2_mod  # noqa: F401
+    _pypdf2: Optional[ModuleType] = _pypdf2_mod
 except Exception:
     _pypdf2 = None
 
 try:
-    from pdfminer.high_level import extract_text as _pdfminer_extract_text  # noqa: F401
+    from pdfminer.high_level import extract_text as _pdfminer_extract_text_mod  # noqa: F401
+    _pdfminer_extract_text: Optional[Callable[..., str]] = _pdfminer_extract_text_mod
 except Exception:
     _pdfminer_extract_text = None
 
@@ -240,10 +263,16 @@ except Exception:
 # =============================================================================
 def _search_tavily(query: str, *, num: int = 10, timeout: int = 15) -> List[Dict[str, Any]]:
     api_key = (os.getenv("TAVILY_API_KEY") or "").strip()
-    if not (CFG.HAS_TAVILY and api_key):
+    if not (getattr(CFG, "HAS_TAVILY", False) and api_key):
         return []
     try:
-        from tavily import TavilyClient  # 지연 임포트
+        # mypy가 stubs 없는 외부 모듈을 싫어하므로, 임포트 실패 시 조용히 스킵
+        try:
+            from tavily import TavilyClient  # type: ignore[import-untyped]
+        except Exception:  # pragma: no cover
+            logger.debug("tavily module not available; skipping tavily backend.")
+            return []
+        # 임포트 성공 시에만 클라이언트 생성
         client = TavilyClient(api_key=api_key)
 
         # [PATCH B1] ── 경량화: basic / raw_content 비활성 / 결과 상한
@@ -256,7 +285,7 @@ def _search_tavily(query: str, *, num: int = 10, timeout: int = 15) -> List[Dict
             timeout=timeout,               # 남은 버짓 기반 타임아웃
         )
 
-        items = []
+        items: List[Dict[str, Any]] = []
         if isinstance(resp, dict):
             items = resp.get("results", []) or []
         else:
@@ -281,7 +310,7 @@ def _search_tavily(query: str, *, num: int = 10, timeout: int = 15) -> List[Dict
 def _search_google_cse(query: str, *, num: int = 10, timeout: int = 20) -> List[Dict[str, Any]]:
     api_key = (os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_CSE_API_KEY") or "").strip()
     cse_id  = (os.getenv("GOOGLE_CSE_ID") or os.getenv("GOOGLE_CSE_CX") or "").strip()
-    if not (api_key and cse_id):
+    if not (getattr(CFG, "HAS_GOOGLE_KEYS", False) and api_key and cse_id):
         return []
     try:
         gl = os.getenv("GOOGLE_CSE_GL") or os.getenv("SEARCH_GL") or "us"
@@ -322,10 +351,10 @@ def _search_google_cse(query: str, *, num: int = 10, timeout: int = 20) -> List[
 
 def _search_serpapi(query: str, *, num: int = 10, timeout: int = 20) -> List[Dict[str, Any]]:
     api_key = (os.getenv("SERPAPI_API_KEY") or "").strip()
-    if not (api_key and CFG.HAS_SERPAPI):
+    if not (api_key and getattr(CFG, "HAS_SERPAPI", False)):
         return []
     try:
-        from serpapi import GoogleSearch  # 지연 임포트
+        from serpapi import GoogleSearch  # type: ignore[import-untyped]  # 지연 임포트
         hl = os.getenv("SEARCH_HL", "en")
         gl = os.getenv("SEARCH_GL", "us")
         num = max(1, min(int(num or 10), 100))
@@ -417,7 +446,7 @@ def _search_serpapi_naver(query: str) -> List[dict]:
     hl  = (os.getenv("SERPAPI_NAVER_HL") or "ko").strip()
     gl  = (os.getenv("SERPAPI_NAVER_GL") or "kr").strip()
     where = (os.getenv("SERPAPI_NAVER_WHERE") or "web").strip()
-    try_others = _truthy(os.getenv("SERPAPI_NAVER_TRY_OTHERS", "0"))
+    try_others = _truthy_cfg("SERPAPI_NAVER_TRY_OTHERS", False)
     url = "https://serpapi.com/search.json"
     logger.debug("[SerpAPI(Naver)][query] %s", _ell(q_naver))
 
@@ -677,10 +706,20 @@ def web_search(
       SEARCH_TIME_BUDGET_SEC=25
       BACKEND_TIMEOUT_SEC=15 (cap to 8s)
     """
+    # 런타임 ENV 변경 반영(안전): CFG in-place 리로드 + 게이트키프 캐시 리프레시
+    try:
+        reload_config()
+        from settings_gatekeep import refresh_gatekeep_cache as _refresh_gk
+        _refresh_gk()
+    except Exception:
+        pass
+    
     engine = (engine or os.getenv("WEB_SEARCH_ENGINE") or "auto").strip().lower()
     results: List[Dict[str, Any]] = []
     used: Optional[str] = None
-
+    # 저장 경로는 Exception 분기에서 None일 수 있으므로 함수 초반 1회만 선언(재정의 방지)
+    # (mypy: "Name 'path' already defined" 해결)
+    path: Optional[str] = None
 
     raw_query = query
     if not (raw_query and str(raw_query).strip()):
@@ -694,7 +733,7 @@ def web_search(
     logger.info("[web_search][query] %s", _ell(raw_query))
 
     # (A0) 선택적 프리플라이트 핑: DNS/프록시 이슈 조기감지(실패해도 진행)
-    if _truthy(os.getenv("SEARCH_PREFLIGHT_PING", "0")):
+    if _truthy_cfg("SEARCH_PREFLIGHT_PING", False):
         try:
             _ = http_get("https://www.google.com", timeout=1)
         except Exception:
@@ -707,6 +746,20 @@ def web_search(
         _metrics_call("record_query_issued", record_query_issued)
     except Exception:
         pass
+
+    # ─────────────────────────────────────────────────────────────
+    # [GATEKEEP] 허용 도메인 로깅 및 런타임 주입 (즉시 반영)
+    # 검색 체인 실행 전에 한 번만 수행하면 downstream에서 동일 목록을 사용합니다.
+    try:
+        allowed_domains = sorted(get_allowed_domains())
+        if gatekeep_enabled():
+            logger.info("[GATEKEEP] enabled; allowed=%s (n=%d)",
+                        ", ".join(allowed_domains), len(allowed_domains))
+            set_runtime_allowed_domains(allowed_domains)
+        else:
+            logger.info("[GATEKEEP] disabled")
+    except Exception as e:
+        logger.warning("[GATEKEEP] runtime allowed-domains injection failed: %s", e)
 
     # (1) backend 지시어
     forced_backend = None
@@ -759,8 +812,15 @@ def web_search(
 
         # [PATCH A2] ── 한국어/국내 도메인 신호가 있으면 naver_direct를 맨 앞으로 재정렬
         if _looks_korean(base_query) and "naver_direct" in chain:
-            seen = set()
-            chain = ["naver_direct"] + [b for b in chain if (b != "naver_direct" and not (b in seen or seen.add(b)))]
+            seen: set[str] = set()
+            new_chain: List[str] = ["naver_direct"]
+            for b in chain:
+                if b == "naver_direct":
+                    continue
+                if b not in seen:
+                    new_chain.append(b)
+                    seen.add(b)
+            chain = new_chain
         logger.debug("[web_search][diag] after chain resolve: %s", chain)
         if forced_backend:
             chain = [forced_backend] + [b for b in chain if b != forced_backend]
@@ -778,7 +838,7 @@ def web_search(
     _kr_context = _looks_korean(base_query)
     _naver_in_chain = any(b in ("naver_direct", "serpapi_naver") for b in chain)
     _naver_called = False
-    _naver_reserved = 4.0 if (_kr_context and _naver_in_chain) else 0.0  # 필요 시 조정(3~6초)
+    _naver_reserved = 4.0 if (_kr_context and _naver_in_chain) else 0.0  # 필요 시 3~6초로 조정
     logger.debug("[web_search][A3] kr=%s | naver_in_chain=%s | reserved=%.2fs",
              _kr_context, _naver_in_chain, _naver_reserved)
 
@@ -817,7 +877,7 @@ def web_search(
         else:
             variants = [("default", base_query)]
 
-        best_res = []
+        best_res: List[Dict[str, Any]] = []
         used_label = None
         for label, q_use in variants:
             if _budget_left() <= 0:
@@ -919,7 +979,7 @@ def web_search(
             else:
                 vset = [("default", base_query)]
 
-            best_res: List[dict] = []
+            best_res_r: List[dict] = []
             used_label = None
             for label, q_use in vset:
                 if _budget_left() <= 0:
@@ -932,16 +992,16 @@ def web_search(
                 except Exception:
                     _res = []
                 if _res:
-                    best_res = _res; used_label = label
-                    if _policy == "first_ok" and len(best_res) >= _min_ok:
+                    best_res_r = _res; used_label = label
+                    if _policy == "first_ok" and len(best_res_r) >= _min_ok:
                         break
-            retried.append((f"{bk}:{used_label or 'none'}", len(best_res), best_res))
+            retried.append((f"{bk}:{used_label or 'none'}", len(best_res_r), best_res_r))
 
             # retry latency 기록(말단·비중요)
             _metrics_call(f"record_backend_latency:{bk}", lambda: record_backend_latency(bk, float(time.monotonic() - _retry_t0)))
 
-            if _policy == "first_ok" and len(best_res) >= _min_ok:
-                results, used = best_res, f"{bk}:{used_label}(retry)"
+            if _policy == "first_ok" and len(best_res_r) >= _min_ok:
+                results, used = best_res_r, f"{bk}:{used_label}(retry)"
                 break
             if _policy == "best_of_chain" and _accum_count >= _topn:
                 logger.debug("[web_search] early stop triggered before exhausting backends (best_of_chain)")
@@ -982,7 +1042,7 @@ def web_search(
     # 원문 보강 이후 메타(바이트/타입/타임스탬프) 주입
     _annotate_fetch_meta(results)
 
-    path = None
+    # 저장 경로는 최종적으로 문자열이어야 하지만, 예외 경로에서 None이 될 수 있으므로 Optional로 선언
     try:
         path = _save_results(results, query=raw_query, base_dir=str(research_base_dir()))
     except TypeError:
@@ -993,7 +1053,10 @@ def web_search(
             path = _save_results(results, query=raw_query)
         except Exception as e_f:
             logger.warning("[web_search][final save] failed on fallback: %s", e_f)
-            path = str(Path(research_base_dir()) / "web_search_fallback.json")
+            try:
+                path = str(Path(research_base_dir()) / "web_search_fallback.json")
+            except Exception:
+                path = str(Path.cwd() / "web_search_fallback.json")
 
     # 말단: 백엔드 선택 이벤트(파일 저장 이후 best-effort)
     if results:
@@ -1011,4 +1074,4 @@ def web_search(
         logger.info("[web_search][top%d]\n%s", min(_LOG_TOPK, len(results)), "\n".join(lines))
 
     logger.info("[web_search] backend=%s, results=%d, saved=%s", used, len(results), path)
-    return results, path
+    return results, path if path is not None else str(Path.cwd() / "web_search_fallback.json")

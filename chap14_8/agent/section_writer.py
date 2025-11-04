@@ -1,5 +1,5 @@
 from __future__ import annotations
-import sys, re
+import sys, re, os
 from os import path
 from pathlib import Path
 from typing import Tuple, Any, Dict, cast
@@ -44,6 +44,35 @@ def _as_int(x: Any, default: int = 0) -> int:
             except Exception:
                 return default
     return default
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Config helpers (env → CFG → module default)  ※ reload_config() 반영
+# ─────────────────────────────────────────────────────────────────────────────
+def _cfg_str(name: str, default: str = "") -> str:
+    try:
+        v = getattr(config.CFG, name, None)
+        if v is None:
+            v = getattr(config, name, None)
+    except Exception:
+        v = None
+    if v is None:
+        v = os.getenv(name, default)
+    return str(v) if v is not None else default
+
+def _cfg_int(name: str, default: int = 0) -> int:
+    s = _cfg_str(name, str(default))
+    try:
+        return int(str(s).strip())
+    except Exception:
+        return default
+
+def _cfg_bool(name: str, default: bool = False) -> bool:
+    s = _cfg_str(name, "1" if default else "0").strip().lower()
+    return s in {"1","true","yes","y","on"}
+
+def _doc_mode() -> str:
+    return (_cfg_str("DOC_MODE", "report") or "report").lower()
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -107,13 +136,13 @@ def _guess_total_sections(outline_text: str, fallback: int = 8) -> int:
 def section_writer(state: State):
     llm = get_llm()
 
-    if config.CFG.DOC_MODE != "report":
-        logger.info("[SECTION WRITER] Skipped: DOC_MODE=%s (expected 'report')", config.CFG.DOC_MODE)
+    if _doc_mode() != "report":
+        logger.info("[SECTION WRITER] Skipped: DOC_MODE=%s (expected 'report')", _doc_mode())
         return {"messages": state.get("messages", []), "task_history": state.get("task_history", [])}
 
     logger.info("============ SECTION WRITER ============")
 
-    state = sanitize_state(state)
+    state = cast(State, sanitize_state(state))
     tasks = list(state.get("task_history", []) or [])
     messages = list(state.get("messages", []) or [])
 
@@ -124,7 +153,7 @@ def section_writer(state: State):
 
     outline_text = get_topic_outline_text(state)
     if not (outline_text or "").strip():
-        default_outline = "outline_book.md" if config.CFG.DOC_MODE == "book" else "outline_report.md"
+        default_outline = "outline_book.md" if _doc_mode() == "book" else "outline_report.md"
         fname = state.get("outline_fname") or default_outline
         if not has_pending(tasks, "content_strategist", prefix="create_outline"):
             tasks.append(Task(agent="content_strategist", done=False, description=f"create_outline:{fname}", done_at=""))
@@ -165,7 +194,7 @@ def section_writer(state: State):
     logger.debug("[SECTION WRITER] draft length=%s chars", len(gathered or ""))
 
     # ---- 자동 각주 ----
-    if getattr(config.CFG, "AUTO_FOOTNOTE", False):
+    if _cfg_bool("AUTO_FOOTNOTE", False):
         try:
             gathered = attach_auto_citations(gathered, state)
         except Exception as e:
@@ -207,13 +236,13 @@ def section_writer(state: State):
         # writer-lock 해제(요청 제목과 일치할 때만)
         try:
             if came_from_lock:
-                f_raw: Dict[str, Any] = dict(state.get("flags") or {})
-                req = _as_str(f_raw.get("requested_write_title")).strip()
+                flags_map = dict(cast(Dict[str, Any], state.get("flags") or {}))
+                req = _as_str(flags_map.get("requested_write_title")).strip()
                 if req and (req == _as_str(target_title).strip()):
-                    f_raw.pop("pending_write_title", None)
-                    f_raw.pop("requested_write_title", None)
-                    f_raw.pop("suppress_vector_qa", None)
-                    state["flags"] = cast(Flags, f_raw)
+                    flags_map.pop("pending_write_title", None)
+                    flags_map.pop("requested_write_title", None)
+                    flags_map.pop("suppress_vector_qa", None)
+                    state["flags"] = cast(Flags, flags_map)
                     logger.debug("[Section Writer] cleared writer lock: %s", target_title)
         except Exception as _e:
             logger.debug("[Section Writer] writer lock clear skipped: %s", _e)
@@ -223,26 +252,27 @@ def section_writer(state: State):
         messages.append(AIMessage(content=gathered))
         try:
             if came_from_lock:
-                f_raw: Dict[str, Any] = dict(state.get("flags") or {})
-                req = _as_str(f_raw.get("requested_write_title")).strip()
+                flags_map2 = dict(cast(Dict[str, Any], state.get("flags") or {}))
+                req = _as_str(flags_map2.get("requested_write_title")).strip()
                 if req and (req == _as_str(target_title).strip()):
-                    f_raw.pop("pending_write_title", None)
-                    f_raw.pop("requested_write_title", None)
-                    f_raw.pop("suppress_vector_qa", None)
-                    state["flags"] = cast(Flags, f_raw)
+                    flags_map2.pop("pending_write_title", None)
+                    flags_map2.pop("requested_write_title", None)
+                    flags_map2.pop("suppress_vector_qa", None)
+                    state["flags"] = cast(Flags, flags_map2)
                     logger.debug("[Section Writer][QA] cleared writer lock: %s", target_title)
         except Exception as _e:
             logger.debug("[Section Writer][QA] writer lock clear skipped: %s", _e)
 
     # ---- 진행률 플래그 업데이트 ----
     try:
-        f_raw: Dict[str, Any] = dict(state.get("flags") or {})
+        # 진행률 계산은 여기서 한 번만 타입 주석을 사용해 정의
+        f_raw: Dict[str, Any] = dict(cast(Dict[str, Any], state.get("flags") or {}))
         seen_raw = _as_str(f_raw.get("sections_seen"))
         seen: set[str] = set(s.strip() for s in seen_raw.split(",") if s.strip())
         key = _as_str(target_title).strip()
 
-        # CFG 일원화: 기본 섹션 수
-        total_default = _as_int(getattr(config.CFG, "SECTIONS_TOTAL_DEFAULT", 8), 8)
+        # CFG 일원화: 기본 섹션 수 (런타임 반영)
+        total_default = _as_int(_cfg_int("SECTIONS_TOTAL_DEFAULT", 8), 8)
         guessed_total = _as_int(_guess_total_sections(outline_text, fallback=total_default), total_default)
 
         sections_done = _as_int(f_raw.get("sections_done"), 0)
@@ -262,7 +292,7 @@ def section_writer(state: State):
         logger.debug("[SECTION WRITER] progress flag update skipped: %s", e)
 
     # ---- 콘솔 에코(옵션, CFG 제어) ----
-    if getattr(config.CFG, "ECHO_SECTIONS", False) or getattr(config.CFG, "ECHO_CHAPTERS", False):
+    if _cfg_bool("ECHO_SECTIONS", False) or _cfg_bool("ECHO_CHAPTERS", False):
         try:
             box_title = ("Q&A ANSWER: " if is_qa_mode else "SECTION DRAFT: ") + _as_str(target_title)
             src_tag = "(Answer Only)" if is_qa_mode else f"saved → {out_path or '(save failed)'}"

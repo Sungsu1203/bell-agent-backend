@@ -1,6 +1,7 @@
 # utils/tasks.py — dynamic config access (v2025-10-27)
 from __future__ import annotations
 from typing import Optional, Protocol, Iterable, Any, Sequence, TYPE_CHECKING, Dict, List
+from types import ModuleType
 
 import logging
 logger = logging.getLogger(__name__)
@@ -23,13 +24,50 @@ def _get_cfg_attr(name: str, default):
     return default
 
 
-def _as_list(v) -> List[str]:
+def _as_list(v: Any) -> List[str]:
     if not v:
         return []
     try:
         return [str(x).strip() for x in v if str(x).strip()]
     except Exception:
         return []
+
+
+# ─────────────────────────────────────────────────────────────
+# Per-call dynamic getters (reload_config() 즉시 반영)
+# ─────────────────────────────────────────────────────────────
+def _pending_prefix_casefold() -> bool:
+    try:
+        return bool(_get_cfg_attr("PENDING_PREFIX_CASEFOLD", True))
+    except Exception:
+        return True
+
+def _tool_calls_fields() -> List[str]:
+    return _as_list(_get_cfg_attr("TOOL_CALLS_FIELDS", None)) or ["tool_calls", "additional_kwargs.tool_calls"]
+
+def _tool_name_field() -> str:
+    try:
+        return str(_get_cfg_attr("TOOL_NAME_FIELD", "name") or "name")
+    except Exception:
+        return "name"
+
+def _tool_args_field() -> str:
+    try:
+        return str(_get_cfg_attr("TOOL_ARGS_FIELD", "args") or "args")
+    except Exception:
+        return "args"
+
+def _allow_during_research_default() -> bool:
+    try:
+        return bool(_get_cfg_attr("ALLOW_DURING_RESEARCH_DEFAULT", False))
+    except Exception:
+        return False
+
+def _write_title_regex_str() -> str:
+    try:
+        return str(_get_cfg_attr("WRITE_TITLE_REGEX", r"^\s*write\s*:\s*(.+)$") or r"^\s*write\s*:\s*(.+)$")
+    except Exception:
+        return r"^\s*write\s*:\s*(.+)$"
 
 # ─────────────────────────────────────────────────────────────
 # LangChain message shims (type-checker sees real types)
@@ -52,7 +90,8 @@ else:
 
 __all__ = [
     "HumanMessage", "AIMessage", "SystemMessage",
-    "has_pending", "get_last_write_target", "iter_tool_calls"
+    "has_pending", "get_last_write_target", "iter_tool_calls",
+    "schedule_writer_if_needed",
 ]
 
 # ─────────────────────────────────────────────────────────────
@@ -81,9 +120,6 @@ def _read_task_fields(obj: Any) -> tuple[str, bool, str]:
 
 from collections.abc import Sequence as _Seq
 
-# prefix 매칭 시 대소문자 무시 여부 설정 가능
-_PENDING_PREFIX_CASEFOLD: bool = bool(_get_cfg_attr("PENDING_PREFIX_CASEFOLD", True))
-
 def has_pending(tasks: Iterable[Any], agent: str, prefix: Optional[str] = None) -> bool:
     """
     미완료(done=False) + agent 일치(+ description prefix 옵션) 검사.
@@ -96,17 +132,14 @@ def has_pending(tasks: Iterable[Any], agent: str, prefix: Optional[str] = None) 
         return False
 
     # 역순 검사(최근 항목 우선)
-    try:
-        if isinstance(tasks, _Seq):
-            itr = reversed(tasks)  # type: ignore[arg-type]
-        else:
-            buf = list(tasks or [])
-            itr = reversed(buf)
-    except Exception:
-        itr = tasks  # 최후 폴백
+    if isinstance(tasks, _Seq):
+        itr = reversed(list(tasks))
+    else:
+        buf = list(tasks or [])
+        itr = reversed(buf)
 
     pfx = prefix
-    if isinstance(prefix, str) and _PENDING_PREFIX_CASEFOLD:
+    if isinstance(prefix, str) and _pending_prefix_casefold():
         pfx = prefix.casefold()
 
     for t in itr:
@@ -118,7 +151,7 @@ def has_pending(tasks: Iterable[Any], agent: str, prefix: Optional[str] = None) 
                 continue
             if pfx is None:
                 return True
-            cmp = t_desc.casefold() if _PENDING_PREFIX_CASEFOLD else t_desc
+            cmp = t_desc.casefold() if _pending_prefix_casefold() else t_desc
             if isinstance(pfx, str) and cmp.startswith(pfx):
                 return True
         except Exception:
@@ -137,17 +170,21 @@ try:
 
     # 우리가 원하는 정확한 시그니처로 래퍼를 제공
     def extract_write_title(text: Optional[str]) -> Optional[str]:
-        return _extract_write_title(text)  # type: ignore[call-arg]
+        return _extract_write_title(text)  
 
 except Exception:
     import re as _re
-    _WRITE_TITLE_REGEX = str(_get_cfg_attr("WRITE_TITLE_REGEX", r"^\s*write\s*:\s*(.+)$"))
-    _RE_WRITE = _re.compile(_WRITE_TITLE_REGEX, _re.I | _re.M)
+    def _re_write() -> "_re.Pattern[str]":
+        pat = _write_title_regex_str()
+        try:
+            return _re.compile(pat, _re.I | _re.M)
+        except Exception:
+            return _re.compile(r"^\s*write\s*:\s*(.+)$", _re.I | _re.M)
     def extract_write_title(text: str | None) -> Optional[str]:
         """fallback: 기본은 'write: <title>' 패턴, 설정으로 커스터마이즈 가능"""
         if not text:
             return None
-        m = _RE_WRITE.search(str(text))
+        m = _re_write().search(str(text))
         return m.group(1).strip() if m else None
 
 
@@ -194,13 +231,6 @@ def get_last_write_target(
 # ─────────────────────────────────────────────────────────────
 import json as _json
 
-_TOOL_CALLS_FIELDS: List[str] = _as_list(_get_cfg_attr("TOOL_CALLS_FIELDS", None)) or [
-    "tool_calls", "additional_kwargs.tool_calls"
-]
-_TOOL_NAME_FIELD: str = str(_get_cfg_attr("TOOL_NAME_FIELD", "name"))
-_TOOL_ARGS_FIELD: str = str(_get_cfg_attr("TOOL_ARGS_FIELD", "args"))
-
-
 def _get_path(obj: Any, dotted: str):
     cur = obj
     for part in dotted.split('.'):
@@ -217,7 +247,7 @@ def iter_tool_calls(msg, name: str):
     # OpenAI/LC 메시지 dict 포맷도 수용 + 설정 기반 경로
     tcs = None
     if isinstance(msg, dict):
-        for path in _TOOL_CALLS_FIELDS:
+        for path in _tool_calls_fields():
             tcs = _get_path(msg, path)
             if tcs:
                 break
@@ -231,11 +261,11 @@ def iter_tool_calls(msg, name: str):
     for tc in tcs:
         try:
             if isinstance(tc, dict):
-                n = (tc.get(_TOOL_NAME_FIELD) or "").lower()
-                args = tc.get(_TOOL_ARGS_FIELD)
+                n = (tc.get(_tool_name_field()) or "").lower()
+                args = tc.get(_tool_args_field())
             else:
-                n = (getattr(tc, _TOOL_NAME_FIELD, "") or "").lower()
-                args = getattr(tc, _TOOL_ARGS_FIELD, None)
+                n = (getattr(tc, _tool_name_field(), "") or "").lower()
+                args = getattr(tc, _tool_args_field(), None)
 
             if n != target:
                 continue
@@ -253,8 +283,10 @@ def iter_tool_calls(msg, name: str):
             continue
 
 # 모듈 단위 임포트로 이름 섀도잉/순환 이슈 최소화
+_ws: ModuleType | None = None
+_fn_real: Any | None = None
 try:
-    from . import writer_scheduler as _ws  # type: ignore
+    from . import writer_scheduler as _ws  # 모듈이 없을 수도 있으므로 예외 허용
     _fn_real = getattr(_ws, "schedule_writer_if_needed", None)
 except Exception:
     _ws = None
@@ -265,11 +297,6 @@ def _prefer(s: Optional[str], alt: Optional[str]) -> Optional[str]:
     """s가 비어있으면 alt, 아니면 s"""
     s = (s or "").strip()
     return s or ((alt or "").strip() or None)
-
-
-# 기본값을 설정으로 제어
-_DEFAULT_ALLOW_DURING_RESEARCH: bool = bool(_get_cfg_attr("ALLOW_DURING_RESEARCH_DEFAULT", False))
-
 
 def schedule_writer_if_needed(state, tasks, *, outline_text, mode=None, **kwargs):
     """
@@ -318,21 +345,25 @@ def schedule_writer_if_needed(state, tasks, *, outline_text, mode=None, **kwargs
     if "allow_during_research" in kwargs:
         call_kwargs["allow_during_research"] = kwargs["allow_during_research"]
     else:
-        call_kwargs["allow_during_research"] = _DEFAULT_ALLOW_DURING_RESEARCH
+        call_kwargs["allow_during_research"] = _allow_during_research_default()
     if "debug" in kwargs:
         call_kwargs["debug"] = kwargs["debug"]
 
     try:
-        res = _fn_real(state, **call_kwargs)
+        res = _fn_real(state, **call_kwargs)  
         return bool(res)
     except TypeError as e:
         # 예상치 못한 시그니처 불일치 시에도 힌트 로그 남기고 실패 처리
         logger.debug("writer-schedule shim TypeError: %s; kwargs=%r", e, call_kwargs, exc_info=True)
         return False
 
-# __all__ 보강
-try:
-    __all__.append("schedule_writer_if_needed")  # type: ignore
-except NameError:
-    __all__ = ["schedule_writer_if_needed"]
+# __all__는 상단에서 이미 선언/포함됨
+
+# ─────────────────────────────────────────────────────────────
+# (옵션) 캐시 무효화 훅 — 현재 구현은 per-call 조회이므로 no-op
+# ─────────────────────────────────────────────────────────────
+def refresh_tasks() -> None:  # pragma: no cover
+    """향후 lru_cache 최적화 시 cache_clear() 연결용 훅.
+    현재 버전은 per-call 조회로 즉시 반영되므로 동작 없음."""
+    return
 

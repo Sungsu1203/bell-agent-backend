@@ -25,7 +25,32 @@ from core.llm import get_llm
 def research_planner(state: State):
     logger.info("============ RESEARCH PLANNER ============")
     llm = get_llm()
-    state = sanitize_state(state)
+    state = cast(State, sanitize_state(state))
+
+    # ── Config helpers (env → CFG → module default) ───────────────────────────
+    def _cfg_str(name: str, default: str = "") -> str:
+        try:
+            v = getattr(config.CFG, name, None)
+            if v is None:
+                v = getattr(config, name, None)
+        except Exception:
+            v = None
+        if v is None:
+            import os as _os
+            v = _os.getenv(name, default)
+        return str(v) if v is not None else default
+
+    def _cfg_int(name: str, default: int = 0) -> int:
+        s = _cfg_str(name, str(default))
+        try:
+            return int(str(s).strip())
+        except Exception:
+            return default
+
+    def _cfg_bool(name: str, default: bool = False) -> bool:
+        s = _cfg_str(name, "1" if default else "0").strip().lower()
+        return s in {"1","true","yes","y","on"}
+
 
     # ── topic_title 통합 헬퍼 & 로깅 ───────────────────────────────
     def _get_topic_title(st) -> str:
@@ -33,7 +58,7 @@ def research_planner(state: State):
         return (
             flags.get("topic_title")
             or st.get("topic_title")
-            or config.CFG.TOPIC_TITLE
+            or _cfg_str("TOPIC_TITLE", "")
             or st.get("topic_slug")
             or "untitled"
         ).strip()
@@ -48,13 +73,63 @@ def research_planner(state: State):
     rnd = int(state.get("research_round", 0))
 
     # 목표 로딩: state 우선 → CFG.RESEARCH_OBJECTIVES
+    def _coerce_objectives(obj: Any) -> list[str]:
+        """임의의 반환값을 안전한 리스트[str]로 변환."""
+        try:
+            # 1) 이미 리스트/튜플/셋 계열
+            from collections.abc import Iterable
+            if isinstance(obj, (list, tuple, set)):
+                return [str(x).strip() for x in obj if str(x).strip()]
+            # 2) 문자열: JSON 배열 → split(줄바꿈/쉼표) 처리
+            if isinstance(obj, str):
+                s = obj.strip()
+                if not s:
+                    return []
+                # JSON 배열 시도
+                import json as _json
+                try:
+                    arr = _json.loads(s)
+                    if isinstance(arr, list):
+                        return [str(x).strip() for x in arr if str(x).strip()]
+                except Exception:
+                    pass
+                # 구분자 기반 파싱
+                import re as _re
+                toks = [t.strip() for t in _re.split(r"[,\n;|]+", s) if t.strip()]
+                return toks
+            # 3) 매핑: values()를 후보로 사용
+            if isinstance(obj, dict):
+                return [str(v).strip() for v in obj.values() if str(v).strip()]
+            # 4) 그 외 단일 객체
+            return [str(obj).strip()] if str(obj).strip() else []
+        except Exception:
+            return []
+
     def _load_objectives(st) -> list[str]:
         # 1) state 우선
         objs0 = [str(s).strip() for s in (st.get("research_objectives") or []) if str(s).strip()]
         if objs0:
             return list(dict.fromkeys(objs0))
-        # 2) CFG 값 사용
-        return list(dict.fromkeys(config.CFG.RESEARCH_OBJECTIVES or []))
+        # 2) ENV/CFG 혼합 로딩 (가능하면 helper 사용)
+        try:
+            loader = getattr(config, "load_research_objectives_from_env", None)
+            if callable(loader):
+                cand = loader()
+                coerced = _coerce_objectives(cand)
+                if coerced:
+                    return list(dict.fromkeys(coerced))
+        except Exception:
+            pass
+        raw = _cfg_str("BLOCKAGI_OBJECTIVES", "")
+        coerced_env = _coerce_objectives(raw)
+        if coerced_env:
+            return list(dict.fromkeys(coerced_env))
+        # 3) 마지막으로 CFG.RESEARCH_OBJECTIVES (있다면)
+        try:
+            ro = getattr(config.CFG, "RESEARCH_OBJECTIVES", []) or []
+            return list(dict.fromkeys(_coerce_objectives(ro)))
+        except Exception:
+            return []
 
     objs = _load_objectives(state)
     cast(MutableMapping[str, Any], state)["research_objectives"] = objs
@@ -189,7 +264,7 @@ def research_planner(state: State):
         s = re.sub(r"\s+", " ", s).strip()
 
         # 한국 타깃 강화(옵션)
-        if config.CFG.PLANNER_FORCE_KR:
+        if _cfg_bool("PLANNER_FORCE_KR", False):
             if not any(tok.lower() in s.lower() for tok in ("한국", "국내", "korea", "kr", "site:kr")):
                 s = f"{s} 한국 시장"
 
@@ -253,7 +328,7 @@ def research_planner(state: State):
         normed = merged
 
     # 개수 상한(옵션)
-    max_q = int(config.CFG.RESEARCH_PLANNER_MAX_Q or 7)
+    max_q = int(_cfg_int("RESEARCH_PLANNER_MAX_Q", 7) or 7)
 
     if max_q > 0 and len(normed) > max_q:
         normed = normed[:max_q]
@@ -280,10 +355,10 @@ def research_planner(state: State):
 
     # ======== [SEARCH-ANCHOR: SCHEDULE_NEXT] ========
     tasks = state.setdefault("task_history", [])
-    skip_web = bool(config.CFG.SKIP_WEB_SEARCH) or bool((state.get("flags") or {}).get("skip_web_search"))
+    skip_web = _cfg_bool("SKIP_WEB_SEARCH", False) or bool((state.get("flags") or {}).get("skip_web_search"))
     have_queries = bool(normed)
 
-    announce = bool(config.CFG.RESEARCH_PLANNER_ANNOUNCE) or as_int(state, "research_planner_announce", 0) == 1
+    announce = _cfg_bool("RESEARCH_PLANNER_ANNOUNCE", False) or as_int(state, "research_planner_announce", 0) == 1
     if announce and not has_pending(tasks, "communicator"):
         tasks.append(Task(agent="communicator", done=False, description="announce_planner", done_at=""))
 

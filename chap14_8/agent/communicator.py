@@ -1,16 +1,17 @@
 from __future__ import annotations
 import re, os, sys, time
 from typing import Any
-from utils.tasks import HumanMessage, AIMessage
+from utils.tasks import HumanMessage, AIMessage, has_pending
 import core.config as config
 from core.paths import now_str as _now_str, current_path
 from core.state_types import State
 from core.models import Task
 from utils.sanitize import sanitize_state
+from typing import cast
+from core.state_types import State
 from rag_expression import is_outline_display
 from prompts import get_communicator_prompt
 from core.paths import read_outline
-from utils.tasks import has_pending
 from utils.outline import get_topic_outline_text
 from core.llm import get_llm
 import logging
@@ -20,6 +21,28 @@ logger = logging.getLogger(__name__)
 # root_dir에는 프로젝트 루트만 넘긴다.
 
 def communicator(state: State):
+    # 안전 텍스트 변환: str/list/dict → str, 그 외는 str()로 변환
+    def _to_text(content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    for k in ("text", "content", "value", "message"):
+                        v = item.get(k)
+                        if isinstance(v, str):
+                            parts.append(v)
+                            break
+                    else:
+                        parts.append(str(item))
+                else:
+                    parts.append(str(item))
+            return "\n".join(parts)
+        return str(content)
+
     def _get_topic_title(st) -> str:
         """state/flags/CFG에서 주제 타이틀을 일관되게 해석."""
         flags = (st.get("flags") or {})
@@ -73,24 +96,33 @@ def communicator(state: State):
         """
         try:
             topic_slug = (state.get("topic_slug") or "report").strip()
-            out_root = config.CFG.REPORT_OUT_DIR
-            out_root = Path(out_root) if (out_root and str(out_root).strip()) else (Path(current_path) / "outputs")
-            out_dir = out_root / topic_slug
+            # REPORT_OUT_DIR이 비었으면 <project_root>/outputs 사용
+            cfg_root = getattr(config.CFG, "REPORT_OUT_DIR", None)
+            if cfg_root and str(cfg_root).strip():
+                out_root_path: Path = Path(str(cfg_root))
+            else:
+                base = current_path() if callable(current_path) else current_path  # function 혹은 값 모두 대응
+                out_root_path = Path(str(base)) / "outputs"
+            out_dir = out_root_path / topic_slug
             out_dir.mkdir(parents=True, exist_ok=True)
 
             ts = _now_str().replace(":", "").replace(" ", "_").replace("-", "")
             fname = f"{topic_slug}_{ts}.md"
             out_path = out_dir / fname
 
-            content = None
+            content: str | None = None
             if isinstance(content_hint, str) and content_hint.strip():
                 content = content_hint
             else:
-                content = (state.get("compiled_document") or "").strip()
+                # compiled_document가 dict/list 등일 수 있으므로 안전 변환
+                content = _to_text(state.get("compiled_document") or "").strip()
                 if not content:
                     msgs = state.get("messages") or []
                     last_ai = next((m for m in reversed(msgs) if isinstance(m, AIMessage)), None)
-                    content = (getattr(last_ai, "content", "") or "").strip()
+                    if last_ai is not None and hasattr(last_ai, "content"):
+                        content = _to_text(last_ai.content).strip()
+                    else:
+                        content = ""
                 if not content:
                     content = "# 보고서(자동 저장)\n\n(현재 수집된 본문이 없어 빈 보고서를 저장했습니다.)\n"
 
@@ -111,25 +143,25 @@ def communicator(state: State):
         """
         try:
             last_ai = next((m for m in reversed(messages) if isinstance(m, AIMessage)), None)
-            text = (getattr(last_ai, "content", "") or "").strip() if last_ai else ""
+            text = _to_text(last_ai.content).strip() if (last_ai is not None and hasattr(last_ai, "content")) else ""
             if text:
                 _safe_save_report(state, content_hint=text)
         except Exception as e:
             logger.warning("[SAVE][EARLY] save last AI failed: %s", e)
 
     # 토글/설정: config로 일원화
-    ECHO_OUTLINE = config.CFG.ECHO_OUTLINE
-    COMMUNICATOR_ECHO = config.CFG.ECHO_QA or config.CFG.COMMUNICATOR_ECHO
-    HUMAN_LOGS_STRICT = config.CFG.HUMAN_LOGS and (not config.CFG.HUMAN_LOGS_VERBOSE)
-    COMM_LOG_QA_BODY = config.CFG.COMM_LOG_QA_BODY
-    COMM_LOG_QA_MAXLEN = int(config.CFG.COMM_LOG_QA_MAXLEN or 0)
+    ECHO_OUTLINE = bool(getattr(config.CFG, "ECHO_OUTLINE", False))
+    COMMUNICATOR_ECHO = bool(getattr(config.CFG, "ECHO_QA", False) or getattr(config.CFG, "COMMUNICATOR_ECHO", False))
+    HUMAN_LOGS_STRICT = bool(getattr(config.CFG, "HUMAN_LOGS", False) and (not getattr(config.CFG, "HUMAN_LOGS_VERBOSE", False)))
+    COMM_LOG_QA_BODY = bool(getattr(config.CFG, "COMM_LOG_QA_BODY", False))
+    COMM_LOG_QA_MAXLEN = int(getattr(config.CFG, "COMM_LOG_QA_MAXLEN", 0) or 0)
 
     logger.info("============ COMMUNICATOR ============")
-    DASH_ON = config.CFG.LOG_DASHBOARD
-    DASH_RATE = float(config.CFG.DASH_RATE_SEC)
+    DASH_ON = bool(getattr(config.CFG, "LOG_DASHBOARD", False))
+    DASH_RATE = float(getattr(config.CFG, "DASH_RATE_SEC", 0.0) or 0.0)
 
     llm = get_llm()
-    state = sanitize_state(state)
+    state = cast(State, sanitize_state(state))
 
     # 🔸 집필 언블락을 위해, 필요한 경우 자동 타이틀 주입
     _inject_requested_title_if_needed(state)
@@ -179,23 +211,9 @@ def communicator(state: State):
 
     desc = (pending.description if pending else "") or ""
 
+    # 기존 구현과 동일 동작을 유지하되 내부적으로 _to_text 사용
     def _as_text(content: Any) -> str:
-        if isinstance(content, str): return content
-        if isinstance(content, list):
-            parts = []
-            for item in content:
-                if isinstance(item, str):
-                    parts.append(item)
-                elif isinstance(item, dict):
-                    for k in ("text","content","value","message"):
-                        v = item.get(k)
-                        if isinstance(v, str): parts.append(v); break
-                    else:
-                        parts.append(str(item))
-                else:
-                    parts.append(str(item))
-            return "\n".join(parts)
-        return str(content)
+        return _to_text(content)
 
     # 플래너 발표 모드
     if "announce_planner" in desc.lower():
@@ -221,8 +239,18 @@ def communicator(state: State):
     if ("show_outline" in desc.lower()) or (last_human and is_outline_display(last_human.content)):
         show_outline_req = True
 
-    if state.get("outline_shown") and not show_outline_req:
-        logger.debug("[Communicator] outline already shown in this session; skipping re-display")
+    # ── FAST-SKIP: 이미 아웃라인을 보여준 상태이고, 명시적 요청이 아니면 재표시 금지
+    if bool(state.get("outline_shown")) is True and not show_outline_req:
+        logger.debug("[Communicator] outline already shown; fast-skip communicator")
+        # 현재 communicator 태스크가 있다면 auto-close 해서 재진입 방지
+        if pending:
+            pending.done = True
+            pending.done_at = _now_str()
+            pending.description = (pending.description or "") + " [auto-closed: outline already shown]"
+        # 상태에 확실히 기록(라우터 tail에서 outline_shown 검사를 신뢰)
+        state["outline_shown"] = True
+        _save_last_ai_if_any(state, messages)
+        return {"messages": messages, "task_history": tasks, "outline_shown": True}
 
     if show_outline_req:
         preferred = state.get("outline_fname")
@@ -232,25 +260,32 @@ def communicator(state: State):
         state["outline_fname"] = fname
 
         # 아웃라인 저장 정책(헬퍼)만 사용: REPORT_OUT_DIR/outlines → 없으면 <project>/outlines
-        outline_text, used_path = read_outline(
+        _outline_res = read_outline(
             filename=fname,
             root_dir=str(current_path),               # ✅ 프로젝트 루트
             topic_slug=state.get("topic_slug"),
             mode=config.CFG.DOC_MODE,
-            allow_fallbacks=False
+            allow_fallbacks=False,
         )
+        # read_outline가 str 또는 (str, Path)를 반환할 수 있으므로 안전 언패킹
+        if isinstance(_outline_res, tuple):
+            outline_text, used_path = _outline_res[0], _outline_res[1]
+        else:
+            outline_text, used_path = str(_outline_res or ""), None
 
-        if not (outline_text or "").strip():
+        if not (str(outline_text or "").strip()):
             if not has_pending(tasks, "content_strategist"):
                 tasks.append(Task(agent="content_strategist", done=False, description=f"create_outline:{fname}", done_at=""))
             messages.append(AIMessage(content=f"({fname}) 파일이 아직 없습니다. 지금 기본 목차를 생성하겠습니다."))
             logger.info("[Communicator] outline missing; scheduled content_strategist to create (%s)", fname)
+            # 아직 파일이 없으므로 표시 불가 → 명시적으로 False
             state["outline_shown"] = False
             if pending:
                 pending.done = True; pending.done_at = _now_str()
             # ✅ 저장하지 않음(안내만)
             return {"messages": messages, "task_history": tasks, "outline_fname": fname}
 
+        # ✅ show_outline 경로에서는 LLM 스트리밍을 돌리지 않습니다. parts/chunk 사용 금지.
         title = f"## 현재 목차 ({used_path.name if used_path else fname})"
         followup = (
             "목차를 확인했습니다. 다음 중 어떻게 진행할까요?\n"
@@ -260,6 +295,7 @@ def communicator(state: State):
         )
         messages.append(AIMessage(content=f"{title}\n\n{outline_text}\n\n{followup}"))
         logger.info("[Communicator] outline displayed (%s, %s chars)", fname, len(outline_text or ""))
+        # ✅ 아웃라인을 실제로 보여줬으니 표시 플래그를 반드시 True로
         state["outline_shown"] = True
 
         if ECHO_OUTLINE and not HUMAN_LOGS_STRICT:
@@ -275,17 +311,20 @@ def communicator(state: State):
 
         if pending:
             pending.done = True; pending.done_at = _now_str()
-        if not has_pending(tasks, "communicator"):
-            tasks.append(Task(agent="communicator", done=False, description="목차 확인 후 다음 집필 대상/수정 요청 파악", done_at=""))
+        # 반복 진입 방지: outline을 보여준 직후 communicator 재스케줄은 선택 사항.
+        # router.tail에서 outline_shown=True를 확인하므로 여기선 추가 예약 불필요.
+        # 필요 시 아래 두 줄을 주석 해제.
+        # if not has_pending(tasks, "communicator"):
+        #     tasks.append(Task(agent="communicator", done=False, description="목차 확인 후 다음 집필 대상/수정 요청 파악", done_at=""))
         # ✅ 목차 표시 응답도 보고서 파일로 저장하지 않음(혼동 방지)
-        return {"messages": messages, "task_history": tasks}
+        return {"messages": messages, "task_history": tasks, "outline_shown": True}
 
     # ── Direct QA 출력 안전판 ──────────────────────────────────────────────────
     fallback_outline = get_topic_outline_text(state)
     if state.get("qa_direct_reply"):
         last_ai_msg = next((m for m in reversed(messages) if isinstance(m, AIMessage)), None)
-        if last_ai_msg and getattr(last_ai_msg, "content", ""):
-            reply_text = _as_text(last_ai_msg.content)
+        if last_ai_msg is not None and hasattr(last_ai_msg, "content") and _to_text(last_ai_msg.content):
+            reply_text = _to_text(last_ai_msg.content)
 
             # 1) 파일 로그에 QA 본문 기록 (COMM_LOG_QA_BODY=1)
             if COMM_LOG_QA_BODY:
@@ -339,9 +378,11 @@ def communicator(state: State):
         "doc_label": "보고서" if config.CFG.DOC_MODE == "report" else "책",
         "topic_title": state.get("topic_title") or "",
     }):
-        parts.append(_as_text(getattr(chunk, "content", "")))
+        # chunk.content가 비문자/None일 수 있어 _to_text로 안전 변환
+        c = getattr(chunk, "content", None)
+        parts.append(_to_text(c))
 
-    # 개선안
+    # 개선안: 바로 앞줄 중복만 제거
     merged = "".join(parts)
     lines = merged.splitlines()
     # 연속으로 같은 줄이 두 번 이상 나오는 경우만 제거
@@ -385,7 +426,7 @@ def communicator(state: State):
             p_moved  = re.compile(r"\[(?:Section|Chapter|Content)\s+Writer\]\s*moved.*?->\s*(?P<path>.+?\.md)\s*", re.DOTALL)
             for m in reversed(messages):
                 if not isinstance(m, AIMessage): continue
-                content_text = str(m.content)
+                content_text = _to_text(m.content)
                 m1 = p_writer.search(content_text) or p_strat.search(content_text)
                 if m1: last_save_path = m1.group("path").strip(); break
                 m2 = p_moved.search(content_text)

@@ -193,12 +193,12 @@ def _load_section_body(root_dir: str, topic_slug: str, title: str) -> Optional[t
 def _ensure_heading(title: str, body: str) -> str:
     """
     문서가 이미 #/##/### 로 시작하면 그대로 둔다.
-    아니면 상단에 '# {title}' 삽입.
+    아니면 상단에 '## {title}' 삽입 (최종 산출물의 섹션 레벨을 H2로 통일).
     """
     body = (body or "").lstrip()
     if body.startswith("#"):
         return body
-    return f"# {title}\n\n{body}"
+    return f"## {title}\n\n{body}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 메인: 리포트 빌드
@@ -233,12 +233,16 @@ def build_final_report(
         allow_fallbacks=False,
     )
 
+    # H2 헤딩(`##`)만 유효 섹션으로 간주 — 프롬프트의 H2-only 정책과 일치
     titles: List[str] = []
     for line in (outline_text or "").splitlines():
-        s = (line or "").strip()
-        if not s:
+        if not line:
             continue
-        s = strip_number_prefix(s)
+        ls = line.lstrip()
+        if not ls.startswith("##"):
+            continue
+        # "## 1. 제목" → "제목" 추출
+        s = strip_number_prefix(ls[2:].strip())
         if s:
             titles.append(s)
 

@@ -12,6 +12,7 @@ from urllib.parse import unquote
 from langchain_core.documents import Document
 
 from core.config import CFG
+from core.config import reload_config as reload_config  # 런타임 갱신 허용
 from core.paths import (
     current_path,
     research_base_dir,
@@ -24,7 +25,7 @@ from core.paths import (
 # ──────────────────────────────────────────────────────────────────────────────
 try:
     from bs4 import BeautifulSoup as _BeautifulSoup
-    BeautifulSoup: Any = _BeautifulSoup
+    BeautifulSoup: Optional[Any] = _BeautifulSoup
 except Exception:
     BeautifulSoup = None
     logger.debug("BeautifulSoup not available; falling back to regex for HTML parsing.")
@@ -32,58 +33,125 @@ except Exception:
 try:
     # 프로젝트 표준: PyPDF2
     from PyPDF2 import PdfReader as _PdfReader
-    PdfReader: Any = _PdfReader
+    PdfReader: Optional[Any] = _PdfReader
 except Exception:
     PdfReader = None
     logger.debug("PyPDF2 not available; PDF extraction disabled.")
 
 try:
     import docx as _docx  # python-docx
-    docx: Any = _docx
+    docx: Optional[Any] = _docx
 except Exception:
     docx = None
     logger.debug("python-docx not available; .docx extraction disabled.")
 
 # (선택) Unstructured: PPTX/XLSX 등 포맷을 자동 분해
+# unstructured: 있으면 함수/클래스 핸들을 보관, 없으면 None
 try:
-    from unstructured.partition.auto import partition
-    from unstructured.documents.elements import Table  # type: ignore
+    from unstructured.partition.auto import partition as _unstructured_partition  # noqa: F401
+    partition: Optional[Any] = _unstructured_partition
 except Exception:
     partition = None
-    Table = None  # type: ignore
-    logger.debug("unstructured library not available.")
+    logger.debug("unstructured.partition.auto not available.")
+try:
+    from unstructured.documents.elements import Table as _UnstructuredTable  # noqa: F401
+    Table: Optional[Any] = _UnstructuredTable
+except Exception:
+    Table = None
+    logger.debug("unstructured.documents.elements.Table not available.")
 
 # (선택) python-pptx: 슬라이드 단위 샘플 추출용
+# python-pptx: 클래스 핸들을 Optional[Any]로 유지
 try:
-    from pptx import Presentation as _PptxPresentation  # type: ignore[reportMissingTypeStubs]
+    from pptx import Presentation as _pptx_Presentation  # noqa: F401
+    _PptxPresentation: Optional[Any] = _pptx_Presentation
 except Exception:
     _PptxPresentation = None
     logger.debug("python-pptx not available; PPTX sampling disabled.")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 내부 유틸
+# 내부 유틸 (CFG 우선 → ENV 폴백 단일 진입)
 # ──────────────────────────────────────────────────────────────────────────────
+# ※ 다른 모듈과의 중복 정의를 피하기 위해, 이미 전역에 있으면 재정의하지 않음
+if "_cfg_str" not in globals():
+    def _cfg_str(name: str, default: str = "") -> str:
+        try:
+            v = getattr(CFG, name)
+            if v is None:
+                raise AttributeError
+            s = str(v).strip()
+            return s if s != "" else default
+        except Exception:
+            s = (os.getenv(name, "") or "").strip()
+            return s if s != "" else default
+
+if "_cfg_int" not in globals():
+    def _cfg_int(name: str, default: int = 0) -> int:
+        try:
+            v = getattr(CFG, name)
+            if v is None or str(v).strip() == "":
+                raise AttributeError
+            return int(str(v).strip())
+        except Exception:
+            ev = (os.getenv(name, "") or "").strip()
+            try:
+                return int(ev) if ev != "" else default
+            except Exception:
+                return default
+
+if "_cfg_float" not in globals():
+    def _cfg_float(name: str, default: float = 0.0) -> float:
+        try:
+            v = getattr(CFG, name)
+            if v is None or str(v).strip() == "":
+                raise AttributeError
+            return float(str(v).strip())
+        except Exception:
+            ev = (os.getenv(name, "") or "").strip()
+            try:
+                return float(ev) if ev != "" else default
+            except Exception:
+                return default
+
+if "_cfg_bool" not in globals():
+    def _cfg_bool(name: str, default: bool = False) -> bool:
+        try:
+            v = getattr(CFG, name)
+            if isinstance(v, bool):
+                return v
+            s = str(v).strip().lower()
+            if s in ("1", "true", "yes", "on"):
+                return True
+            if s in ("0", "false", "no", "off"):
+                return False
+            return default
+        except Exception:
+            s = (os.getenv(name, "") or "").strip().lower()
+            if s in ("1", "true", "yes", "on"):
+                return True
+            if s in ("0", "false", "no", "off"):
+                return False
+            return default
+
+def _truthy_cfg(name: str, default: bool = False) -> bool:
+    return _cfg_bool(name, default)
+
 def _env_int(name: str, default: int) -> int:
-    try:
-        cfg_val = getattr(CFG, name, None)
-        if cfg_val is not None and str(cfg_val).strip() != "":
-            return int(str(cfg_val))
-        return int(os.getenv(name, str(default)))
-    except Exception:
-        return default
+    # (하위호환 alias) 기존 호출부 유지
+    return _cfg_int(name, default)
 
 def _env_float(name: str, default: float) -> float:
-    try:
-        cfg_val = getattr(CFG, name, None)
-        if cfg_val is not None and str(cfg_val).strip() != "":
-            return float(str(cfg_val))
-        return float(os.getenv(name, str(default)))
-    except Exception:
-        return default
+    # (하위호환 alias) 기존 호출부 유지
+    return _cfg_float(name, default)
 
-def _truthy_env(name: str) -> bool:
-    v = (os.getenv(name) or "").strip().lower()
-    return v in ("1", "true", "yes", "on")
+def ensure_config_fresh() -> None:
+    """런타임에서 최신 .env/CFG를 반영."""
+    try:
+        reload_config()
+        logger.debug("[LOCAL RAG] reload_config() applied.")
+    except Exception:
+        # 안전 무시
+        pass
 
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
@@ -96,11 +164,9 @@ def _sha1_file(path: str) -> str:
     return h.hexdigest()
 
 def _cache_dir() -> Path:
-    cache_dir = (
-        str(getattr(CFG, "LOCAL_RAG_CACHE_DIR", "")).strip()
-        or os.getenv("LOCAL_RAG_CACHE_DIR", "")
-        or str(Path(research_base_dir()) / ".cache")
-    )
+    cache_dir = _cfg_str("LOCAL_RAG_CACHE_DIR", "")
+    if not cache_dir:
+        cache_dir = str(Path(research_base_dir()) / ".cache")
     p = Path(cache_dir)
     p.mkdir(parents=True, exist_ok=True)
     return p
@@ -115,7 +181,8 @@ def _cache_paths(path: str) -> Tuple[str, str]:
     return meta, data
 
 def _cache_load(path: str) -> Optional[List[dict]]:
-    if _truthy_env("LOCAL_RAG_CACHE_IGNORE"):
+    # CFG 우선 → ENV 폴백 (신규 일원화 헬퍼 사용)
+    if _truthy_cfg("LOCAL_RAG_CACHE_IGNORE", False):
         return None
     meta, data = _cache_paths(path)
     try:
@@ -148,12 +215,12 @@ def _cache_save(path: str, items_from_reader: List[dict]) -> None:
 
 def _file_version(path: str) -> str:
     """파일 변경을 반영하는 버전 식별자."""
-    forced = (getattr(CFG, "LOCAL_RAG_FORCE_VERSION", None) or os.getenv("LOCAL_RAG_FORCE_VERSION"))
+    forced = _cfg_str("LOCAL_RAG_FORCE_VERSION", "")
     if forced:
         logger.debug("Using forced version for %s: %s", path, forced)
         return str(forced)
 
-    mode = (str(getattr(CFG, "LOCAL_RAG_VERSION_MODE", "") or os.getenv("LOCAL_RAG_VERSION_MODE", "mtime")) or "mtime").lower()
+    mode = _cfg_str("LOCAL_RAG_VERSION_MODE", "mtime").lower()
     try:
         if mode == "sha1":
             h = hashlib.sha1()
@@ -173,7 +240,10 @@ def _file_version(path: str) -> str:
 def _truncate(s: str, max_chars_env: str = "LOCAL_RAG_MAX_TEXT_CHARS") -> str:
     # CFG 우선 → ENV
     cfg_val = getattr(CFG, max_chars_env, None)
-    max_chars = int(str(cfg_val if cfg_val is not None else os.getenv(max_chars_env, "200000")))
+    if cfg_val is None or str(cfg_val).strip() == "":
+        max_chars = _cfg_int(max_chars_env, 200000)
+    else:
+        max_chars = int(str(cfg_val))
     if max_chars > 0 and len(s) > max_chars:
         return s[:max_chars]
     return s
@@ -234,7 +304,7 @@ def _read_unstructured_elements(path: str) -> List[dict]:
     PPTX, XLSX 등을 unstructured로 분해하여 요소(Element) 리스트로 반환.
     각 요소 dict 예시: {"sheet": "<슬라이드/시트/파트>", "row_index": <번호>, "content": "<텍스트>"}.
     """
-    if not partition:
+    if partition is None:
         raise RuntimeError("unstructured 라이브러리 미설치")
     try:
         elements = partition(filename=path)
@@ -342,7 +412,7 @@ def _read_pptx(path: str) -> List[dict]:
     우선 python-pptx로 슬라이드 단위(제목+불릿) 추출 시도,
     실패/미설치 시 unstructured로 폴백.
     """
-    if os.getenv("SKIP_PPTX", "0").lower() in ("1", "true", "yes", "on"):
+    if _truthy_cfg("SKIP_PPTX", False):
         logger.info("SKIP_PPTX=1 → _read_pptx skipped for %s", path)
         return []
 
@@ -377,10 +447,10 @@ def _split_markdown_to_chunks(
       - 파이프(|) 기반 테이블은 '[표 요약: ...]' 1줄로 치환
       - 빈줄 기준 문단 → 600~1,200자 범위로 병합/분할(CFG/ENV로 조정)
     """
-    min_chars = min_chars or _env_int("LOCAL_RAG_MIN_CHARS", 600)
-    max_chars = max_chars or _env_int("LOCAL_RAG_MAX_CHARS", 1200)
+    min_chars = min_chars or _cfg_int("LOCAL_RAG_MIN_CHARS", 600)
+    max_chars = max_chars or _cfg_int("LOCAL_RAG_MAX_CHARS", 1200)
 
-    if os.getenv("LOCAL_RAG_CHUNK_MODE", "paragraph").lower() == "simple":
+    if _cfg_str("LOCAL_RAG_CHUNK_MODE", "paragraph").lower() == "simple":
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
         return lines
 
@@ -389,7 +459,8 @@ def _split_markdown_to_chunks(
 
     # 2) 테이블 블록을 한 덩어리로 요약 치환
     lines = text.splitlines()
-    out_lines, buf_table = [], []
+    out_lines: List[str] = []
+    buf_table: List[str] = []
     def _flush_table():
         nonlocal buf_table, out_lines
         if buf_table:
@@ -462,16 +533,13 @@ def _to_webjson_items(path: str, *, max_pages_per_file: Optional[int] = None) ->
     content_type = _ct_map.get(ext, "application/octet-stream")
 
     # 용량 가드(+ 대용량 PPTX 슬림/샘플링)
-    max_mb = _env_float("LOCAL_RAG_MAX_FILE_MB", 50.0)
+    max_mb = _cfg_float("LOCAL_RAG_MAX_FILE_MB", 50.0)
     try:
         size_mb = os.path.getsize(path) / (1024 * 1024)
     except Exception:
         size_mb = None
     is_large = bool(size_mb and max_mb > 0 and size_mb > max_mb)
-    enable_sample = (
-        str(getattr(CFG, "LOCAL_RAG_SAMPLE_LARGE", "")).strip().lower() in ("1","true","yes","on")
-        or _truthy_env("LOCAL_RAG_SAMPLE_LARGE")
-    )
+    enable_sample = _truthy_cfg("LOCAL_RAG_SAMPLE_LARGE", False)
 
     text: Optional[str] = None
     items_from_reader: Optional[List[dict]] = None
@@ -516,10 +584,7 @@ def _to_webjson_items(path: str, *, max_pages_per_file: Optional[int] = None) ->
                 logger.info("[LOCAL RAG] skip large file (> %.1f MB): %s (%.1f MB)", max_mb, path, size_mb or -1)
                 return []
             else:
-                prefer_slim = (
-                    str(getattr(CFG, "LOCAL_RAG_PPTX_SLIM", "")).strip().lower() in ("1","true","yes","on")
-                    or _truthy_env("LOCAL_RAG_PPTX_SLIM")
-                )
+                prefer_slim = _truthy_cfg("LOCAL_RAG_PPTX_SLIM", False)
                 if prefer_slim and _PptxPresentation is not None:
                     items_from_reader = _pptx_extract_titles_bullets(path, sample_large=False)
                 else:
@@ -546,8 +611,8 @@ def _to_webjson_items(path: str, *, max_pages_per_file: Optional[int] = None) ->
 
     # 리스트 형태 결과(PDF, PPTX, XLSX)
     if items_from_reader is not None and isinstance(items_from_reader, list):
-        minc = _env_int("LOCAL_RAG_MIN_CHARS", 600)
-        maxc = _env_int("LOCAL_RAG_MAX_CHARS", 1200)
+        minc = _cfg_int("LOCAL_RAG_MIN_CHARS", 600)
+        maxc = _cfg_int("LOCAL_RAG_MAX_CHARS", 1200)
         for it in items_from_reader:
             part_label = str(it.pop("sheet", it.pop("page_num", "Part")))
             index_num = it.pop("row_index", it.pop("page_num", 1))
@@ -572,8 +637,8 @@ def _to_webjson_items(path: str, *, max_pages_per_file: Optional[int] = None) ->
     elif text is not None:
         content = _truncate(text or "", "LOCAL_RAG_MAX_TEXT_CHARS")
         if content.strip():
-            minc = _env_int("LOCAL_RAG_MIN_CHARS", 600)
-            maxc = _env_int("LOCAL_RAG_MAX_CHARS", 1200)
+            minc = _cfg_int("LOCAL_RAG_MIN_CHARS", 600)
+            maxc = _cfg_int("LOCAL_RAG_MAX_CHARS", 1200)
             chunks = _split_markdown_to_chunks(content, minc, maxc)
             for j, ch in enumerate(chunks, start=1):
                 final_items.append({
@@ -606,11 +671,13 @@ def build_webjson_from_local(
     - max_docs: 전체 아이템(청크) 상한. None/0이면 무제한. ENV: LOCAL_RAG_MAX_DOCS
     - max_pages_per_file: 파일별 페이지 상한(PDF 등). None/0이면 무제한. ENV: LOCAL_RAG_MAX_PAGES_PER_FILE
     """
-    # ENV 폴백
+    # 런타임 설정 갱신
+    ensure_config_fresh()
+    # CFG 우선 → ENV 폴백
     if max_docs is None:
-        max_docs = _env_int("LOCAL_RAG_MAX_DOCS", 0)
+        max_docs = _cfg_int("LOCAL_RAG_MAX_DOCS", 0)
     if max_pages_per_file is None:
-        max_pages_per_file = _env_int("LOCAL_RAG_MAX_PAGES_PER_FILE", 0)
+        max_pages_per_file = _cfg_int("LOCAL_RAG_MAX_PAGES_PER_FILE", 0)
 
     logger.info("[LOCAL RAG] CWD: %s", os.getcwd())
     logger.info("[LOCAL RAG] Received globs: %s", globs)
@@ -650,23 +717,10 @@ def build_webjson_from_local(
     files.sort(key=_priority_key)
 
     # [ADD] cap 적용: CFG.LOCAL_MAX_FILES → ENV LOCAL_MAX_FILES → 기본 1500
-    def _cap_int(*names: str, default: int) -> int:
-        for n in names:
-            try:
-                v = getattr(CFG, n, None)
-                if v is not None and str(v).strip() != "":
-                    return int(str(v))
-            except Exception:
-                pass
-            try:
-                ev = os.getenv(n, "")
-                if ev.strip() != "":
-                    return int(ev.strip())
-            except Exception:
-                pass
-        return default
+    def _cap_int(name: str, default: int) -> int:
+        return _cfg_int(name, default)
 
-    _cap = _cap_int("LOCAL_MAX_FILES", default=1500)
+    _cap = _cap_int("LOCAL_MAX_FILES", 1500)
     if _cap > 0 and len(files) > _cap:
         logger.info("[LOCAL RAG] applying file cap: %d → %d", len(files), _cap)
         files = files[:_cap]
@@ -757,11 +811,10 @@ def ingest_local_files(
     """
     반환: (생성 JSON 경로들, 미리보기 Documents, 인덱싱된 청크 수 합)
     """
+    # 런타임 설정 갱신
+    ensure_config_fresh()
     # 연구 요약(findings) 포함 옵션
-    include_findings = (
-        str(getattr(CFG, "INCLUDE_FINDINGS_IN_VECTOR", "")).strip().lower() in ("1","true","yes","on")
-        or _truthy_env("INCLUDE_FINDINGS_IN_VECTOR")
-    )
+    include_findings = _truthy_cfg("INCLUDE_FINDINGS_IN_VECTOR", False)
     if include_findings:
         slug = (topic_slug or os.getenv("TOPIC_SLUG") or "default").strip()
         findings_dir = research_topic_dir(slug)
@@ -785,7 +838,7 @@ def ingest_local_files(
         return ([], [], 0)
 
     # 표준 리소스 디렉터리 정책 사용
-    res_dir = str(research_resources_dir(topic_slug or "default"))
+    res_dir = str(research_resources_dir(topic_slug or _cfg_str("TOPIC_SLUG", "default")))
     json_path = build_webjson_from_local(globs, res_dir)
 
     chunk_total = 0

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import os
-from urllib.parse import urlparse
 import logging
-from typing import Iterable
 from functools import lru_cache
-from typing import Set
+from urllib.parse import urlparse
+from typing import Iterable, Set
 
 logger = logging.getLogger(__name__)
 
@@ -13,9 +12,13 @@ logger = logging.getLogger(__name__)
 # Dynamic config access (CFG → module attr → ENV → default)
 # ─────────────────────────────────────────────────────────────
 import core.config as config
+from typing import cast
 
+# 런타임 주입 허용 도메인(에이전트 계산 결과가 즉시 반영되도록)
+_RUNTIME_ALLOWED: Set[str] = set()
 
 def _get_cfg_attr(name: str, default):
+    """CFG → module attr → ENV → default"""
     try:
         cfg = getattr(config, "CFG", None)
         if cfg is not None and hasattr(cfg, name):
@@ -28,21 +31,29 @@ def _get_cfg_attr(name: str, default):
     return env if env is not None else default
 
 
-def _env_flag(name: str, default: bool = False) -> bool:
-    v = (os.getenv(name) or "").strip().lower()
-    if not v:
-        return default
-    return v in {"1", "true", "yes", "y", "on"}
-
-
-def _truthy(name: str, default: bool = False) -> bool:
-    v = _get_cfg_attr(name, default)
+def set_runtime_allowed_domains(domains: Iterable[str]) -> None:
+    """에이전트가 계산한 허용 도메인을 런타임으로 주입."""
+    global _RUNTIME_ALLOWED
     try:
-        if isinstance(v, bool):
-            return v
-        return str(v).strip().lower() in {"1", "true", "yes", "y", "on"}
+        _RUNTIME_ALLOWED = {d.strip().lower() for d in domains if d and d.strip()}
     except Exception:
-        return default
+        _RUNTIME_ALLOWED = set()
+    # 주입 직후 캐시 무효화(즉시 반영)
+    try:
+        _normalized_allowed_domains.cache_clear()  
+        _normalize_host.cache_clear()              
+    except Exception:
+        pass
+
+def _flag(name: str, default: bool = False) -> bool:
+    """config.truthy가 있으면 우선 사용(단일 진입점)."""
+    try:
+        return cast(bool, config.truthy(name, default))  
+    except Exception:
+        v = (os.getenv(name) or "").strip().lower()
+        if not v:
+            return default
+        return v in {"1", "true", "yes", "y", "on"}
 
 
 def _as_set(val: object) -> set[str]:
@@ -61,11 +72,33 @@ def _as_set(val: object) -> set[str]:
 
 # ── 캐시 리프레시 (CFG 기반이므로 no-op 유지) ─────────────────────────────────
 def refresh_gatekeep_cache() -> None:
-    """CFG 기반으로 전환되어 별도 캐시 불필요. 호환용 no-op."""
-    return
+    """CFG/ENV 변경 또는 런타임 주입 반영을 위해 캐시 무효화."""
+    try:
+        _normalized_allowed_domains.cache_clear()  
+        _normalize_host.cache_clear()              
+    except Exception:
+        pass
 
 
 # ── 허용 도메인 ────────────────────────────────────────────────────────────────
+def get_allowed_domains() -> Set[str]:
+    """런타임 주입 > CFG > ENV 순으로 허용 도메인 해석."""
+    if _RUNTIME_ALLOWED:
+        return _RUNTIME_ALLOWED
+    # CFG가 집합을 제공하면 그대로 사용
+    try:
+        raw = _get_cfg_attr("ALLOWED_DOMAINS", None)
+        if isinstance(raw, (set, list, tuple)):
+            return {str(x).strip().lower() for x in raw if str(x).strip()}
+        # 문자열(콤마 구분)도 지원
+        if isinstance(raw, str) and raw.strip():
+            return _as_set(raw)
+    except Exception:
+        pass
+    # ENV 폴백(콤마 분리)
+    env = os.getenv("ALLOWED_DOMAINS", "")
+    return _as_set(env)
+
 @lru_cache(maxsize=1)
 def _normalized_allowed_domains() -> Set[str]:
     """ALLOWED_DOMAINS를 _normalize_host로 통일 정규화하여 캐시."""
@@ -77,36 +110,18 @@ def _normalized_allowed_domains() -> Set[str]:
             continue
         out.add(nd)
         # www 동치 옵션이 켜져있으면 상호 형태도 포함
-        if _TREAT_WWW_EQUIV:
+        if _treat_www_equiv():
             if nd.startswith("www."):
                 out.add(nd[4:])
             else:
                 out.add("www." + nd)
     return out
 
-def get_allowed_domains() -> set[str]:
-    """
-    CFG 우선. core.config에서 이미 문자열 → 집합 파싱을 수행하는 경우가 많지만,
-    여기에서도 안전하게 재파싱합니다. 비어 있으면 빈 집합 반환.
-    허용 형식: set/list/tuple/콤마구분 문자열
-    """
-    try:
-        raw = _get_cfg_attr("ALLOWED_DOMAINS", None)
-        if raw is None:
-            # ENV 폴백도 지원
-            raw = os.getenv("ALLOWED_DOMAINS", "")
-        return _as_set(raw)
-    except Exception:
-        return set()
-
 
 # ── 게이트키핑 플래그 ─────────────────────────────────────────────────────────
 def gatekeep_enabled() -> bool:
     """게이트키핑 on/off — CFG 우선, 실패 시 False."""
-    try:
-        return _truthy("GATE_KEEP_SOURCES", False)
-    except Exception:
-        return False
+    return _flag("GATE_KEEP_SOURCES", False)
 
 # ─────────────────────────────────────────────────────────────
 # 모바일/AMP 호스트 매핑 & 옵션 (web_rag.utils와 일치)
@@ -117,10 +132,12 @@ _MOBILE_HOSTS = {
     "mobile.newsmp.com": "www.newsmp.com",
 }
 
-# www 동치 옵션(게이트키핑 비교 시 유리)
-_TREAT_WWW_EQUIV: bool = _truthy("URL_TREAT_WWW_EQUIV", False)
-# 모바일/AMP 접기 후 www 선호 여부
-_MOBILE_TO_WWW: bool = _truthy("URL_NORMALIZE_MOBILE_TO_WWW", True)
+# 동적 플래그 getter (리로드 시점마다 최신값 반영)
+def _treat_www_equiv() -> bool:
+    return _flag("URL_TREAT_WWW_EQUIV", False)
+
+def _mobile_to_www() -> bool:
+    return _flag("URL_NORMALIZE_MOBILE_TO_WWW", True)
 
 
 # ── 호스트 정규화 ─────────────────────────────────────────────────────────────
@@ -143,7 +160,9 @@ def _normalize_host(u: str) -> str:
         s = (u or "").strip()
         if not s:
             return ""
-        pu = urlparse(s)
+        # 베어 도메인/호스트도 허용: 스킴이 없으면 임시로 http:// 를 부여해 파싱
+        _s_for_parse = s if "://" in s else f"http://{s}"
+        pu = urlparse(_s_for_parse)
         scheme = (pu.scheme or "").lower()
 
         # 로컬/비네트워크 스킴은 빈 호스트
@@ -171,7 +190,7 @@ def _normalize_host(u: str) -> str:
             host = host[4:]
 
         # 3) 모바일 라벨 접기: 선두/중간 'm'/'mobile'
-        if _MOBILE_TO_WWW:
+        if _mobile_to_www():
             parts = [p for p in host.split(".") if p]
             changed = False
             # 선두 라벨 제거
@@ -180,13 +199,14 @@ def _normalize_host(u: str) -> str:
             # news.m.example.com → news.example.com
             if len(parts) >= 3 and parts[1] in ("m", "mobile"):
                 parts.pop(1); changed = True
-            # 접은 뒤 www 선호
-            if changed and parts and not parts[0].startswith("www"):
-                parts.insert(0, "www")
+            # 접은 뒤 www 선호(옵션 성격): 이미 다른 서브도메인이 있으면 추가 안 함
+            if changed and parts:
+                if not parts[0].startswith("www") and len(parts) == 2:
+                    parts.insert(0, "www")
             host = ".".join(parts)
 
         # 4) www 동치 옵션: 비교 일관성 위해 접두 제거(allowed도 동일 규칙 적용)
-        if _TREAT_WWW_EQUIV and host.startswith("www."):
+        if _treat_www_equiv() and host.startswith("www."):
             host = host[4:]
 
         # 포트 처리
@@ -241,14 +261,7 @@ def is_allowed_url(url: str) -> bool:
         return True
 
     # ── 옵션: 서브도메인 허용(기본 OFF)
-    allow_sub = _get_cfg_attr("ALLOW_SUBDOMAINS", None)
-    if allow_sub is None:
-        allow_sub = _env_flag("ALLOW_SUBDOMAINS", default=False)
-
-    try:
-        allow_sub_bool = bool(allow_sub) if isinstance(allow_sub, bool) else str(allow_sub).strip().lower() in {"1","true","yes","y","on"}
-    except Exception:
-        allow_sub_bool = False
+    allow_sub_bool = _flag("ALLOW_SUBDOMAINS", False)
 
     if allow_sub_bool:
         parts = base.split(".")
@@ -258,7 +271,7 @@ def is_allowed_url(url: str) -> bool:
             if cand in allow:
                 return True
             # www 동치 옵션이 켜진 경우 반대 형태도 체크
-            if _TREAT_WWW_EQUIV:
+            if _treat_www_equiv():
                 if cand.startswith("www.") and cand[4:] in allow:
                     return True
                 if ("www." + cand) in allow:

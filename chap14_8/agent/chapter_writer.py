@@ -12,8 +12,11 @@ logger = logging.getLogger(__name__)
 import core.config as config
 from core.paths import current_path, now_str as _now_str, outline_base_dir
 from core.state_types import State, Flags
-from core.models import Task
+from core.models import Task, AgentName
 from utils.sanitize import sanitize_state
+from typing import cast
+from core.state_types import State
+
 from utils.refs import attach_auto_citations, refs_preview_text as _refs_preview_text, facts_block as _facts_block
 from prompts import get_chapter_writer_prompt
 from content_utils import save_md_draft
@@ -86,13 +89,17 @@ def chapter_writer(state: State):
 
     logger.info("============ CHAPTER WRITER ============")
     llm = get_llm()
-    state = sanitize_state(state)
+    state = cast(State, sanitize_state(state))
 
     tasks = list(state.get("task_history", []) or [])
     messages = list(state.get("messages", []) or [])
 
     # 펜딩 태스크 핸들(있으면)
-    pending = next((t for t in reversed(tasks) if (not getattr(t, "done", False)) and getattr(t, "agent", "") == "chapter_writer"), None)
+    pending = next(
+        (t for t in reversed(tasks)
+         if (not getattr(t, "done", False)) and getattr(t, "agent", "") == "chapter_writer"),
+        None
+    )
     if pending is None:
         logger.warning("[CHAPTER WRITER] pending 'chapter_writer' task가 없습니다. edge pass (계속 진행).")
 
@@ -104,8 +111,9 @@ def chapter_writer(state: State):
             pending.done_at = _now_str()
         default_outline = "outline_book.md" if config.CFG.DOC_MODE == "book" else "outline_report.md"
         fname = state.get("outline_fname") or default_outline
-        if not has_pending(tasks, "content_strategist"):
-            tasks.append(Task(agent="content_strategist", done=False, description=f"create_outline:{fname}", done_at=""))
+        if not has_pending(tasks, cast(AgentName, "content_strategist")):
+            tasks.append(Task(agent=cast(AgentName, "content_strategist"),
+                              done=False, description=f"create_outline:{fname}", done_at=""))
         messages.append(AIMessage(content="[Chapter Writer] Outline 요청 감지 → content_strategist로 위임"))
         logger.info("[CHAPTER WRITER] outline creation intent detected → scheduled content_strategist (%s)", fname)
         return {"messages": messages, "task_history": tasks}
@@ -115,8 +123,9 @@ def chapter_writer(state: State):
     if not (outline_text or "").strip():
         default_outline = "outline_book.md" if config.CFG.DOC_MODE == "book" else "outline_report.md"
         fname = state.get("outline_fname") or default_outline
-        if not has_pending(tasks, "content_strategist"):
-            tasks.append(Task(agent="content_strategist", done=False, description=f"create_outline:{fname}", done_at=""))
+        if not has_pending(tasks, cast(AgentName, "content_strategist")):
+            tasks.append(Task(agent=cast(AgentName, "content_strategist"),
+                              done=False, description=f"create_outline:{fname}", done_at=""))
         messages.append(AIMessage(content=f"[Chapter Writer] 아웃라인이 비어 있어 자동으로 목차 생성을 요청했습니다. (target={fname})"))
         if pending:
             pending.done = True
@@ -175,8 +184,11 @@ def chapter_writer(state: State):
     out_path: str | None = None
     try:
         out_path = save_md_draft(
-            target_title, gathered, mode="book",
-            root_dir=str(current_path), topic_slug=slug
+            target_title,
+            gathered,
+            mode=config.CFG.DOC_MODE,   # ← DocMode로 일치
+            root_dir=str(current_path),
+            topic_slug=slug,
         )
         if not out_path or not path.isfile(out_path):
             raise RuntimeError("save_md_draft returned empty or file not found")
@@ -247,9 +259,10 @@ def chapter_writer(state: State):
         pending.done = True
         pending.done_at = _now_str()
 
-    if not has_pending(tasks, "communicator"):
-        tasks.append(
-            Task(agent="communicator", done=False, description=f"'{target_title}' 초안 완료 보고 및 다음 집필/수정 확인", done_at="")
-        )
+    if not has_pending(tasks, cast(AgentName, "communicator")):
+        tasks.append(Task(agent=cast(AgentName, "communicator"),
+                          done=False,
+                          description=f"'{target_title}' 초안 완료 보고 및 다음 집필/수정 확인",
+                          done_at=""))
 
     return {"messages": messages, "task_history": tasks, "last_saved_path": out_path}

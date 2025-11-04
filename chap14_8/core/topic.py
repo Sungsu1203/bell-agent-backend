@@ -6,12 +6,14 @@ logger = logging.getLogger(__name__)
 
 import os, hashlib, re
 from pathlib import Path
-from typing import Any, Optional, cast
+from typing import Any, Optional, TYPE_CHECKING, cast, Callable
 
-from core.state_types import State, Flags, WriterFlags
+from core.state_types import State
+if TYPE_CHECKING:  # 타입체커 전용 (런타임 순환 의존 방지)
+    from core.state_types import WriterFlags, Flags
 
 from core.paths import topic_dir
-from core.config import CFG, load_research_objectives_from_env
+import core.config as config
 from utils.text_utils import slugify as _slugify
 
 
@@ -26,24 +28,65 @@ def ascii_namespace(seed: str) -> str:
     core = hashlib.sha1(seed.encode("utf-8", "ignore")).hexdigest()[:10]
     return f"ns-{core}"
 
+def _get_cfg_attr(name: str, default: Any) -> Any:
+    """config.CFG → config 모듈 속성 → default 순으로 동적 조회."""
+    try:
+        cfg = getattr(config, "CFG", None)
+        if cfg is not None and hasattr(cfg, name):
+            return getattr(cfg, name)
+        if hasattr(config, name):
+            return getattr(config, name)
+    except Exception:
+        pass
+    return default
+
+def _cfg_str(name: str, default: str = "") -> str:
+    v = _get_cfg_attr(name, default)
+    try:
+        s = str(v).strip()
+        return s if s else default
+    except Exception:
+        return default
+
+def _cfg_bool(name: str, default: bool = False) -> bool:
+    v = _get_cfg_attr(name, default)
+    if isinstance(v, bool):
+        return v
+    try:
+        return str(v).strip().lower() in {"1", "true", "yes", "on", "y"}
+    except Exception:
+        return default
+
+def _cfg_int(name: str, default: int = 0) -> int:
+    v = _get_cfg_attr(name, default)
+    try:
+        if isinstance(v, int):
+            return v
+        return int(float(str(v)))
+    except Exception:
+        return default
+
 def _default_outline_name() -> str:
-    """DOC_MODE에 따른 outline 기본 파일명"""
-    mode = (getattr(CFG, "DOC_MODE", "report") or "report").lower()
+    """DOC_MODE에 따른 outline 기본 파일명 (동적 조회)."""
+    mode = (_cfg_str("DOC_MODE", "report") or "report").lower()
     return "outline_book.md" if mode == "book" else "outline_report.md"
 
 def _reset_writer_flags(state: State) -> None:
     """writer 잠금·요청 타이틀 등 리셋(새 토픽에서의 교착 방지)"""
     try:
-        f = dict(state.get("flags") or {})
+        # flags는 Union[Flags, Dict[str, Any]]로 운용 → Dict로 완화 후 갱신
+        f: dict[str, Any] = dict(state.get("flags") or {})
         for k in ("pending_write_title", "requested_write_title", "suppress_vector_qa"):
             if k in f:
                 f.pop(k, None)
-        state["flags"] = cast(Flags, f)
+        # TypedDict(Flags)로 캐스팅하여 대입
+        state["flags"] = cast("Flags", f)
 
-        wf = dict(state.get("writer_flags") or {})
+        wf: dict[str, Any] = dict(state.get("writer_flags") or {})
         for k in ("pending_write_title", "requested_write_title"):
             wf.pop(k, None)
-        state["writer_flags"] = cast(WriterFlags, wf)
+        # TypedDict(WriterFlags)로 캐스팅하여 대입
+        state["writer_flags"] = cast("WriterFlags", wf)
     except Exception as e:
         logger.debug("[topic] reset_writer_flags skipped: %s", e)
 
@@ -80,13 +123,13 @@ def start_new_topic(state: State, title: str, outline_fname: Optional[str] = Non
     state["qa_direct_reply"] = False
 
     # 진행률 카운터 초기화(선택 키만)
-    flags = dict(state.get("flags") or {})
+    flags: dict[str, Any] = dict(state.get("flags") or {})
     for k in ("sections_done", "sections_total", "sections_seen",
               "chapters_done", "chapters_total", "chapters_seen"):
         flags.pop(k, None)
     # topic_title을 flags에도 미러링(일부 모듈은 flags.topic_title만 참조)
     flags["topic_title"] = title
-    state["flags"] = cast(Flags, flags)
+    state["flags"] = flags
 
     # ── 토픽별 로컬 폴더 준비
     chroma_dir = topic_dir(slug)
@@ -94,15 +137,23 @@ def start_new_topic(state: State, title: str, outline_fname: Optional[str] = Non
     state["chroma_dir"] = chroma_dir
 
     # ── ENV 미러링(옵션)
-    if bool(getattr(CFG, "MIRROR_STATE_TO_ENV", True)):
+    if _cfg_bool("MIRROR_STATE_TO_ENV", True):
         os.environ["CHROMA_NAMESPACE"] = ns
         os.environ["CHROMA_DIR"] = chroma_dir
         logger.debug("[topic] mirrored CHROMA_* to env (ns=%s dir=%s)", ns, chroma_dir)
 
     # ── 연구 목표/라운드 초기화 정책
-    if bool(getattr(CFG, "RESET_OBJECTIVES_ON_NEW_TOPIC", True)):
-        # 환경 변수 기반 목표 시드 (BLOCKAGI_OBJECTIVE_1..n / BLOCKAGI_OBJECTIVES)
-        state["research_objectives"] = load_research_objectives_from_env()
+    if _cfg_bool("RESET_OBJECTIVES_ON_NEW_TOPIC", True):
+        # 환경 변수 기반 목표 시드 로더(있으면 사용)
+        loader: Optional[Callable[[], list[str]]] = None
+        try:
+            loader = getattr(config, "load_research_objectives_from_env", None)  
+        except Exception:
+            loader = None
+        try:
+            state["research_objectives"] = loader() if callable(loader) else []
+        except Exception:
+            state["research_objectives"] = []
         state["research_round"] = 0
         state["no_new_url_streak"] = 0
     else:
@@ -112,9 +163,9 @@ def start_new_topic(state: State, title: str, outline_fname: Optional[str] = Non
 
     # ── iteration/role 기본값 힌트(상위 가드가 없을 경우 대비)
     if "iteration_count" not in state:
-        state["iteration_count"] = int(getattr(CFG, "ITERATION_COUNT", 0) or 0)
+        state["iteration_count"] = _cfg_int("ITERATION_COUNT", 0)
     if "agent_role" not in state or not str(state.get("agent_role") or "").strip():
-        state["agent_role"] = str(getattr(CFG, "BLOCKAGI_AGENT_ROLE", "") or "")
+        state["agent_role"] = _cfg_str("BLOCKAGI_AGENT_ROLE", "")
 
     logger.info(
         "[topic] new topic started: title=%r slug=%s ns=%s outline=%s role=%s iters=%s",

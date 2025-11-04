@@ -3,13 +3,16 @@ from __future__ import annotations
 import logging
 logger = logging.getLogger(__name__)
 
-from typing import Iterable, Set, MutableMapping, Mapping, Sequence, Any, Final, cast
+from typing import Iterable, Set, MutableMapping, Mapping, Sequence, Any, TYPE_CHECKING, cast, TypeVar, Callable
 from pathlib import Path
 from urllib.parse import urlparse
 import os, re, time, json, glob, shutil, hashlib
 import concurrent.futures as cf
 
 from core.state_types import State, References
+if TYPE_CHECKING:
+    # 타입 전용(순환 의존 방지)
+    from core.state_types import Flags
 from core.paths import current_path, now_str as _now_str, research_resources_dir
 from core.models import Task
 from utils.sanitize import sanitize_state
@@ -23,6 +26,19 @@ from utils.forced_queries import extract_forced_queries_from_messages
 from settings_gatekeep import gatekeep_enabled, get_allowed_domains
 from settings_gatekeep import url_allowed as _allowed
 from tools.web_rag.search import web_search
+
+# ── Gatekeep 캐시 동기화(모듈 로드시 1회) ─────────────────────────────────
+from typing import Optional, Callable
+_refresh_gk_cache: Optional[Callable[[], None]]
+try:
+    from settings_gatekeep import refresh_gatekeep_cache as _refresh_gk_cache
+    # 환경변수 변경/런타임 재시작 없이도 최신 허용 목록을 로드
+    if _refresh_gk_cache is not None:
+        _refresh_gk_cache()
+except Exception:
+    # 동기화 실패는 검색 플로우에 영향 주지 않도록 묵살
+    _refresh_gk_cache = None
+
 from tools.web_rag.ingest import (
     add_web_pages_json_to_chroma,
     web_page_json_to_documents,
@@ -32,12 +48,57 @@ from utils.query_filters import clean_seed as _clean_seed
 from tools.local_rag import ingest_local_files
 from core.llm import get_llm
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CFG 동적 접근 유틸(스냅샷 방지, reload_config 반영)
+# ─────────────────────────────────────────────────────────────────────────────
+def _get_cfg_attr(name: str, default: Any) -> Any:
+    """
+    config.CFG.<name> → config.<name> → default
+    (reload_config() 이후에도 최신값 반영)
+    """
+    try:
+        cfg = getattr(config, "CFG", None)
+        if cfg is not None and hasattr(cfg, name):
+            return getattr(cfg, name)
+        if hasattr(config, name):
+            return getattr(config, name)
+    except Exception:
+        pass
+    return default
+
+def _cfg_bool(name: str, default: bool = False) -> bool:
+    v = _get_cfg_attr(name, default)
+    if isinstance(v, bool):
+        return v
+    try:
+        s = str(v).strip().lower()
+        return s in {"1","true","yes","on","y"}
+    except Exception:
+        return default
+
+def _cfg_int(name: str, default: int = 0) -> int:
+    v = _get_cfg_attr(name, default)
+    if isinstance(v, int):
+        return v
+    try:
+        return int(float(str(v)))
+    except Exception:
+        return default
+
 
 def web_search_agent(state: State):
     logger.info("============ WEB SEARCH AGENT ============")
 
+    # (선택 보강) 런타임 ENV가 바뀌었을 수 있으므로 호출 시점에 재동기화
+    try:
+        if os.getenv("GATEKEEP_AUTO_REFRESH", "1").strip() not in ("0", "false", "off"):
+            if _refresh_gk_cache is not None:
+                _refresh_gk_cache()
+    except Exception:
+        pass
+
     llm = get_llm()
-    state = sanitize_state(state)
+    state = cast(State, sanitize_state(state))
 
     # === NS + Persist Dir (Calculated once) ===
     topic_slug = (state.get("topic_slug") or config.CFG.TOPIC_SLUG or "default").strip()
@@ -96,9 +157,9 @@ def web_search_agent(state: State):
     json_paths: list[str] = []
     new_docs_preview: list[Any] = []  # langchain_core.documents.Document
 
-    MAX_INDEXED_PER_ROUND = config.CFG.MAX_INDEXED_PER_ROUND
-    MAX_SEARCH_QUERIES_PER_ROUND = config.CFG.MAX_SEARCH_QUERIES_PER_ROUND
-    SKIP_WEB = config.CFG.SKIP_WEB_SEARCH
+    MAX_INDEXED_PER_ROUND = _cfg_int("MAX_INDEXED_PER_ROUND", 200)
+    MAX_SEARCH_QUERIES_PER_ROUND = _cfg_int("MAX_SEARCH_QUERIES_PER_ROUND", 3)
+    SKIP_WEB = _cfg_bool("SKIP_WEB_SEARCH", False)
     if SKIP_WEB:
         logger.info("[WEB SEARCH AGENT] SKIP_WEB_SEARCH=1 -> web search skipped (local RAG only).")
 
@@ -131,8 +192,8 @@ def web_search_agent(state: State):
         return out
 
     # Gatekeep resolve
-    GATE_KEEP_SOURCES: bool = bool(getattr(config.CFG, "GATE_KEEP_SOURCES", False))
-    _cfg_allowed = getattr(config.CFG, "ALLOWED_DOMAINS", set())
+    GATE_KEEP_SOURCES: bool = _cfg_bool("GATE_KEEP_SOURCES", False)
+    _cfg_allowed = _get_cfg_attr("ALLOWED_DOMAINS", set())
     if isinstance(_cfg_allowed, str):
         _cfg_allowed = [t for t in _cfg_allowed.split(",") if t.strip()]
     ALLOWED_DOMAINS: Set[str] = _normalize_domains(_cfg_allowed)
@@ -145,6 +206,22 @@ def web_search_agent(state: State):
             ALLOWED_DOMAINS = parsed
     except Exception:
         pass
+
+    # 안전 폴백: 게이트키프가 켜졌지만 허용 도메인이 비어 있으면
+    # - 한 번 더 캐시 갱신을 시도하고, 여전히 비면 게이트키프를 비활성화
+    if GATE_KEEP_SOURCES and not ALLOWED_DOMAINS:
+        try:
+            if _refresh_gk_cache is not None:
+                _refresh_gk_cache()
+            parsed2 = _normalize_domains(get_allowed_domains())
+            if parsed2:
+                ALLOWED_DOMAINS = parsed2
+        except Exception:
+            pass
+        if not ALLOWED_DOMAINS:
+            logger.warning("[GATEKEEP] enabled but allowed list is empty → temporarily disabling gatekeep this round")
+            GATE_KEEP_SOURCES = False
+
     try:
         if GATE_KEEP_SOURCES:
             domain_list = sorted(list(ALLOWED_DOMAINS))
@@ -181,10 +258,18 @@ def web_search_agent(state: State):
         return []
 
     # === Watchdog (MOVE/READ) ===============================================
-    MOVE_TIMEOUT = int(os.getenv("MOVE_TIMEOUT_SEC", "15") or "15")
-    READ_TIMEOUT = int(os.getenv("READ_TIMEOUT_SEC", "15") or "15")
+    # ENV → 안전 파싱
+    def _env_int(name: str, default: int) -> int:
+        try:
+            return int(os.getenv(name, "").strip() or default)
+        except Exception:
+            return default
+    MOVE_TIMEOUT = _env_int("MOVE_TIMEOUT_SEC", 15)
+    READ_TIMEOUT = _env_int("READ_TIMEOUT_SEC", 15)
 
-    def _with_watchdog(fn, *, timeout_sec: int, what: str):
+    # 제네릭 반환 타입을 갖는 watchdog 래퍼 (타입 안전)
+    T = TypeVar("T")
+    def _with_watchdog(fn: Callable[[], T], *, timeout_sec: int, what: str) -> T:
         started = time.time()
         with cf.ThreadPoolExecutor(max_workers=1) as ex:
             fut = ex.submit(fn)
@@ -209,7 +294,9 @@ def web_search_agent(state: State):
         return _with_watchdog(_do_move, timeout_sec=MOVE_TIMEOUT, what=f"move_json({os.path.basename(src)})")
 
     def _load_items_with_watchdog(path: str) -> list[dict]:
-        return _with_watchdog(lambda: _load_items(path), timeout_sec=READ_TIMEOUT, what=f"read_json({os.path.basename(path)})")
+        def _reader() -> list[dict]:
+            return _load_items(path)
+        return _with_watchdog(_reader, timeout_sec=READ_TIMEOUT, what=f"read_json({os.path.basename(path)})")
 
     # --- Gatekeep filter (빈 결과는 빈 JSON 파일 반환) -------------------------
     def _filter_json_by_domain(json_path: str) -> str:
@@ -222,18 +309,26 @@ def web_search_agent(state: State):
         if not isinstance(items, list):
             return json_path
         filtered = []
+        blocked = 0
         for it in items:
             if not isinstance(it, dict):
                 continue
             url = (it.get("url") or it.get("source") or "")
             if _allowed(url):
                 filtered.append(it)
+            else:
+                blocked += 1
         p = Path(json_path)
         out = p.with_name(p.stem + "_filtered" + p.suffix)
         if not filtered:
             out.write_text("[]", encoding="utf-8")
+            # 차단 수를 명시적으로 남겨 오탐·오경보를 진단하기 쉽게 함
+            logger.info("[GATEKEEP] filtered: kept=0 blocked=%d file=%s", blocked, p.name)
             return str(out)
         out.write_text(json.dumps(filtered, ensure_ascii=False), encoding="utf-8")
+        if blocked:
+            logger.info("[GATEKEEP] filtered: kept=%d blocked=%d file=%s",
+                        len(filtered), blocked, p.name)
         return str(out)
 
     # --- URL tally / cap -----------------------------------------------------
@@ -656,7 +751,7 @@ def web_search_agent(state: State):
             logger.info("[WEB SEARCH AGENT] (skip) auto-fallback web queries suppressed.")
 
     # --- (5) Local file indexing (once per topic) ----------------------------
-    _raw = config.CFG.LOCAL_RAG_GLOBS or ""
+    _raw = str(_get_cfg_attr("LOCAL_RAG_GLOBS", "") or "")
     _tokens = [t.strip() for t in re.split(r"[|;, \n]+", _raw) if t.strip()]
 
     last_human = next((m for m in reversed(messages) if isinstance(m, HumanMessage)), None)
@@ -775,7 +870,7 @@ def web_search_agent(state: State):
             _ensure_next_is_vector(cast(MutableMapping[str, Any], state))
 
     # --- Local preview allow keywords filter ---------------------------------
-    allow_kw_env = config.CFG.LOCAL_RAG_ALLOW or ""
+    allow_kw_env = str(_get_cfg_attr("LOCAL_RAG_ALLOW", "") or "")
     if allow_kw_env.strip():
         ALLOW_KEYS = {k.strip().lower() for k in allow_kw_env.split(",") if k.strip()}
         def _relevant(d) -> bool:
@@ -904,24 +999,47 @@ def web_search_agent(state: State):
         "new_url_count_round": int(state.get("new_url_count_round") or actual),
         "round_new_urls": int(state.get("round_new_urls") or actual),
         "round_added_urls": int(state.get("round_added_urls") or actual),
-        "flags": flags,
+        "flags": cast("Flags", flags),  # TypedDict 힌트
         "local_ingested_once": bool(state.get("local_ingested_once")),
     }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Backward compatibility constants (snapshot at import-time)
+# Backward-compat **getters** (스냅샷 상수 제거; 항상 최신 CFG 반영)
+#  - 기존 모듈에서 상수에 의존하던 경우, 아래 getter로 교체하세요.
 # ─────────────────────────────────────────────────────────────────────────────
-WRITER_AGENT: Final[str] = config.CFG.WRITER_AGENT
-PROJECT_ROOT: Final[str] = getattr(config.CFG, "PROJECT_ROOT", "")
+def get_WRITER_AGENT() -> str:
+    return str(_get_cfg_attr("WRITER_AGENT", "") or "")
 
-SEARCH_BACKENDS: Final[str] = getattr(
-    config.CFG, "SEARCH_BACKENDS",
-    "google_cse,naver_direct,serpapi_naver,serpapi,tavily"
-)
-HAS_GOOGLE_KEYS: Final[bool] = bool(getattr(config.CFG, "HAS_GOOGLE_KEYS", False))
-HAS_SERPAPI: Final[bool] = bool(getattr(config.CFG, "HAS_SERPAPI", False))
-HAS_TAVILY: Final[bool] = bool(getattr(config.CFG, "HAS_TAVILY", False))
-MAX_INDEXED_PER_ROUND: Final[int] = int(getattr(config.CFG, "MAX_INDEXED_PER_ROUND", 200))
-MAX_SEARCH_QUERIES_PER_ROUND: Final[int] = int(getattr(config.CFG, "MAX_SEARCH_QUERIES_PER_ROUND", 3))
-LOCAL_RAG_ALLOW: Final[str] = getattr(config.CFG, "LOCAL_RAG_ALLOW", "")
+def get_PROJECT_ROOT() -> str:
+    return str(_get_cfg_attr("PROJECT_ROOT", "") or "")
+
+def get_SEARCH_BACKENDS() -> str:
+    return str(_get_cfg_attr("SEARCH_BACKENDS", "google_cse,naver_direct,serpapi_naver,serpapi,tavily") or "")
+
+def get_HAS_GOOGLE_KEYS() -> bool:
+    return _cfg_bool("HAS_GOOGLE_KEYS", False)
+
+def get_HAS_SERPAPI() -> bool:
+    return _cfg_bool("HAS_SERPAPI", False)
+
+def get_HAS_TAVILY() -> bool:
+    return _cfg_bool("HAS_TAVILY", False)
+
+def get_MAX_INDEXED_PER_ROUND() -> int:
+    return _cfg_int("MAX_INDEXED_PER_ROUND", 200)
+
+def get_MAX_SEARCH_QUERIES_PER_ROUND() -> int:
+    return _cfg_int("MAX_SEARCH_QUERIES_PER_ROUND", 3)
+
+def get_LOCAL_RAG_ALLOW() -> str:
+    return str(_get_cfg_attr("LOCAL_RAG_ALLOW", "") or "")
+
+__all__ = [
+    "web_search_agent",
+    # runtime CFG getters
+    "get_WRITER_AGENT", "get_PROJECT_ROOT", "get_SEARCH_BACKENDS",
+    "get_HAS_GOOGLE_KEYS", "get_HAS_SERPAPI", "get_HAS_TAVILY",
+    "get_MAX_INDEXED_PER_ROUND", "get_MAX_SEARCH_QUERIES_PER_ROUND",
+    "get_LOCAL_RAG_ALLOW",
+]

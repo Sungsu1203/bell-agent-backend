@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Optional, Dict, Any, TypedDict, Literal, NotRequired, Required
+from typing import List, Optional, Dict, Any, TypedDict, Literal, NotRequired, Required, MutableMapping, Union, Mapping
 
 import logging
 logger = logging.getLogger(__name__)
@@ -32,6 +32,11 @@ class WriterFlags(TypedDict, total=False):
     pending_write_title: bool
     requested_write_title: str
 
+# NOTE:
+#  - Flags는 '자주 쓰는' 키만 문서화합니다(= total=False).
+#  - 실제 런타임에선 flags에 임시/추가 키가 들어갈 수 있으므로
+#    State.flags는 Dict[str, Any]도 허용(Union)하여 TypedDict 엄격성으로 인한
+#    "Could not assign item in TypedDict" 오류를 회피합니다.
 class Flags(TypedDict, total=False):
     # writer 잠금/요청
     pending_write_title: bool
@@ -56,6 +61,9 @@ class Flags(TypedDict, total=False):
     topic_title: str
     iteration_count: int
     last_saved_report: str   # ← 추가
+
+    # 라우터 내부 재시도/상태 저장용 네임스페이스(동적 확장 허용)
+    router: NotRequired[MutableMapping[str, Any]]
 
 # ────────────────────────────────────────────────────────────────────────────
 # 상태 객체
@@ -109,7 +117,9 @@ class State(TypedDict, total=False):
     research_min_rounds: NotRequired[int]         # 기본: CFG.RESEARCH_MIN_ROUNDS
     research_max_no_new_rounds: NotRequired[int]  # 기본: CFG.RESEARCH_MAX_NO_NEW_ROUNDS
     _vs_cleared_once: NotRequired[bool]
-    flags: NotRequired[Flags]
+    # Flags는 문서화를 위한 TypedDict 제공하되,
+    # 실제 저장/갱신 시 Dict[str, Any]를 허용해 타입 충돌을 방지합니다.
+    flags: NotRequired[Union[Flags, Dict[str, Any]]]
     writer_flags: NotRequired[WriterFlags]
 
     # 인덱스 디스크 존재 플래그

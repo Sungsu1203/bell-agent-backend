@@ -53,7 +53,10 @@ path_for_title = _paths.path_for_title
 get_outline_dir = _paths.get_outline_dir
 outline_path = _paths.outline_path
 is_written = _paths.is_written
-_coerce_mode = _paths._coerce_mode
+# 공개 별칭(권장): 언더스코어 내부 구현을 외부에 노출하지 않도록
+coerce_mode = _paths._coerce_mode
+# 하위호환: 과거 코드가 import한 경우를 위해 유지
+_coerce_mode = coerce_mode  # alias
 read_outline = _paths.read_outline
 
 # ── re-export: utils.outline ────────────────────────────────────────────────
@@ -67,10 +70,33 @@ __all__ = [
     "slugify", "section_slugify",
     # core.paths
     "get_content_dir", "chapter_filepath", "section_filepath", "path_for_title",
-    "get_outline_dir", "outline_path", "is_written", "_coerce_mode", "read_outline",
+    "get_outline_dir", "outline_path", "is_written", "coerce_mode", "_coerce_mode", "read_outline",
     # utils.outline
     "save_outline", "parse_outline_headings", "list_outline_headings", "next_unwritten_title",
     # content_utils
     "save_md_draft", "save_chapter", "save_section", "read_draft",
     "list_draft_paths", "rename_draft_title", "move_draft_between_topics", "merge_drafts",
 ]
+
+
+# ── lazy proxy: 하위 모듈에 새 심볼이 추가되어도 깨지지 않도록 ──────────────
+def __getattr__(name: str):
+    """
+    명시 re-export 목록에 없더라도, 하위 모듈(content_utils / core.paths / utils.outline)
+    에 존재하면 그대로 전달한다. 미존재 시 AttributeError.
+    """
+    for mod in (_cu, _paths, _outline):
+        try:
+            return getattr(mod, name)
+        except AttributeError:
+            continue
+    raise AttributeError(f"module 'content.api' has no attribute {name!r}")
+
+def __dir__():
+    base = set(globals().keys())
+    for mod in (_cu, _paths, _outline):
+        try:
+            base.update(dir(mod))
+        except Exception:
+            pass
+    return sorted(base)
