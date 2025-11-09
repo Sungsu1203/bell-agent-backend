@@ -1,0 +1,14 @@
+{
+  "installed": {
+    "client_id": "1068404894813-lqmprdb4dgtl5olnb4kgkhqn9f2dnffr.apps.googleusercontent.com",
+    "project_id": "gemini-rag-project-new",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_secret": "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",
+    "redirect_uris": [
+      "urn:ietf:wg:oauth:2.0:oob",
+      "http://localhost"
+    ]
+  }
+}

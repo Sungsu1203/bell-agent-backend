@@ -1,0 +1,12 @@
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = false
+warn_unused_ignores = true
+# 필요하면 추가:
+# check_untyped_defs = true
+
+# ⬇ 모듈별 예외는 overrides를 사용
+[[tool.mypy.overrides]]
+module = ["serpapi", "serpapi.*", "tavily", "tavily.*"]
+ignore_missing_imports = true
+

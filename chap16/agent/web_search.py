@@ -1,0 +1,1326 @@
+from __future__ import annotations
+
+import logging
+logger = logging.getLogger(__name__)
+
+from typing import Iterable, Set, MutableMapping, Mapping, Sequence, Any, TYPE_CHECKING, cast, TypeVar, Callable, Optional, Dict
+from pathlib import Path
+from urllib.parse import urlparse, unquote
+import os, re, time, json, glob, shutil, hashlib
+import concurrent.futures as cf
+
+from core.state_types import State, References
+if TYPE_CHECKING:
+    # 타입 전용(순환 의존 방지)
+    from core.state_types import Flags
+from core.paths import current_path, now_str as _now_str, research_resources_dir
+from core.models import Task
+from utils.sanitize import sanitize_state
+from utils.writer_scheduler import schedule_writer_if_needed
+from utils.rag_utils import merge_refs, vector_count
+from prompts import get_web_search_prompt
+from utils.tasks import has_pending, iter_tool_calls, HumanMessage, AIMessage
+from utils.outline import get_topic_outline_text
+import core.config as config
+from utils.forced_queries import extract_forced_queries_from_messages
+from settings_gatekeep import gatekeep_enabled, get_allowed_domains
+from settings_gatekeep import url_allowed as _allowed
+from tools.web_rag.search import web_search
+
+# ── Gatekeep 캐시 동기화(모듈 로드시 1회) ─────────────────────────────────
+_refresh_gk_cache: Optional[Callable[[], None]]
+try:
+    from settings_gatekeep import refresh_gatekeep_cache as _refresh_gk_cache
+    # 환경변수 변경/런타임 재시작 없이도 최신 허용 목록을 로드
+    if _refresh_gk_cache is not None:
+        _refresh_gk_cache()
+except Exception:
+    # 동기화 실패는 검색 플로우에 영향 주지 않도록 묵살
+    _refresh_gk_cache = None
+
+from tools.web_rag.ingest import (
+    add_web_pages_json_to_chroma,
+    web_page_json_to_documents,
+    _default_chroma_dir,
+)
+from utils.query_filters import clean_seed as _clean_seed
+from tools.local_rag import ingest_local_files
+from core.llm import get_llm
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CFG 동적 접근 유틸(스냅샷 방지, reload_config 반영)
+# ─────────────────────────────────────────────────────────────────────────────
+def _get_cfg_attr(name: str, default: Any) -> Any:
+    """
+    config.CFG.<name> → config.<name> → default
+    (reload_config() 이후에도 최신값 반영)
+    """
+    try:
+        cfg = getattr(config, "CFG", None)
+        if cfg is not None and hasattr(cfg, name):
+            return getattr(cfg, name)
+        if hasattr(config, name):
+            return getattr(config, name)
+    except Exception:
+        pass
+    return default
+
+def _cfg_bool(name: str, default: bool = False) -> bool:
+    v = _get_cfg_attr(name, default)
+    if isinstance(v, bool):
+        return v
+    try:
+        s = str(v).strip().lower()
+        return s in {"1","true","yes","on","y"}
+    except Exception:
+        return default
+
+def _cfg_int(name: str, default: int = 0) -> int:
+    v = _get_cfg_attr(name, default)
+    if isinstance(v, int):
+        return v
+    try:
+        return int(float(str(v)))
+    except Exception:
+        return default
+
+# ─────────────────────────────────────────────────────────────
+# P2 품질 유틸/상수: 연식 필터, 권위/잡음 가중 정렬
+#  - YEAR_FLOOR: URL에서 추출된 연도가 이 값 미만이면 제외(미추출은 통과)
+#  - AUTH_WEIGHTS/NOISE_WEIGHTS: 도메인별 가중치
+#  - WEB_DEDUP_REMAIN_MIN: 디듀프 후 JSON에 최소 남길 항목 수(캡과 별개)
+# ─────────────────────────────────────────────────────────────
+# 하한 연도(기본 2019) — CFG 또는 ENV에서 오버라이드 가능
+YEAR_FLOOR: int = _cfg_int("WEB_URL_YEAR_FLOOR", 2019)
+
+# 권위/잡음 도메인 가중치(필요 시 CFG/ENV에서 확장)
+AUTH_WEIGHTS: dict[str, int] = {
+    "khidi.or.kr": 2,
+    "kosis.kr": 2,
+    "mfds.go.kr": 2,
+    # 준권위 예시
+    "korea.kr": 1,
+    "stat.go.kr": 1,
+}
+NOISE_WEIGHTS: dict[str, int] = {
+    "medium.com": -1,
+    "issuu.com": -2,
+    "slideshare.net": -1,
+}
+
+# 디듀프 후 최소 잔여 수(기본 4) — P1-4
+WEB_DEDUP_REMAIN_MIN: int = _cfg_int("WEB_DEDUP_REMAIN_MIN", 4)
+
+def _extract_year_from_url(u: str) -> Optional[int]:
+    """URL 경로/쿼리에서 20xx 연도를 경량 추출(본문 파싱 없이)."""
+    try:
+        m = re.search(r"(?:^|[^0-9])(20\d{2})(?:[^0-9]|$)", u)
+        if m:
+            y = int(m.group(1))
+            if 2000 <= y <= 2100:
+                return y
+    except Exception:
+        pass
+    return None
+
+def _host_of(u: str) -> str:
+    try:
+        p = urlparse(u)
+        h = p.netloc.lower()
+        if h.startswith("www."):
+            h = h[4:]
+        if h.startswith("m."):
+            h = h[2:]
+        return h
+    except Exception:
+        return ""
+
+def _item_rank(it: dict, idx: int) -> tuple[int, int, int]:
+    """정렬 키(내림차순 유리): (weight, year, -idx_inv)."""
+    u = (it.get("url") or it.get("source") or "").strip()
+    host = _host_of(u)
+    w = int(AUTH_WEIGHTS.get(host, 0)) + int(NOISE_WEIGHTS.get(host, 0))
+    y = _extract_year_from_url(u) or 0
+    return (w, y, -idx)
+
+def web_search_agent(state: MutableMapping[str, Any]):
+    # QA 모드면 웹검색 자체를 스킵 (Direct QA 단락)
+    try:
+        if bool((state.get("flags") or {}).get("qa_direct_reply")):
+            logger.info("[web_search] skipped (qa_direct_reply)")
+            return state
+    except Exception:
+        # flags 구조가 비정상이어도 웹검색은 진행 가능하도록 무시
+        pass
+
+    logger.info("============ WEB SEARCH AGENT ============")
+
+    # (선택 보강) 런타임 ENV가 바뀌었을 수 있으므로 호출 시점에 재동기화
+    try:
+        if os.getenv("GATEKEEP_AUTO_REFRESH", "1").strip() not in ("0", "false", "off"):
+            if _refresh_gk_cache is not None:
+                _refresh_gk_cache()
+    except Exception:
+        pass
+
+    llm = get_llm()
+    # 상태를 가변 매핑으로 정규화 (object 인덱싱/속성 오류 방지)
+    state = cast(MutableMapping[str, Any], sanitize_state(state))
+    # 이후 인덱싱/쓰기 연산은 _s(가변 매핑)만 사용
+    _s = cast(MutableMapping[str, Any], state)
+
+    # ── helpers: ensure dict fields on a TypedDict ──────────────────────────
+    from typing import MutableMapping as _MM
+    def _ensure_flags_dict(st: _MM[str, Any]) -> _MM[str, Any]:
+        """State.flags를 dict로 보장. 비정상 타입(bool/None 등)은 dict로 정규화."""
+        v = st.get("flags")
+        if not isinstance(v, dict):
+            v = {} if v in (None, False) else {"enabled": bool(v)}
+        st["flags"] = v
+        return cast(_MM[str, Any], v)
+
+    def _ensure_subdict(parent: _MM[str, Any], key: str) -> _MM[str, Any]:
+        """parent[key]가 dict가 아니면 빈 dict로 교체 후 반환."""
+        cur = parent.get(key)
+        if not isinstance(cur, dict):
+            cur = {}
+            parent[key] = cur
+        return cast(_MM[str, Any], cur)
+
+    # === NS + Persist Dir (Calculated once) ===
+    topic_slug = (state.get("topic_slug") or config.CFG.TOPIC_SLUG or "default").strip()
+    env_ns = (config.CFG.CHROMA_NAMESPACE or "").strip()
+    ns = env_ns or f"{topic_slug}-default"
+    persist_dir = _default_chroma_dir(ns)
+
+    # Record in state (TypedDict 안전화): 전체 state를 가변 매핑으로 확장 후 보장
+    _s = cast(_MM[str, Any], state)
+    flags: _MM[str, Any]  = _ensure_flags_dict(_s)            # flags를 dict로 보장 + 타입 고정
+    dbg: _MM[str, Any]    = _ensure_subdict(flags, "debug")   # debug 서브딕셔너리 보장 + 타입 고정
+    chroma: _MM[str, Any] = _ensure_subdict(flags, "chroma")  # chroma 서브딕셔너리 보장 + 타입 고정
+    chroma["ns"] = ns
+    chroma["dir"] = persist_dir
+
+    logger.info("[web_search] ns=%s (CHROMA_NAMESPACE=%r, topic_slug=%r)", ns, env_ns, topic_slug)
+    logger.info("[web_search] persist_dir(default_resolve)=%s", persist_dir)
+
+    # --- (1) Get Task ------------------------------------------------------
+    tasks = state.get("task_history", [])
+    if not tasks:
+        raise ValueError("Task history is empty.")
+    pending = next((t for t in reversed(tasks) if (not t.done) and t.agent == "web_search_agent"), None)
+    if pending is None:
+        raise ValueError(f"web_search_agent pending task missing. Last task: {tasks[-1]}")
+
+    web_search_system_prompt = get_web_search_prompt()
+    messages = state.get("messages", [])
+
+    # ✅ Inherit refs from previous rounds (Ensure References type)
+    _refs_in = cast(References | None, state.get("references"))
+    references: References = _refs_in or {"queries": [], "docs": []}
+    _existing_qs = {
+        (q or "").strip().lower()
+        for q in cast(Sequence[str], references.get("queries") or [])
+        if isinstance(q, str) and q.strip()
+    }
+
+    outline_text = get_topic_outline_text(state)
+    mission = (pending.description or "").strip()
+
+    inputs = {
+        "mission": mission,
+        "references": references,
+        "messages": messages,
+        "outline": outline_text,
+        "current_time": _now_str(),
+        "topic_title": (
+            state.get("topic_title")
+            or (state.get("flags") or {}).get("topic_title")
+            or state.get("topic")
+            or state.get("topic_slug")
+            or "(untitled)"
+        ),
+    }
+
+    queries: list[str] = []
+    json_paths: list[str] = []
+    new_docs_preview: list[Any] = []  # langchain_core.documents.Document
+
+    MAX_INDEXED_PER_ROUND = _cfg_int("MAX_INDEXED_PER_ROUND", 200)
+    MAX_SEARCH_QUERIES_PER_ROUND = _cfg_int("MAX_SEARCH_QUERIES_PER_ROUND", 3)
+    SKIP_WEB = _cfg_bool("SKIP_WEB_SEARCH", False)
+    # P1-4: 디듀프 후 최소 잔여 보장 하한 (CFG → ENV → 기본값 4)
+    #  - CFG.WEB_DEDUP_REMAIN_MIN 가 우선, 없으면 ENV WEB_DEDUP_REMAIN_MIN, 기본 4
+    WEB_DEDUP_REMAIN_MIN = _cfg_int("WEB_DEDUP_REMAIN_MIN",
+                                    int(os.getenv("WEB_DEDUP_REMAIN_MIN", "4") or "4"))
+    if SKIP_WEB:
+        logger.info("[WEB SEARCH AGENT] SKIP_WEB_SEARCH=1 -> web search skipped (local RAG only).")
+
+    # 라운드 청크/스플릿 카운터 (docs와 분리)
+    chunk_total = 0  # Count of splits(chunks) indexed this round
+    # last_ingest_chunks 구조: round 합계 + 단계별(web/local) 세부
+    from typing import Dict as _Dict, Any as _Any
+    last_ingest: _Dict[str, _Any] = {
+        "round": {"splits": 0, "new": 0, "changed": 0},
+        "by_phase": {
+            "web":   {"splits": 0, "new": 0, "changed": 0},
+            "local": {"splits": 0, "new": 0, "changed": 0},
+        },
+    }
+
+    # [ANCHOR: VECTOR_COUNT_AFTER_INIT]
+    try:
+        _doc_count0 = vector_count(ns, persist_dir)
+        logger.debug("[DEBUG] after init: doc_count_on_disk=%s (refs.docs not included here)", _doc_count0)
+    except Exception as e:
+        logger.debug("[DEBUG] after init, doc_count_on_disk check failed: %s", e)
+
+    # --- Helper: enforce next step is vector --------------------------------
+    def _ensure_next_is_vector(_st: MutableMapping[str, Any]) -> None:
+        _pend = list(cast(Sequence[str] | None, _st.get("pending")) or [])
+        if "vector_search_agent" not in _pend:
+            _pend.append("vector_search_agent")
+            _st["pending"] = _pend
+            logger.info("[web_search][guard] scheduled (pending) -> vector_search_agent")
+        if not _st.get("next_agent"):
+            _st["next_agent"] = "vector_search_agent"
+
+
+    # --- Helper: inject refs + counters and force vector handoff  -----------
+    def _inject_vector_handoff(
+        _st: MutableMapping[str, Any],
+        *,
+        doc_hint_count: int = 0,
+        doc_hint_source: str = "local_ingest",
+    ) -> None:
+        """로컬 인제스트만으로도 다음 단계(벡터)로 확실히 넘어가도록 신호 주입."""
+        refs_prev = cast(Mapping[str, Any] | None, _st.get("refs")) or {"queries": [], "docs": []}
+        # 'docs'에 최소 힌트(카운터)를 넣어 라우터가 '무언가 인덱스됨'을 감지하도록 함
+        refs_out = {
+            "queries": list(refs_prev.get("queries") or []),
+            "docs": list(refs_prev.get("docs") or []) + ([{"source": doc_hint_source, "count": int(doc_hint_count)}] if doc_hint_count else []),
+        }
+        _st["refs"] = refs_out
+        # 일부 경로 하위호환
+        _st["references"] = cast(References, merge_refs(cast(Mapping[str, Any], _st.get("references") or {"queries": [], "docs": []}),
+                                                       cast(Sequence[str], refs_out.get("queries") or []),
+                                                       cast(Sequence[Any], refs_out.get("docs") or [])))
+        # 카운터(존재 시 유지, 없으면 업데이트)
+        try:
+            cur = int(_st.get("new_url_count") or 0)
+        except Exception:
+            cur = 0
+        _st["new_url_count"] = max(cur, int(doc_hint_count or 0))
+        _st["new_url_count_round"] = max(int(_st.get("new_url_count_round") or 0), int(doc_hint_count or 0))
+        _st["round_new_urls"] = max(int(_st.get("round_new_urls") or 0), int(doc_hint_count or 0))
+        # 다음 단계 지정
+        _ensure_next_is_vector(_st)
+
+    # --- Helper: normalize domains ------------------------------------------
+    def _normalize_domains(domains: Iterable[str] | None) -> Set[str]:
+        if not domains:
+            return set()
+        out: Set[str] = set()
+        for d in domains:
+            if isinstance(d, str) and d.strip():
+                out.add(d.strip().lower())
+        return out
+
+    # Gatekeep resolve
+    GATE_KEEP_SOURCES: bool = _cfg_bool("GATE_KEEP_SOURCES", False)
+    _cfg_allowed = _get_cfg_attr("ALLOWED_DOMAINS", set())
+    if isinstance(_cfg_allowed, str):
+        _cfg_allowed = [t for t in _cfg_allowed.split(",") if t.strip()]
+    ALLOWED_DOMAINS: Set[str] = _normalize_domains(_cfg_allowed)
+    try:
+        gk_enabled = bool(gatekeep_enabled())
+        if gk_enabled != GATE_KEEP_SOURCES:
+            GATE_KEEP_SOURCES = gk_enabled
+        parsed = _normalize_domains(get_allowed_domains())
+        if parsed:
+            ALLOWED_DOMAINS = parsed
+    except Exception:
+        pass
+
+    # 안전 폴백: 게이트키프가 켜졌지만 허용 도메인이 비어 있으면
+    # - 한 번 더 캐시 갱신을 시도하고, 여전히 비면 게이트키프를 비활성화
+    if GATE_KEEP_SOURCES and not ALLOWED_DOMAINS:
+        try:
+            if _refresh_gk_cache is not None:
+                _refresh_gk_cache()
+            parsed2 = _normalize_domains(get_allowed_domains())
+            if parsed2:
+                ALLOWED_DOMAINS = parsed2
+        except Exception:
+            pass
+        if not ALLOWED_DOMAINS:
+            logger.warning("[GATEKEEP] enabled but allowed list is empty → temporarily disabling gatekeep this round")
+            GATE_KEEP_SOURCES = False
+
+    try:
+        if GATE_KEEP_SOURCES:
+            domain_list = sorted(list(ALLOWED_DOMAINS))
+            logger.info("[GATEKEEP] enabled; allowed=%s (n=%d)", ", ".join(domain_list), len(domain_list))
+        else:
+            logger.info("[GATEKEEP] Disabled. (GATE_KEEP_SOURCES=0)")
+    except Exception as e:
+        logger.warning("[GATEKEEP] Status logging failed: %s", e)
+
+    # --- JSON loader ---------------------------------------------------------
+    def _load_items(json_path: str) -> list[dict]:
+        txt = Path(json_path).read_text(encoding="utf-8")
+        try:
+            data = json.loads(txt)
+        except json.JSONDecodeError:
+            items = []
+            for line in txt.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    items.append(json.loads(line))
+                except Exception:
+                    pass
+            return items
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            for key in ("results", "items", "data"):
+                v = data.get(key)
+                if isinstance(v, list):
+                    return v
+            return [data]
+        return []
+
+    # === Watchdog (MOVE/READ) ===============================================
+    # ENV → 안전 파싱
+    def _env_int(name: str, default: int) -> int:
+        try:
+            return int(os.getenv(name, "").strip() or default)
+        except Exception:
+            return default
+    MOVE_TIMEOUT = _env_int("MOVE_TIMEOUT_SEC", 15)
+    READ_TIMEOUT = _env_int("READ_TIMEOUT_SEC", 15)
+
+    # 제네릭 반환 타입을 갖는 watchdog 래퍼 (타입 안전)
+    T = TypeVar("T")
+    def _with_watchdog(fn: Callable[[], T], *, timeout_sec: int, what: str) -> T:
+        started = time.time()
+        with cf.ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(fn)
+            try:
+                return fut.result(timeout=timeout_sec)
+            except cf.TimeoutError:
+                logger.error("[TIMEOUT] %s > %ss (elapsed=%.2fs)", what, timeout_sec, time.time() - started)
+                raise
+
+    def _move_with_fallback(src: str, dst: str) -> str:
+        def _do_move():
+            if os.path.abspath(src) != os.path.abspath(dst):
+                try:
+                    shutil.move(src, dst)
+                except Exception:
+                    shutil.copyfile(src, dst)
+                    try:
+                        os.remove(src)
+                    except Exception:
+                        pass
+            return dst
+        return _with_watchdog(_do_move, timeout_sec=MOVE_TIMEOUT, what=f"move_json({os.path.basename(src)})")
+
+    def _load_items_with_watchdog(path: str) -> list[dict]:
+        def _reader() -> list[dict]:
+            return _load_items(path)
+        return _with_watchdog(_reader, timeout_sec=READ_TIMEOUT, what=f"read_json({os.path.basename(path)})")
+
+    # --- Gatekeep filter (빈 결과는 빈 JSON 파일 반환) -------------------------
+    def _filter_json_by_domain(json_path: str) -> str:
+        if not GATE_KEEP_SOURCES:
+            return json_path
+        try:
+            items = _load_items_with_watchdog(json_path)
+        except Exception:
+            return json_path
+        if not isinstance(items, list):
+            return json_path
+        filtered = []
+        blocked = 0
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            url = (it.get("url") or it.get("source") or "")
+            if _allowed(url):
+                filtered.append(it)
+            else:
+                blocked += 1
+        p = Path(json_path)
+        out = p.with_name(p.stem + "_filtered" + p.suffix)
+        if not filtered:
+            out.write_text("[]", encoding="utf-8")
+            # 차단 수를 명시적으로 남겨 오탐·오경보를 진단하기 쉽게 함
+            logger.info("[GATEKEEP] filtered: kept=0 blocked=%d file=%s", blocked, p.name)
+            return str(out)
+        out.write_text(json.dumps(filtered, ensure_ascii=False), encoding="utf-8")
+        if blocked:
+            logger.info("[GATEKEEP] filtered: kept=%d blocked=%d file=%s",
+                        len(filtered), blocked, p.name)
+        return str(out)
+
+    # --- URL tally / cap -----------------------------------------------------
+    topic_key = (topic_slug or "default")
+    _seen_by_topic = _ensure_subdict(flags, "seen_sources_by_topic")
+    _seen_sources = set(_seen_by_topic.get(topic_key) or [])
+    _round_added_urls = 0
+    _round_cap: int = int(MAX_INDEXED_PER_ROUND or 0)  # 0 means unlimited
+
+    def _cap_reached() -> bool:
+        return bool(_round_cap > 0 and _round_added_urls >= _round_cap)
+
+    def _norm_url(u: str) -> str:
+        u = (u or "").strip()
+        if not u:
+            return ""
+        # Local/file paths
+        if u.startswith("file://") or re.match(r"^[a-zA-Z]:[\\/]", u) or u.startswith(os.sep):
+            path = u.replace("\\", "/").lower()
+            path = re.sub(r"__v_\d+_\d+$", "", path)
+            return path
+        # HTTP(S)
+        if "://" not in u:
+            u = "http://" + u
+        p = urlparse(u)
+        host = p.netloc.lower()
+        # m. -> www. 정규화
+        if host.startswith("m."):
+            host = "www." + host[2:]
+        if host.startswith("www."):
+            host = host[4:]
+        normalized_path = re.sub(r"__v_\d+_\d+$", "", p.path)
+        # http → https 승격 (정보 중복 방지용 보수적 규칙)
+        scheme = "https"
+        return f"{host}{normalized_path}"
+
+    def _tally_new_urls_from_items(items: list[dict]) -> None:
+        nonlocal _round_added_urls
+        for it in (items or []):
+            if not isinstance(it, dict):
+                continue
+            url = (it.get("url") or it.get("source") or "").strip()
+            k = _norm_url(url)
+            if k and k not in _seen_sources:
+                _seen_sources.add(k)
+                _round_added_urls += 1
+
+    def _tally_new_urls_from_json(json_path: str) -> None:
+        try:
+            items = _load_items_with_watchdog(json_path)
+            if isinstance(items, list):
+                _tally_new_urls_from_items(items)
+        except Exception as e:
+            logger.warning("[WARN] url tally failed for %s: %s", json_path, e)
+
+    logger.debug("[DEBUG] seen_sources_by_topic[%s] = %s", topic_key, len(_seen_by_topic.get(topic_key, [])))
+
+    # --- Content quality quick filter ---------------------------------------
+    def _is_bad_doc(d) -> bool:
+        txt = ((getattr(d, "page_content", None) or "")[:2000]).lower()
+        return any(k in txt for k in [
+            "access denied", "enable javascript", "just a moment",
+            "security controls triggered", "captcha"
+        ])
+
+    # --- Normalize query -----------------------------------------------------
+    def _normalize_query(q: str) -> str:
+        s = (q or "").strip()
+        if not s:
+            return ""
+        s = s.replace('\\"', '"').replace("\\'", "'")
+        s = s.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+
+        def _site_or_repl(m):
+            tail = m.group(1)
+            parts = [p.strip() for p in re.split(r"[|]", tail) if p.strip()]
+            if len(parts) <= 1:
+                p0 = parts[0] if parts else tail
+                return p0 if p0.lower().startswith("site:") else ("site:" + p0)
+            norm_parts = [(p if p.lower().startswith("site:") else ("site:" + p)) for p in parts]
+            return f"({' OR '.join(norm_parts)})"
+
+        s = re.sub(r"site:([^\s)]+)", _site_or_repl, s)
+        s = re.sub(r"\s{2,}", " ", s).strip()
+        return s
+
+    # --- Watchdog (already defined above) -----------------------------------
+    # def _with_watchdog(...): ...
+
+    # --- Core search/ingest routine -----------------------------------------
+    def _run_web_search_with_guard(q: str, preview_limit: int = 5, retries: int = 2) -> bool:
+        nonlocal chunk_total
+        if SKIP_WEB:
+            logger.info("[WEB SEARCH AGENT] SKIP_WEB_SEARCH=1 -> web search skipped.")
+            return False
+
+        q = (q or "").strip()
+        if not q:
+            return False
+
+        norm_q = _normalize_query(q)
+        if norm_q != (q or ""):
+            logger.debug("[web_search][normalized] %s  <-  %s", norm_q, q)
+        if not norm_q:
+            logger.info("[web_search] empty-after-normalize -> skip")
+            return False
+
+        googleish = any(tok in norm_q for tok in ("site:", " OR ", " AND ", "(", ")"))
+
+        ok = False
+        for attempt in range(retries + 1):
+            try:
+                # 1) Search call
+                payload = {"query": norm_q}
+                if googleish:
+                    payload["engine"] = "google_cse"
+                t0 = time.monotonic()
+                ret = web_search.invoke(payload)
+                dt = time.monotonic() - t0
+                logger.info("[web_search][call ok] dt=%.2fs query=%s", dt, norm_q)
+
+                # Normalize return
+                items: list[dict] = []
+                json_path: str = ""
+                try:
+                    if isinstance(ret, tuple) and len(ret) >= 2:
+                        items = list(ret[0] or [])
+                        json_path = str(ret[1] or "")
+                    elif isinstance(ret, list):
+                        items = list(ret)
+                        json_path = ""
+                    elif isinstance(ret, dict):
+                        items = list(ret.get("results") or ret.get("items") or [])
+                        json_path = str(ret.get("json_path") or ret.get("path") or "")
+                    else:
+                        json_path = str(ret or "")
+                except Exception as e:
+                    logger.debug("[web_search] return normalize failed: %s", e)
+
+                # 1-2) Path fallback: Save if path is missing
+                if not json_path:
+                    try:
+                        res_dir = research_resources_dir(topic_slug or "default")
+                        res_dir.mkdir(parents=True, exist_ok=True)
+                        sig_src = (norm_q + "|" + "|".join([(it or {}).get("url") or (it or {}).get("source") or "" for it in (items or [])]))
+                        sig = hashlib.sha1(sig_src.encode("utf-8")).hexdigest()[:8]
+                        fname = f"web_{int(time.time())}_{sig}.json"
+                        forced_path = res_dir / fname
+                        with open(forced_path, "w", encoding="utf-8") as f:
+                            json.dump(items or [], f, ensure_ascii=False)
+                        json_path = str(forced_path)
+                        logger.info("[web_search][fallback save] path=%s items=%d", json_path, len(items or []))
+                    except Exception as se:
+                        logger.warning("[web_search][fallback save] failed: %s", se)
+                        try:
+                            res_dir = research_resources_dir(topic_slug or "default")
+                            res_dir.mkdir(parents=True, exist_ok=True)
+                            forced_path = res_dir / f"web_{int(time.time())}_empty.json"
+                            forced_path.write_text("[]", encoding="utf-8")
+                            json_path = str(forced_path)
+                        except Exception:
+                            pass
+
+                json_paths.append(json_path)
+
+                # 2) Move result JSON (with cross-volume fallback) — with watchdog
+                try:
+                    res_dir = research_resources_dir(topic_slug or "default")
+                    res_dir.mkdir(parents=True, exist_ok=True)
+                    new_json_path = str(res_dir / os.path.basename(json_path))
+                    if os.path.abspath(json_path) != os.path.abspath(new_json_path):
+                        json_path = _move_with_fallback(json_path, new_json_path)
+                        json_paths[-1] = json_path
+                    logger.info("[web_search] saved -> %s", json_path)
+                except Exception as move_e:
+                    logger.warning("[WARN] resources JSON move failed: %s", move_e)
+
+                # 2-1) (P2) 연식 필터 + 권위가중 정렬 + Dedup + cap (with watchdog read)
+                try:
+                    _items_all = _load_items_with_watchdog(json_path)
+                    # (a) 연식 하한(2019) 필터 — URL 상 연도만 근거, 미검출은 통과
+                    _items_all = [
+                        it for it in _items_all if not isinstance(it, dict)
+                        or (_extract_year_from_url((it.get("url") or it.get("source") or "")) or YEAR_FLOOR) >= YEAR_FLOOR
+                    ]
+                    # (b) 권위/잡음 가중치 + 연식 기반 정렬(내림차순)
+                    _items_all = [
+                        it for it in _items_all if isinstance(it, dict)
+                    ]
+                    _items_all = sorted(_items_all, key=lambda it_i: _item_rank(it_i, idx=_items_all.index(it_i)), reverse=True)
+
+                    # (c) 도메인 정규화 기반 디듀프
+                    _seen_norm_urls = set()
+                    _deduped: list[dict] = []
+                    for it in _items_all:
+                        if not isinstance(it, dict):
+                            continue
+                        u = (it.get("url") or it.get("source") or "").strip()
+                        k = _norm_url(u)
+                        if not k or k in _seen_norm_urls:
+                            continue
+                        _seen_norm_urls.add(k)
+                        _deduped.append(it)
+                    # 남은 인덱싱 예산(캡) 계산
+                    remaining = max(0, (_round_cap - _round_added_urls)) if _round_cap > 0 else len(_deduped)
+                    # P1-4: 최소 잔여 보장 — 디듀프 후 JSON에는 최소 WEB_DEDUP_REMAIN_MIN 개를 남김
+                    #  - 실제 인덱싱 예산은 상위 로직(_round_cap/_round_added_urls)으로 여전히 제한됨
+                    #  - 여기서는 JSON 저장 단계에서 너무 일찍 비워지지 않도록 안전 여유를 둠
+                    keep_min = max(int(WEB_DEDUP_REMAIN_MIN or 0), 0)
+                    # cap이 켜져 있다면, 남길 개수는 cap 잔여와 하한 중 큰 값으로,
+                    # 전체 항목 수를 넘지 않도록 제한
+                    if _round_cap > 0:
+                        keep_n = min(len(_deduped), max(remaining, keep_min))
+                    else:
+                        # cap이 없으면 원래 목록 유지(하한은 항상 충족)
+                        keep_n = len(_deduped)
+                    if keep_n < len(_deduped):
+                        _deduped = _deduped[:keep_n]
+                    Path(json_path).write_text(json.dumps(_deduped, ensure_ascii=False), encoding="utf-8")
+                    logger.debug("[web_search] refine+dedup/cap: %d -> %d (remain=%s, floor=%d)",
+                                 len(_items_all), len(_deduped), remaining if _round_cap else "∞", YEAR_FLOOR)
+                except Exception as e:
+                    logger.debug("[web_search] dedup/cap skipped: %s", e)
+
+                # 3) Gatekeep
+                filtered_json = _filter_json_by_domain(json_path)
+                _tally_new_urls_from_json(filtered_json)
+
+                # 4) Indexing with watchdog (Upsert; clear=False)
+                if MAX_INDEXED_PER_ROUND > 0:
+                    INDEX_TIMEOUT = int(os.getenv("INDEX_TIMEOUT_SEC", "120") or "120")
+
+                    def _do_index():
+                        return add_web_pages_json_to_chroma(
+                            json_file=filtered_json,
+                            namespace=ns,
+                            clear=False,
+                            persist_directory=persist_dir
+                        )
+
+                    try:
+                        _ret = _with_watchdog(_do_index, timeout_sec=INDEX_TIMEOUT, what="indexing")
+                        # 반환 호환 처리:
+                        # - 신형(dict): {"splits": int, "new": int, "changed": int, ...}
+                        # - 구형(tuple): (orig_count, chunk_count)
+                        web_splits = web_new = web_changed = 0
+                        if isinstance(_ret, dict):
+                            web_splits  = int(_ret.get("splits") or _ret.get("chunk_count") or 0)
+                            web_new     = int(_ret.get("new") or _ret.get("added") or 0)
+                            web_changed = int(_ret.get("changed") or 0)
+                        elif isinstance(_ret, tuple) and len(_ret) >= 2:
+                            web_splits = int(_ret[1] or 0)
+                        else:
+                            try:
+                                web_splits = int(_ret or 0)
+                            except Exception:
+                                web_splits = 0
+
+                        # 라운드/단계별 누적
+                        chunk_total += web_splits
+                        last_ingest["by_phase"]["web"]["splits"]   += web_splits
+                        last_ingest["by_phase"]["web"]["new"]      += web_new
+                        last_ingest["by_phase"]["web"]["changed"]  += web_changed
+                        last_ingest["round"]["splits"]   += web_splits
+                        last_ingest["round"]["new"]      += web_new
+                        last_ingest["round"]["changed"]  += web_changed
+                        try:
+                            _tally_new_urls_from_json(filtered_json)
+                        except Exception:
+                            pass
+                    except Exception as idx_e:
+                        logger.error("[WEB INDEXING FATAL] add_web_pages_json_to_chroma failed", exc_info=True)
+                        raise idx_e
+                else:
+                    logger.info("[WEB INDEXING SKIP] MAX_INDEXED_PER_ROUND=0. Indexing skipped.")
+
+                # 5) Preview
+                try:
+                    docs = web_page_json_to_documents(filtered_json)[:preview_limit]
+                    if GATE_KEEP_SOURCES:
+                        def _src(d) -> str:
+                            md = getattr(d, "metadata", {}) or {}
+                            return md.get("source") or md.get("url") or ""
+                        docs = [d for d in docs if _allowed(_src(d))]
+                    docs = [d for d in docs if not _is_bad_doc(d)]
+                    for d in docs:
+                        md = getattr(d, "metadata", {}) or {}
+                        src = md.get("source") or md.get("url") or "unknown"
+                        # (P2) 표시용으로만 퍼센트-인코딩 디코드(unquote). 저장/키에는 영향 없음.
+                        try:
+                            src_disp = unquote(src)
+                        except Exception:
+                            src_disp = src
+                        new_docs_preview.append(
+                            type(d)(
+                                page_content=(d.page_content or "")[:500],
+                                metadata={"source": src_disp}
+                            )
+                        )
+                except Exception as prev_e:
+                    logger.warning("[WARN] preview build failed: %s", prev_e)
+
+                queries.append(norm_q)
+                ok = True
+                break
+
+            except Exception as e:
+                logger.debug("[web_search][call fail] attempt=%d err=%s", attempt + 1, e)
+                if attempt < retries:
+                    time.sleep(1.2 * (attempt + 1))
+                    continue
+                logger.warning("[WARN] web_search failed (after retry): %s -> %s", norm_q, e)
+                ok = False
+                break
+
+        return ok
+
+    # --- (4) Query execution pipeline ---------------------------------------
+    def _normalize_planner_q(s: str) -> str:
+        s = (s or "").strip()
+        s = re.sub(r"^\s*[\-\•]\s*", "", s)      # bullet
+        s = re.sub(r"^\s*\d+\.\s*", "", s)       # numbering
+        return s.strip().strip('"').strip("'")
+
+    plan_from_state = (state.get("research_plan") or {}).get("queries") or []
+    raw_planner_qs = list(plan_from_state or []) or list(state.get("planner_queries") or [])
+    planner_qs = []
+    seen_norm = set()
+    for q in raw_planner_qs:
+        if not isinstance(q, str):
+            q = str(q or "")
+        nq = re.sub(r"\s+", " ", _normalize_planner_q(q))
+        if not nq:
+            continue
+        lk = nq.lower()
+        if lk in seen_norm or lk in _existing_qs:
+            continue
+        seen_norm.add(lk)
+        planner_qs.append(nq)
+
+    # ======== [ANCHOR: RESEARCH_FLAG_SET] ========
+    if (state.get("research_plan") or {}).get("objective") or planner_qs:
+        state["research_loop_active"] = True
+    # =============================================
+
+    auto_mode = "rag_update:auto" in mission.lower()
+    if auto_mode:
+        state["research_loop_active"] = True
+
+    ran_planner = 0
+    if planner_qs:
+        if not SKIP_WEB:
+            logger.info("[WEB SEARCH AGENT] planner queries: %s", planner_qs)
+            for q in planner_qs:
+                if _cap_reached():
+                    logger.info("[WEB SEARCH AGENT] cap reached; skipping remaining planner queries")
+                    break
+                if _run_web_search_with_guard(q):
+                    _existing_qs.add(q.lower())
+                    ran_planner += 1
+            logger.info("[WEB SEARCH AGENT] planner queries executed: %s/%s", ran_planner, len(planner_qs))
+        else:
+            logger.info("[WEB SEARCH AGENT] (skip) planner queries ignored: %s", planner_qs)
+        state["planner_queries"] = []
+        rp = state.get("research_plan") or {}
+        rp["queries"] = []
+        state["research_plan"] = rp
+        logger.info("[WEB SEARCH AGENT] planner queries executed: %s/%s", ran_planner, len(planner_qs))
+
+    # 4-1) Forced queries
+    forced_queries: list[str] = []
+    try:
+        forced_queries = extract_forced_queries_from_messages(messages, lookback=20) or []
+    except Exception as e:
+        logger.warning("[WARN] forced query extraction failed: %s", e)
+
+    if forced_queries:
+        state["research_loop_active"] = True
+        if not SKIP_WEB:
+            logger.info("[WEB SEARCH AGENT] forced queries: %s", forced_queries)
+            for q in forced_queries:
+                if _cap_reached():
+                    logger.info("[WEB SEARCH AGENT] cap reached; skipping remaining forced queries")
+                    break
+                if not isinstance(q, str):
+                    q = str(q or "")
+                q = (q or "").strip()
+                if not q:
+                    continue
+                lk = q.lower()
+                if lk in _existing_qs:
+                    logger.debug("[WEB SEARCH AGENT] skip duplicate (forced): %s", q)
+                    continue
+                logger.debug("-------- web search -------- %s", {"query": q})
+                if _run_web_search_with_guard(q):
+                    _existing_qs.add(lk)
+        else:
+            logger.info("[WEB SEARCH AGENT] (skip) forced queries ignored: %s", forced_queries)
+
+    # 4-2) LLM-designed queries
+    if not SKIP_WEB:
+        llm_with_web = llm.bind_tools([web_search])
+        search_plans = (web_search_system_prompt | llm_with_web).invoke(inputs)
+        ran = 0
+        for args in iter_tool_calls(search_plans, "web_search"):
+            if _cap_reached():
+                logger.info("[WEB SEARCH AGENT] cap reached; skipping remaining llm-designed queries")
+                break
+            if ran >= MAX_SEARCH_QUERIES_PER_ROUND:
+                break
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except Exception:
+                    args = {"query": args}
+            elif isinstance(args, (list, tuple)):
+                args = {"query": " ".join(map(str, args))}
+            elif not isinstance(args, dict):
+                logger.debug("web_search tool args ignored (unsupported type): %r", type(args).__name__)
+                continue
+            q = (args.get("query") or "").strip()
+            if not q:
+                continue
+            lk = q.lower()
+            if lk in _existing_qs:
+                continue
+            logger.debug("-------- web search -------- %s", {"query": q})
+            if _run_web_search_with_guard(q):
+                _existing_qs.add(lk)
+                ran += 1
+    else:
+        logger.info("[WEB SEARCH AGENT] (skip) LLM-designed web queries suppressed.")
+
+    # 4-3) Automatic fallback (if auto mode & no queries executed yet)
+    def _fallback_auto_queries():
+        topic = state.get("topic_title") or ""
+        base = [
+            f"{topic} 2025 overview",
+            f"{topic} market size 2025",
+            f"{topic} key trends Korea 2025",
+            f"{topic} supply chain risks 2025",
+            f"{topic} policy & regulation Korea 2025",
+        ]
+        extra: list[str] = []
+        if outline_text:
+            for line in outline_text.splitlines():
+                line = _clean_seed(line.strip())
+                if not line:
+                    continue
+                if len(extra) >= 2:
+                    break
+                extra.append(f"{line[:40]} 2025 overview")
+        return base + extra
+
+    if auto_mode and not queries:
+        if not SKIP_WEB:
+            for q in _fallback_auto_queries():
+                if _cap_reached():
+                    logger.info("[WEB SEARCH AGENT] cap reached; skipping fallback queries")
+                    break
+                if not isinstance(q, str):
+                    q = str(q or "")
+                q = (q or "").strip()
+                if not q:
+                    continue
+                lk = q.lower()
+                if lk in _existing_qs:
+                    logger.debug("[WEB SEARCH AGENT] skip duplicate (fallback): %s", q)
+                    continue
+                if _run_web_search_with_guard(q):
+                    _existing_qs.add(lk)
+        else:
+            logger.info("[WEB SEARCH AGENT] (skip) auto-fallback web queries suppressed.")
+
+    # --- (5) Local file indexing (once per topic) ----------------------------
+    _raw = str(_get_cfg_attr("LOCAL_RAG_GLOBS", "") or "")
+    _tokens = [t.strip() for t in re.split(r"[|;, \n]+", _raw) if t.strip()]
+
+    last_human = next((m for m in reversed(messages) if isinstance(m, HumanMessage)), None)
+    if last_human and isinstance(last_human.content, str):
+        m = re.search(r"(?:add_local|local_rag|내부자료|내부문서)\s*:\s*(.+)", last_human.content, flags=re.I)
+        if m:
+            for tok in re.split(r"[|;, \n]+", m.group(1)):
+                if tok.strip():
+                    _tokens.append(tok.strip())
+
+    slug_or_wildcard = topic_slug if topic_slug else "**"
+
+    def _normalize_token(p: str) -> str:
+        p = p.replace("<topic-slug>", slug_or_wildcard)
+        return p.replace("\\", "/").strip()
+
+    tokens_norm = [_normalize_token(t) for t in _tokens]
+    logger.info("[DEBUG] Final local RAG globs list: %s", tokens_norm)
+
+    _base_candidates = []
+    try:
+        _cp = Path(str(current_path)).resolve()
+        _base_candidates.extend([_cp, _cp.parent])
+    except Exception:
+        pass
+    _base_candidates.extend([Path.cwd().resolve(), Path(__file__).resolve().parents[1]])
+
+    def _dedup_keep_order(seq):
+        seen = set(); out = []
+        for s in seq:
+            key = s.lower() if os.name == "nt" else s
+            if key not in seen:
+                seen.add(key); out.append(s)
+        return out
+
+    tokens_norm = _dedup_keep_order(tokens_norm)
+
+    def _resolve_to_abs(pattern: str) -> list[str]:
+        found_abs = []
+        for base in _base_candidates:
+            patt_abs = str((base / pattern).as_posix())
+            hits = list(glob.iglob(patt_abs, recursive=True))
+            if hits:
+                found_abs.extend(hits)
+        if found_abs:
+            return sorted(_dedup_keep_order([str(Path(h).resolve()) for h in found_abs]))
+        return [str((_base_candidates[-1] / pattern).resolve())]
+
+    dedup_globs: list[str] = []
+    debug_matches_total = 0
+    if not tokens_norm:
+        logger.info("[LOCAL SCAN] No configured globs. Check LOCAL_RAG_GLOBS or add_local command.")
+    else:
+        logger.info("[LOCAL SCAN] base candidates = %s", [str(p) for p in _base_candidates])
+        for patt in tokens_norm:
+            hits = _resolve_to_abs(patt)
+            hit_files = [h for h in hits if os.path.isfile(h)]
+            logger.info("[LOCAL SCAN] %s  -> %d file(s)", patt, len(hit_files))
+            if len(hit_files) == 0:
+                logger.info("[LOCAL SCAN]   L Example target: %s", hits[-1] if hits else "(none)")
+            debug_matches_total += len(hit_files)
+            dedup_globs.append(patt)
+        if debug_matches_total == 0:
+            logger.info("[LOCAL SCAN] All globs matched 0 files. Check path/pattern.")
+
+    li = _ensure_subdict(flags, "local_ingested")
+    skip_local_ingest = bool(li.get(topic_key))
+    if skip_local_ingest:
+        logger.info("[LOCAL SCAN] already ingested for topic '%s' -> skip ingest", topic_key)
+
+    if dedup_globs and not skip_local_ingest:
+        l_jsons, l_docs, l_chunks = ingest_local_files(
+            dedup_globs,
+            namespace=ns,
+            persist_directory=persist_dir,
+            topic_slug=topic_slug or "default",
+            root_dir=str(current_path),
+            add_web_pages_json_to_chroma=add_web_pages_json_to_chroma,
+            web_page_json_to_documents=web_page_json_to_documents,
+        )
+        if l_docs:
+            logger.info("[WEB SEARCH AGENT] ingest local refs: %s", dedup_globs)
+            json_paths.extend(l_jsons)
+            new_docs_preview.extend(l_docs)
+            # local ingest는 반환에 splits만 있을 수 있음
+            _l_splits = int(l_chunks or 0)
+            chunk_total += _l_splits
+            last_ingest["by_phase"]["local"]["splits"]  += _l_splits
+            last_ingest["round"]["splits"]              += _l_splits
+            if int(l_chunks or 0) > 0:
+                for jp in (l_jsons or []):
+                    _tally_new_urls_from_json(jp)
+            for g in dedup_globs:
+                q = f"local:{g}"
+                lk = q.lower()
+                if lk not in _existing_qs:
+                    queries.append(q)
+                    _existing_qs.add(lk)
+            li[topic_key] = True
+            state["local_ingested_once"] = True
+            # ▼ 로컬 인제스트가 있었으면 바로 벡터 단계 핸드오프 신호 주입
+            try:
+                _inject_vector_handoff(cast(MutableMapping[str, Any], state),
+                                       doc_hint_count=int(l_chunks or len(l_docs) or 0),
+                                       doc_hint_source="local_ingest")
+            except Exception as _e:
+                logger.debug("[local→vector handoff] inject skipped: %s", _e)
+        else:
+            logger.info("[LOCAL RAG] no docs matched; skip adding local:* queries")
+
+    # [ANCHOR: VECTOR_COUNT_AFTER_LOCAL_INGEST]
+    try:
+        _doc_count1 = vector_count(ns, persist_dir)
+        logger.debug("[DEBUG] after local ingest: doc_count_on_disk=%s", _doc_count1)
+    except Exception as e:
+        logger.debug("[DEBUG] after local ingest, doc_count_on_disk check failed: %s", e)
+
+    # --- (SKIP_WEB safety + 로컬 인제스트 강제 라우팅) -----------------------
+    # 신규 청크가 없더라도(=pre-indexed) 벡터 검색을 반드시 수행하도록 가드
+    #  - SKIP_WEB_SEARCH=1 이면 웹쿼리는 생략되므로 로컬 RAG만으로도 다음 스테이지로 진입해야 함
+    no_new_docs = (int(chunk_total or 0) <= 0) and (len(new_docs_preview or []) == 0)
+    if SKIP_WEB and no_new_docs:
+        logger.info("[WEB SEARCH AGENT] SKIP_WEB_SEARCH=1 & no new docs -> force vector stage (local-only)")
+        try:
+            _r = _s.get("references") or {"queries": [], "docs": []}
+            _s["references"] = cast(References, _r)
+        except Exception:
+            pass
+        _ensure_next_is_vector(_s)
+        # 벡터 단계로 넘어가도록 사용자 메시지도 남김(인간 로그 모드에서 보이게)
+        try:
+            messages.append(AIMessage(content="[WEB SEARCH AGENT] 신규 문서 없음 → 벡터 검색 단계로 진행합니다. (local-only)"))
+        except Exception:
+            pass
+
+    # --- Local preview allow keywords filter ---------------------------------
+    allow_kw_env = str(_get_cfg_attr("LOCAL_RAG_ALLOW", "") or "")
+    if allow_kw_env.strip():
+        ALLOW_KEYS = {k.strip().lower() for k in allow_kw_env.split(",") if k.strip()}
+        def _relevant(d) -> bool:
+            txt = (d.page_content or "").lower()
+            return any(k in txt for k in ALLOW_KEYS)
+        before = len(new_docs_preview)
+        new_docs_preview[:] = [d for d in new_docs_preview if _relevant(d)]
+        after = len(new_docs_preview)
+        if before != after:
+            logger.info("[LOCAL RAG] preview filtered by keywords: %s -> %s", before, after)
+
+    # --- (6) State update & next step ---------------------------------------
+    _s["references"] = cast(
+        References,
+        merge_refs(
+            cast(Mapping[str, Any] | None, _s.get("references")),
+            cast(Sequence[str] | None, queries),
+            cast(Sequence[Any] | None, new_docs_preview),
+        ),
+    )
+
+    # Refs (concise URLs) & rag_on_disk flag
+    new_doc_urls: list[str] = []
+    try:
+        for _d in (new_docs_preview or []):
+            _md = getattr(_d, "metadata", {}) or {}
+            _u = _md.get("source") or _md.get("url")
+            if _u:
+                new_doc_urls.append(str(_u))
+    except Exception as _e:
+        logger.debug("[web_search][refs] url extraction skipped: %s", _e)
+
+    _s = cast(MutableMapping[str, Any], state)
+    _s["refs"] = merge_refs(
+        cast(Mapping[str, Any] | None, state.get("refs")),
+        cast(Sequence[str] | None, queries),
+        cast(Sequence[Any] | None, new_doc_urls),
+    )
+    _s["rag_on_disk"] = True
+
+    # refs는 Dict로 다운캐스팅 후 안전하게 접근
+    _refs_map = cast(Mapping[str, Any] | None, _s.get("refs"))
+    _q_cnt = len(cast(Sequence[Any], (_refs_map or {}).get("queries") or []))
+    _d_cnt = len(cast(Sequence[Any], (_refs_map or {}).get("docs") or []))
+    # 디스크(벡터스토어) 문서 수는 별도 측정하여 혼선 방지
+    try:
+        _doc_count_disk = vector_count(ns, persist_dir)
+    except Exception:
+        _doc_count_disk = -1
+
+    # ── P2-4: 네임스페이스 합산 카운트(ns, ns-web, ns-local) ─────────────────
+    def _ns_variants(base: str) -> list[tuple[str, str]]:
+        return [(base, _default_chroma_dir(base)),
+                (f"{base}-web", _default_chroma_dir(f"{base}-web")),
+                (f"{base}-local", _default_chroma_dir(f"{base}-local"))]
+
+    total_docs_all_ns = 0
+    ns_counts: list[tuple[str, int]] = []
+    try:
+        for ns_i, dir_i in _ns_variants(ns):
+            try:
+                c_i = vector_count(ns_i, dir_i)
+            except Exception:
+                c_i = 0
+            total_docs_all_ns += max(0, int(c_i or 0))
+            ns_counts.append((ns_i, int(c_i or 0)))
+    except Exception:
+        pass
+
+    try:
+        _ns_cnt_str = ", ".join(f"{n}:{c}" for n, c in ns_counts)
+    except Exception:
+        _ns_cnt_str = "(n/a)"
+
+    logger.info(
+        "[web_search] refs: queries=%d, refs.docs=%d | vectorstore(on_disk:%s | sum_ns:%s → %s) | indexed_splits_this_round=%s",
+        _q_cnt, _d_cnt, _doc_count_disk, _ns_cnt_str, total_docs_all_ns, int(chunk_total or 0),
+    )
+
+    # Pending routing (항상 보장)
+    _pend = list(cast(Sequence[str] | None, _s.get("pending")) or [])
+    if "vector_search_agent" not in _pend:
+        _pend.append("vector_search_agent")
+        _s["pending"] = _pend
+        logger.info("[web_search] scheduled (pending) -> vector_search_agent")
+    if not _s.get("next_agent"):
+        _s["next_agent"] = "vector_search_agent"
+        logger.info("[web_search] next_agent=vector_search_agent (guard)")
+
+    # AUTO_WRITE_AFTER_RAG
+    try:
+        schedule_writer_if_needed(_s)
+    except Exception as _e:
+        logger.debug("schedule_writer_if_needed skipped: %s", _e)
+
+    # URL tally commit
+    _seen_by_topic[topic_key] = list(_seen_sources)
+    # flags는 Dict로 보장되어 있으나 정적 분석기 경고 방지를 위해 명시적 캐스트
+    cast(Dict[str, Any], flags)["seen_sources_by_topic"] = _seen_by_topic
+    logger.debug("[DEBUG] committed seen_sources_by_topic[%s] -> %s", topic_key, len(_seen_sources))
+
+    actual = int(_round_added_urls)
+    cap = int(MAX_INDEXED_PER_ROUND)
+    capped = min(actual, cap) if cap > 0 else actual
+
+    # state는 MutableMapping으로 정규화되어 있으므로 인덱싱 안전
+    _s["round_added_urls"]    = actual
+    _s["new_url_count"]       = actual
+    _s["new_url_count_round"] = actual
+    _s["round_new_urls"]      = actual
+
+    # 마지막 인제스트 청크 메타 저장(라운드/단계별)
+    last_ingest["ts"] = _now_str()
+    # TypedDict(State)에 없는 키이므로 flags.debug에 저장
+    try:
+        dbg["last_ingest_chunks"] = last_ingest
+    except Exception:
+        # dbg가 dict가 아닐 예외 상황 대비(상위 flags에 백업)
+        flags["last_ingest_chunks"] = last_ingest
+    _s["web_stage"] = {
+        "cap": _round_cap,
+        "added_urls_round": actual,
+        "queries_executed": len(queries),
+        "persist_dir": persist_dir,
+        "namespace": ns,
+    }
+    # debug 컨테이너는 위에서 dict로 보장됨
+    dbg["last_capped_new_urls"] = capped
+
+    logger.debug(
+        "[DEBUG] round_added_urls(actual)=%s | new_url_count(capped)=%s | chunk_total=%s | queries_executed=%s",
+        actual, capped, chunk_total, len(queries)
+    )
+
+    pending.done = True
+    pending.done_at = _now_str()
+
+    if not has_pending(tasks, "vector_search_agent"):
+        desc = "Perform vector search/verification for RAG indexing."
+        if queries:
+            desc += f" queries={queries}"
+        if json_paths:
+            desc += f" json_paths={json_paths}"
+        desc += f" new_urls={int(state.get('round_added_urls') or 0)}"
+        tasks.append(Task(agent="vector_search_agent", done=False, description=desc, done_at=""))
+
+    mode_label = "local-only" if SKIP_WEB else "web+local"
+    # f-string 중괄호 충돌 방지: dict → 문자열은 JSON 직렬화로 안전하게 출력
+    from typing import Mapping as _Mapping, Any as _Any
+    def _to_int(v: _Any, default: int = 0) -> int:
+        try:
+            s = str(v).strip()
+            return int(s) if s else default
+        except Exception:
+            return default
+
+    _round_map: _Mapping[str, _Any] = cast(_Mapping[str, _Any], last_ingest.get("round") or {})
+    _last_ingest_summary = {
+        "round": {
+            "splits": _to_int(_round_map.get("splits", 0)),
+            "new": _to_int(_round_map.get("new", 0)),
+            "changed": _to_int(_round_map.get("changed", 0)),
+        }
+    }
+    _msg_tail = f" (e.g., {json_paths[0]})" if json_paths else ""
+    messages.append(
+        AIMessage(
+            content=(
+                "[WEB SEARCH AGENT] Search complete "
+                f"({len(queries)} queries). JSON saved and Chroma ingestion/preview done. "
+                f"Mode={mode_label}; indexed_splits_this_round={int(chunk_total or 0)}; "
+                f"last_ingest_chunks={json.dumps(_last_ingest_summary, ensure_ascii=False)}"
+            ) + _msg_tail
+        )
+    )
+    # 명시적으로 state에 반영(프레임워크가 in-place 갱신을 기대할 가능성 고려)
+    _s["messages"] = messages
+    _s["task_history"] = tasks
+
+    # --- FINAL Guard for vector stage transition ----------------
+    try:
+        _ensure_next_is_vector(_s)
+        logger.info("[web_search] guard: ensured vector_search_agent as next stage")
+    except Exception as _e:
+        _s["router_error"] = f"ensure_next_is_vector: {type(_e).__name__}: {str(_e)[:200]}"
+        logger.critical("[web_search][FATAL] ensure_next_is_vector failed", exc_info=True)
+        raise
+
+    return {
+        "messages": messages,
+        "task_history": tasks,
+        "references": cast(References, _s.get("references", {"queries": [], "docs": []})),
+        "research_loop_active": bool(_s.get("research_loop_active")),
+        "research_plan": _s.get("research_plan"),
+        "new_url_count": int(_s.get("new_url_count") or actual),
+        "new_url_count_round": int(_s.get("new_url_count_round") or actual),
+        "round_new_urls": int(_s.get("round_new_urls") or actual),
+        # 라우터/디버그용: 이번 라운드 인덱싱 결과(스플릿 기준)
+        "indexed_chunks_round": int(chunk_total or 0),
+        "last_ingest_chunks": last_ingest,
+        "flags": cast("Flags", flags),  # TypedDict 힌트
+        "local_ingested_once": bool(_s.get("local_ingested_once")),
+        # 라우터가 즉시 다음 스텝으로 넘어가도록 명시 신호 추가
+        "next_agent": _s.get("next_agent", "vector_search_agent"),
+    }
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Backward-compat **getters** (스냅샷 상수 제거; 항상 최신 CFG 반영)
+#  - 기존 모듈에서 상수에 의존하던 경우, 아래 getter로 교체하세요.
+# ─────────────────────────────────────────────────────────────────────────────
+def get_WRITER_AGENT() -> str:
+    return str(_get_cfg_attr("WRITER_AGENT", "") or "")
+
+def get_PROJECT_ROOT() -> str:
+    return str(_get_cfg_attr("PROJECT_ROOT", "") or "")
+
+def get_SEARCH_BACKENDS() -> str:
+    return str(_get_cfg_attr("SEARCH_BACKENDS", "google_cse,naver_direct,serpapi_naver,serpapi,tavily") or "")
+
+def get_HAS_GOOGLE_KEYS() -> bool:
+    return _cfg_bool("HAS_GOOGLE_KEYS", False)
+
+def get_HAS_SERPAPI() -> bool:
+    return _cfg_bool("HAS_SERPAPI", False)
+
+def get_HAS_TAVILY() -> bool:
+    return _cfg_bool("HAS_TAVILY", False)
+
+def get_MAX_INDEXED_PER_ROUND() -> int:
+    return _cfg_int("MAX_INDEXED_PER_ROUND", 200)
+
+def get_MAX_SEARCH_QUERIES_PER_ROUND() -> int:
+    return _cfg_int("MAX_SEARCH_QUERIES_PER_ROUND", 3)
+
+def get_LOCAL_RAG_ALLOW() -> str:
+    return str(_get_cfg_attr("LOCAL_RAG_ALLOW", "") or "")
+
+__all__ = [
+    "web_search_agent",
+    # runtime CFG getters
+    "get_WRITER_AGENT", "get_PROJECT_ROOT", "get_SEARCH_BACKENDS",
+    "get_HAS_GOOGLE_KEYS", "get_HAS_SERPAPI", "get_HAS_TAVILY",
+    "get_MAX_INDEXED_PER_ROUND", "get_MAX_SEARCH_QUERIES_PER_ROUND",
+    "get_LOCAL_RAG_ALLOW",
+]
