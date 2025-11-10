@@ -650,31 +650,62 @@ def vector_search_agent(state: State):
                     or has_pending(tasks, "chapter_writer", prefix="write:")
                 )
                 if not _has_writer:
-                    # facts_ctx 제공(communicator가 바로 사용)
+                    # facts_ctx 제공 + 즉시 요약 생성(Direct QA 본문을 messages에 기록)
+                    reply_text: str = ""
                     try:
                         txt = (getattr(best_doc, "page_content", "") or "").strip()
                         state["facts_ctx"] = (txt[:800] if txt else "")
-                    except Exception:
-                        state["facts_ctx"] = state.get("facts_ctx") or ""
+                        context = (txt[:1200] if txt else "").strip()
+                        if context:
+                            prompt = (
+                                "다음 컨텍스트만 근거로 한국어로 2~3문장 핵심 답변을 작성하세요.\n"
+                                "- 컨텍스트 밖의 지식은 쓰지 말 것\n"
+                                "- 불확실하면 모른다고 말할 것\n\n"
+                                f"컨텍스트:\n{context}\n"
+                            )
+                            resp = llm.invoke(prompt)
+                            reply_text = getattr(resp, "content", str(resp)).strip()
+                    except Exception as e:
+                        logger.warning("[vector_search][smoke→direct_qa] summary generation failed: %s", e)
+                        reply_text = ""
 
-                    flags_now = cast(MutableMapping[str, Any], state.setdefault("flags", {}))
-                    flags_now["qa_direct_reply"] = True
-                    flags_now["suppress_writer"] = True
-                    if flags_now.get("direct_qa_intent"):
-                        flags_now.pop("direct_qa_intent", None)
+                    # 답변이 생성되었으면 messages에 추가하고 Direct QA 플래그를 확실히 세움
+                    if reply_text:
+                        messages.append(AIMessage(content=reply_text))
+                        state["messages"] = messages
+                        # TypedDict(State)에는 명시 키가 없을 수 있으므로 가변 매핑으로 캐스팅 후 기록
+                        state_mm = cast(MutableMapping[str, Any], state)
+                        state_mm["answer"] = reply_text
+                        state_mm["qa_reply"] = reply_text  # (옵션) 호환 키
+                        try:
+                            # utils.rag_utils.mark_qa_answer_ready: qa_direct_reply/suppress_writer 세팅
+                            mark_qa_answer_ready(state_mm, reply_text)
+                        except Exception:
+                            flags_now = cast(MutableMapping[str, Any], state.setdefault("flags", {}))
+                            flags_now["qa_direct_reply"] = True
+                            flags_now["suppress_writer"] = True
+                            # State.flags는 Dict/Flags 타입 요구 → plain dict로 재대입
+                            state["flags"] = dict(flags_now)
+                    else:
+                        # 본문 생성 실패 시에도 최소한의 플래그는 세팅(communicator 폴백 가동)
+                        flags_now = cast(MutableMapping[str, Any], state.setdefault("flags", {}))
+                        flags_now["qa_direct_reply"] = True
+                        flags_now["suppress_writer"] = True
+                        state["flags"] = dict(flags_now)
 
+                    # communicator 스케줄(중복 예약 방지)
                     if not has_pending(tasks, "communicator"):
                         tasks.append(
                             Task(
                                 agent="communicator",
                                 done=False,
-                                description="스모크 매치: 최상위 문서 점수 임계 초과 → 즉시 직답",
+                                description="스모크 매치: 최상위 문서 임계 초과 → Direct QA 전달",
                                 done_at=""
                             )
                         )
                     logger.info(
-                        "[vector_search][smoke→communicator] q=%r | url=%s | score=%.3f (min=%.3f)",
-                        best_q, _ell(_doc_url(best_doc), 96), best_sc, _MIN
+                        "[vector_search][smoke→communicator] q=%r | url=%s | score=%.3f (min=%.3f) | answered=%s",
+                        best_q, _ell(_doc_url(best_doc), 96), best_sc, _MIN, bool(reply_text)
                     )
                     pending.done = True; pending.done_at = _now_str()
                     return {

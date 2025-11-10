@@ -419,6 +419,21 @@ def after_vector_router(state: State) -> str:
     tasks = state.get("task_history", []) or []
     flags = state.get("flags") or {}
 
+    # ── Direct QA 가드: 이미 답변이 준비되어 있으면 communicator로 즉시 전송
+    try:
+        if bool((flags or {}).get("qa_direct_reply", False)):
+            msgs = state.get("messages") or []
+            # 마지막 AI 메시지(content가 비어있지 않으면 OK) 또는 answer/qa_reply가 있으면 충분
+            _has_ai = any(bool(getattr(m, "content", None)) for m in reversed(list(msgs)))
+            _has_ans = bool(str(state.get("answer") or state.get("qa_reply") or "").strip())
+            if _has_ai or _has_ans:
+                logger.info("[router.after_vector] Direct QA ready → route to communicator")
+                return "communicator"
+    except Exception:
+        # 가드는 조용히 폴백
+        pass
+
+
     # 0) 연구 모드 강제 합성 라우팅
     if bool(state.get("research_loop_active")):
         # 연구 모드에서는 Direct QA 상태를 정리해 부작용 방지
@@ -426,10 +441,8 @@ def after_vector_router(state: State) -> str:
         logger.info("[router.after_vector] research_loop_active=True → research_synthesizer (override qa_direct_reply)")
         return "research_synthesizer"
 
-    # Direct QA 가드:
-    # - 답(qa_reply 또는 마지막 AI 발화)이 있으면 → communicator
-    # - 답이 없으면 → web_search_agent 1회 재시도 (키: after_web_ws_retries)
-    # - 재시도 후에도 없으면 → qa_direct_reply를 내려 벡터로 종료 보고
+    # Direct QA 가드(보조 경로):
+    # - 위의 즉시 가드에서 답이 없었던 경우에 한해 재시도/정리 로직 수행
     if (flags or {}).get("qa_direct_reply"):
         # (답이 준비된 상태) writer 충돌 방지 — suppress_writer는 답 생성 시점에서 이미 켜졌을 수 있음
         _set_flag(state, "suppress_writer", True)
