@@ -3,9 +3,8 @@ from __future__ import annotations
 import logging
 logger = logging.getLogger(__name__)
 
-from typing import Any, MutableMapping, Optional
+from typing import Any, cast
 
-# [ADD] 아웃라인/경로/CFG 접근
 import core.config as config
 from utils.outline import next_unwritten_title
 from core.paths import outline_base_dir
@@ -14,13 +13,10 @@ from core.paths import outline_base_dir
 from langchain_core.output_parsers.string import StrOutputParser
 from utils.tasks import AIMessage
 
-import core.config as config
 from core.paths import current_path, now_str as _now_str
-from core.state_types import State
 from core.models import Task, AgentName
 from core.config import DocMode
 from utils.sanitize import sanitize_state
-from typing import cast
 from core.state_types import State
 from prompts import get_content_strategist_prompt
 from utils.outline import read_outline, save_outline
@@ -30,7 +26,6 @@ from utils.outline import get_topic_outline_text
 
 from core.llm import get_llm
 import re
-from typing import cast
 
 
 def content_strategist(state: State):
@@ -80,7 +75,7 @@ def content_strategist(state: State):
 
         raw = read_outline(
             filename=fname,
-            root_dir=str(current_path),
+            root_dir=str(current_path() if callable(current_path) else current_path),
             topic_slug=state.get("topic_slug"),
             mode=MODE,
         )
@@ -102,7 +97,7 @@ def content_strategist(state: State):
         out_path = save_outline(
             updated,
             filename=fname,
-            root_dir=str(current_path),
+            root_dir=str(current_path() if callable(current_path) else current_path),
             topic_slug=state.get("topic_slug"),
             mode=MODE,
             backup=True,
@@ -180,7 +175,7 @@ def content_strategist(state: State):
     out_path = save_outline(
         gathered,
         filename=fname,
-        root_dir=str(current_path),
+        root_dir=str(current_path() if callable(current_path) else current_path),
         topic_slug=state.get("topic_slug"),
         mode=MODE,
         backup=True,

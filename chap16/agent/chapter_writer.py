@@ -1,21 +1,19 @@
 ﻿from __future__ import annotations
-from typing import Any, Dict, cast
 import sys, re
 from os import path, makedirs
-
-from utils.tasks import HumanMessage, AIMessage
-from langchain_core.output_parsers.string import StrOutputParser
+from typing import Any, Dict, Tuple, cast
 
 import logging
 logger = logging.getLogger(__name__)
+
+from langchain_core.output_parsers.string import StrOutputParser
+from utils.tasks import HumanMessage, AIMessage
 
 import core.config as config
 from core.paths import current_path, now_str as _now_str, outline_base_dir
 from core.state_types import State, Flags
 from core.models import Task, AgentName
 from utils.sanitize import sanitize_state
-from typing import cast
-from core.state_types import State
 
 from utils.refs import attach_auto_citations, refs_preview_text as _refs_preview_text, facts_block as _facts_block
 from prompts import get_chapter_writer_prompt
@@ -77,14 +75,75 @@ def _guess_total_chapters(outline_text: str, fallback: int) -> int:
         return len(bullets)
     return fallback
 
+def _cfg_str(name: str, default: str = "") -> str:
+    """env → CFG → module attr 순으로 런타임 값 조회 (reload_config 반영)."""
+    try:
+        v = getattr(config.CFG, name, None)
+        if v is None:
+            v = getattr(config, name, None)
+    except Exception:
+        v = None
+    if v is None:
+        import os as _os
+        v = _os.getenv(name, default)
+    return str(v) if v is not None else default
+
+def _cfg_int(name: str, default: int = 0) -> int:
+    s = _cfg_str(name, str(default))
+    try:
+        return int(str(s).strip())
+    except Exception:
+        return default
+
+def _cfg_bool(name: str, default: bool = False) -> bool:
+    s = _cfg_str(name, "1" if default else "0").strip().lower()
+    return s in {"1","true","yes","y","on"}
+
+def _project_root_str() -> str:
+    """current_path가 함수/값 둘 다 가능한 상황을 일관 처리."""
+    try:
+        return str(current_path() if callable(current_path) else current_path)
+    except Exception:
+        return "."
+
+def _resolve_title(state: State, outline_text: str | None) -> Tuple[str | None, bool]:
+    """
+    챕터 제목 결정 순서(섹션 작성기와 일관):
+      1) flags.pending_write_title & requested_write_title (락 우선)
+      2) get_last_write_target(messages, tasks)
+      3) next_unwritten_title(outline_text, mode='book', outline_base_dir 기준)
+    returns: (title, from_lock)
+    """
+    try:
+        f = state.get("flags") or {}
+        if bool(f.get("pending_write_title")):
+            req = _as_str(f.get("requested_write_title")).strip()
+            if req:
+                return req, True
+    except Exception:
+        pass
+
+    messages = state.get("messages", []) or []
+    tasks = state.get("task_history", []) or []
+    title = (
+        get_last_write_target(messages, tasks)
+        or next_unwritten_title(
+            outline_text or "",
+            mode="book",
+            root_dir=str(outline_base_dir()),      # ✅ 아웃라인 기준 디렉터리
+            topic_slug=_as_str(state.get("topic_slug")) or None,
+        )
+    )
+    return title, False
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 def chapter_writer(state: State):
     """DOC_MODE == 'book'에서 챕터 초안을 생성한다."""
-    if config.CFG.DOC_MODE != "book":
-        logger.info("[CHAPTER WRITER] Skipped: DOC_MODE=%s (expected 'book')", config.CFG.DOC_MODE)
+    if (_cfg_str("DOC_MODE", "report") or "report").lower() != "book":
+        logger.info("[CHAPTER WRITER] Skipped: DOC_MODE=%s (expected 'book')", _cfg_str("DOC_MODE", "report"))
         return {"messages": state.get("messages", []), "task_history": state.get("task_history", [])}
 
     logger.info("============ CHAPTER WRITER ============")
@@ -121,7 +180,7 @@ def chapter_writer(state: State):
     # 아웃라인 필수
     outline_text = get_topic_outline_text(state)
     if not (outline_text or "").strip():
-        default_outline = "outline_book.md" if config.CFG.DOC_MODE == "book" else "outline_report.md"
+        default_outline = "outline_book.md" if _cfg_str("DOC_MODE","report").lower()=="book" else "outline_report.md"
         fname = state.get("outline_fname") or default_outline
         if not has_pending(tasks, cast(AgentName, "content_strategist")):
             tasks.append(Task(agent=cast(AgentName, "content_strategist"),
@@ -133,15 +192,9 @@ def chapter_writer(state: State):
         logger.info("[CHAPTER WRITER] outline missing → scheduled content_strategist (%s)", fname)
         return {"messages": messages, "task_history": tasks}
 
-    # 타이틀: 마지막 write: → 다음 미작성 → '서문'
-    requested = get_last_write_target(messages, tasks)
-    auto_title = next_unwritten_title(
-        outline_text,
-        mode="book",
-        root_dir=str(outline_base_dir()),            # ✅ str로 통일
-        topic_slug=_as_str(state.get("topic_slug")) or None,
-    )
-    target_title = requested or auto_title or "서문"
+    # 타이틀: (락)requested_write_title → 마지막 write: → 다음 미작성 → '서문'
+    target_title, came_from_lock = _resolve_title(state, outline_text)
+    target_title = target_title or "서문"
 
     if not target_title:
         messages.append(AIMessage(content="[Chapter Writer] 모든 목차 항목의 초안이 이미 작성되었습니다."))
@@ -172,7 +225,7 @@ def chapter_writer(state: State):
     logger.debug("[CHAPTER WRITER] draft length=%s chars", len(gathered or ""))
 
     # 자동 각주
-    if getattr(config.CFG, "AUTO_FOOTNOTE", False):
+    if _cfg_bool("AUTO_FOOTNOTE", False):
         try:
             gathered = attach_auto_citations(gathered, state)
         except Exception as e:
@@ -180,14 +233,15 @@ def chapter_writer(state: State):
 
     # 저장 시도 (save_md_draft 우선, 실패 시 폴백)
     slug = _as_str(state.get("topic_slug")) or "default"
-    out_dir = path.join(str(current_path), "content", slug)
+    _proj_root = _project_root_str()
+    out_dir = path.join(_proj_root, "content", slug)
     out_path: str | None = None
     try:
         out_path = save_md_draft(
             target_title,
             gathered,
-            mode=config.CFG.DOC_MODE,   # ← DocMode로 일치
-            root_dir=str(current_path),
+            mode="book",                # ★ DOC_MODE 일치 보장
+            root_dir=_proj_root,
             topic_slug=slug,
         )
         if not out_path or not path.isfile(out_path):
@@ -208,6 +262,20 @@ def chapter_writer(state: State):
     messages.append(AIMessage(content=f"[Chapter Writer] '{target_title}' 초안 작성 완료 → {out_path or '(save failed)'}"))
     if out_path:
         logger.info("[CHAPTER WRITER] draft saved → %s", out_path)
+    # writer-lock 해제(요청 제목과 일치할 때만) — 섹션 작성기와 동일 정책
+    try:
+        if came_from_lock:
+            f_map: Dict[str, Any] = dict(cast(Dict[str, Any], state.get("flags") or {}))
+            req = _as_str(f_map.get("requested_write_title")).strip()
+            if req and (req == _as_str(target_title).strip()):
+                f_map.pop("pending_write_title", None)
+                f_map.pop("requested_write_title", None)
+                f_map.pop("suppress_vector_qa", None)
+                state["flags"] = cast(Flags, f_map)
+                logger.debug("[Chapter Writer] cleared writer lock: %s", target_title)
+    except Exception as _e:
+        logger.debug("[Chapter Writer] writer lock clear skipped: %s", _e)
+
 
     # 진행 카운트(중복 방지)
     try:
@@ -217,7 +285,7 @@ def chapter_writer(state: State):
 
         key = _as_str(target_title).strip()
 
-        total_default = _as_int(getattr(config.CFG, "CHAPTERS_TOTAL_DEFAULT", 12), 12)
+        total_default = _as_int(_cfg_int("CHAPTERS_TOTAL_DEFAULT", 12), 12)
         guessed_total = _as_int(_guess_total_chapters(outline_text, fallback=total_default), total_default)
 
         chapters_done = _as_int(f_raw.get("chapters_done"), 0)
@@ -238,7 +306,7 @@ def chapter_writer(state: State):
         logger.debug("[Chapter Writer] progress flag update skipped: %s", _e)
 
     # 콘솔 에코(옵션, CFG 제어)
-    if getattr(config.CFG, "ECHO_CHAPTERS", False) or getattr(config.CFG, "ECHO_SECTIONS", False):
+    if _cfg_bool("ECHO_CHAPTERS", False) or _cfg_bool("ECHO_SECTIONS", False):
         try:
             box_title = f"CHAPTER DRAFT: {target_title}"
             src_tag   = f"saved → {out_path or '(save failed)'}"

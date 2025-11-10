@@ -34,6 +34,14 @@ from core.paths import (
     research_resources_dir,   # ← 표준 리소스 경로 헬퍼 사용
 )
 
+# web_rag 유틸: 네임스페이스/디렉터리 규칙과 일치시킴
+try:
+    from tools.web_rag.utils import _resolve_persist_dir as _wr_resolve_persist_dir  # noqa: F401
+    from tools.web_rag.utils import sanitize_ns as _wr_sanitize_ns  # 공개 API 사용
+except Exception:
+    _wr_resolve_persist_dir = None
+    _wr_sanitize_ns = None
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Optional dependencies: 클래스/함수 핸들을 Any로 보관(없으면 None)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1402,14 +1410,76 @@ def ingest_local_files(
     except Exception as e:
         logger.debug("[LOCAL RAG] round-split skipped: %s", e)
 
+    # ──────────────────────────────────────────────────────────
+    # [NEW] 네임스페이스 정규화 + persist_directory 해석(ingest/retrieve 통일)
+    # ──────────────────────────────────────────────────────────
+    def _compute_effective_ns(ns_in: Optional[str], slug: str) -> str:
+        """
+        규칙:
+          1) 인자 ns_in 우선
+          2) CFG.CHROMA_NAMESPACE_LOCAL (없으면)
+          3) f"{slug}-local" (없으면 "default-local")
+        → 최종적으로 utils._sanitize_ns 규칙으로 정규화
+        """
+        base = (ns_in or
+                getattr(CFG, "CHROMA_NAMESPACE_LOCAL", None) or
+                (f"{(slug or 'default').strip() or 'default'}-local"))
+        if _wr_sanitize_ns:
+            try:
+                return _wr_sanitize_ns(base)
+            except Exception:
+                pass
+        # 폴백(간단 정규화): 영숫자/.-_ 외 '_'로 치환
+        import re as _re
+        s = (base or "").strip()
+        s = _re.sub(r"[\\/]+", "_", s)
+        s = _re.sub(r"[^A-Za-z0-9._\-]+", "_", s)
+        s = s.strip("._-").lower() or "ns_default"
+        return s
+
+    def _compute_persist_dir(ns_eff: str, pd_in: Optional[str]) -> Optional[str]:
+        """
+        utils._resolve_persist_dir와 동일 규칙으로 디렉터리 결정.
+        입력 persist_directory가 주어졌다면 그대로 사용(공백 제외),
+        없으면 CHROMA_DIR 또는 DATA_DIR/chroma_store/<ns>.
+        """
+        if pd_in is None:
+            if _wr_resolve_persist_dir:
+                try:
+                    return _wr_resolve_persist_dir(ns_eff, None)
+                except Exception:
+                    pass
+            # 폴백: 간단 구현 (utils와 동일 로직 요약)
+            chroma_dir = str(getattr(CFG, "CHROMA_DIR", "") or "").strip()
+            if chroma_dir:
+                p = Path(chroma_dir)
+                if p.name == ns_eff:
+                    return str(p)
+                if p.parent.name == "chroma_store":
+                    return str(p.parent / ns_eff)
+                return str(p / ns_eff)
+            # DATA_DIR/chroma_store/<ns>
+            _cand = os.path.join(str(research_base_dir()), "..")  # 프로젝트 루트 근처 폴백 시도
+            try:
+                from tools.web_rag.utils import DATA_DIR as _wr_DATA_DIR  # 최선
+                return str(Path(_wr_DATA_DIR) / "chroma_store" / ns_eff)
+            except Exception:
+                return str(Path(_cand).resolve() / "data" / "chroma_store" / ns_eff)
+        s = (pd_in or "").strip()
+        return s or None
+
+    ns_eff = _compute_effective_ns(namespace, topic_slug or _cfg_str("TOPIC_SLUG", "default"))
+    pd_eff = _compute_persist_dir(ns_eff, persist_directory)
+
     if add_web_pages_json_to_chroma is not None:
         for rjson in out_json_paths:
             try:
                 _orig, chunk_count = add_web_pages_json_to_chroma(
-                    rjson, namespace=namespace, persist_directory=persist_directory
+                    rjson, namespace=ns_eff, persist_directory=pd_eff
                 )
                 chunk_total += int(chunk_count or 0)
-                logger.info("[LOCAL RAG] added to chroma: %s → chunks=%s (ns=%s, dir=%s)", rjson, chunk_count, namespace, persist_directory)
+                logger.info("[LOCAL RAG] added to chroma: %s → chunks=%s (ns=%s, dir=%s)",
+                            rjson, chunk_count, ns_eff, pd_eff)
             except Exception as e:
                 logger.warning("[LOCAL RAG] add_web_pages_json_to_chroma(local) 실패(%s): %s", rjson, e)
 
@@ -1462,6 +1532,7 @@ def add_local_findings_to_chroma(
         pass
 
     # ingest_local_files 재사용
+    # ingest 시에도 동일한 ns/persist 규칙을 적용하도록 그대로 전달
     json_paths, _preview, chunk_total = ingest_local_files(
         globs=patterns,
         namespace=(namespace or slug),

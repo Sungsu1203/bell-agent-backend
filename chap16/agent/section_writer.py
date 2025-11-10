@@ -102,7 +102,8 @@ def _resolve_title(state: State, outline_text: str | None) -> Tuple[str | None, 
         or next_unwritten_title(
             outline_text or "",
             mode="report",
-            root_dir=str(current_path),            # ✅ str로 통일
+            # current_path는 함수/값 양 경로 지원
+            root_dir=str(current_path() if callable(current_path) else current_path),
             topic_slug=_as_str(state.get("topic_slug")) or None,
         )
     )
@@ -206,13 +207,15 @@ def section_writer(state: State):
     # ---- 저장 시도 ----
     out_path: str | None = None
     slug = _as_str(state.get("topic_slug")) or "default"
-    out_dir = path.join(str(current_path), "content", slug)
+    # current_path는 함수/값 모두 허용 → 문자열로 일원화
+    _proj_root = str(current_path() if callable(current_path) else current_path)
+    out_dir = path.join(_proj_root, "content", slug)
 
     if not is_qa_mode:
         try:
             out_path = save_md_draft(
                 target_title, gathered, mode="report",
-                root_dir=str(current_path), topic_slug=slug
+                root_dir=_proj_root, topic_slug=slug
             )
             if not out_path or not path.isfile(out_path):
                 raise RuntimeError("save_md_draft returned empty or file not found")

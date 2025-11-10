@@ -1,7 +1,7 @@
 # utils/tasks.py — dynamic config access (v2025-10-27)
 from __future__ import annotations
-from typing import Optional, Protocol, Iterable, Any, Sequence, TYPE_CHECKING, Dict, List
-from types import ModuleType
+from typing import Optional, Protocol, Iterable, Any, Sequence, TYPE_CHECKING, Dict, List, MutableMapping, Callable, cast
+import importlib
 
 import logging
 logger = logging.getLogger(__name__)
@@ -88,11 +88,7 @@ else:
         class AIMessage(_BaseMsg): ...
         class SystemMessage(_BaseMsg): ...
 
-__all__ = [
-    "HumanMessage", "AIMessage", "SystemMessage",
-    "has_pending", "get_last_write_target", "iter_tool_calls",
-    "schedule_writer_if_needed",
-]
+# __all__는 파일 끝에서 최종 정리
 
 # ─────────────────────────────────────────────────────────────
 # Task-like 프로토콜 & 도우미
@@ -282,23 +278,90 @@ def iter_tool_calls(msg, name: str):
             logger.debug("iter_tool_calls: tool call parse error", exc_info=True)
             continue
 
-# 모듈 단위 임포트로 이름 섀도잉/순환 이슈 최소화
-_ws: ModuleType | None = None
-_fn_real: Any | None = None
-try:
-    from . import writer_scheduler as _ws  # 모듈이 없을 수도 있으므로 예외 허용
-    _fn_real = getattr(_ws, "schedule_writer_if_needed", None)
-except Exception:
-    _ws = None
-    _fn_real = None
+# ─────────────────────────────────────────────────────────────
+# schedule_writer_if_needed: 단일 진입점 해석기
+# 1) utils.writer_scheduler (신규 래퍼) 우선
+# 2) utils.writer_scheduler_old (레거시) 폴백
+# 3) 로컬 폴백 구현
+#
+# ※ 정적 import → importlib 런타임 로딩으로 전환(존재 안 해도 mypy 경고 없음)
+# ─────────────────────────────────────────────────────────────
+class _FnNewProto(Protocol):
+    def __call__(self, state: MutableMapping[str, Any], *, reason: Optional[str] = ...) -> None: ...
 
+class _FnLegacyProto(Protocol):
+    def __call__(self, state: Any, tasks: Any, *, outline_text: Any, mode: Any = ..., **kwargs: Any) -> Any: ...
 
-def _prefer(s: Optional[str], alt: Optional[str]) -> Optional[str]:
-    """s가 비어있으면 alt, 아니면 s"""
-    s = (s or "").strip()
-    return s or ((alt or "").strip() or None)
+def _load_new_or_legacy() -> tuple[Optional[_FnNewProto], Optional[_FnLegacyProto]]:
+    new_fn: Optional[_FnNewProto] = None
+    legacy_fn: Optional[_FnLegacyProto] = None
+    # 1) 신규 래퍼 시도
+    try:
+        m = importlib.import_module("utils.writer_scheduler")
+        fn = getattr(m, "schedule_writer_if_needed", None)
+        if callable(fn):
+            # 런타임에서 callable 확인 후 정적 타입 고정
+            new_fn = cast(_FnNewProto, fn) 
+    except Exception:
+        new_fn = None
+    # 2) 레거시 시도
+    if new_fn is None:
+        try:
+            m2 = importlib.import_module("utils.writer_scheduler_old")
+            fn2 = getattr(m2, "schedule_writer_if_needed", None)
+            if callable(fn2):
+                legacy_fn = cast(_FnLegacyProto, fn2)
+        except Exception:
+            legacy_fn = None
+    return new_fn, legacy_fn
 
-def schedule_writer_if_needed(state, tasks, *, outline_text, mode=None, **kwargs):
+_fn_new, _fn_legacy = _load_new_or_legacy()
+
+def schedule_writer_if_needed(
+    state: MutableMapping[str, Any],
+    *,
+    reason: str | None = None,
+) -> None:
+    """
+    RAG 파이프라인의 writer 예약 단일 진입점.
+    - 신규/레거시 모듈이 있으면 위임
+    - 없으면 로컬 폴백(부작용 최소) 적용
+    """
+    if _fn_new is not None:
+        try:
+            return _fn_new(state, reason=reason)
+        except TypeError:
+            return _fn_new(state)  
+    if _fn_legacy is not None:
+        # 레거시에게 넘겨야 하는데 단일 인자라면 상태 플래그만 세팅하고 종료
+        # (레거시 전체 시그니처는 별도 legacy wrapper에서 소화)
+        flags = dict(state.get("flags") or {})
+        if reason and not flags.get("schedule_reason"):
+            flags["schedule_reason"] = reason
+        state["flags"] = flags | {"router": (flags.get("router") or {})}
+        return
+
+    # ── 로컬 폴백 ─────────────────────────────────────────────
+    # 원칙: "이미 예약됨/잠금 상태면 조용히 종료", "제목 없이 예약 금지"
+    flags = dict(state.get("flags") or {})
+    router_flags = dict(flags.get("router") or {})
+
+    if router_flags.get("writer_pending") or flags.get("writer_lock"):
+        state["flags"] = flags | {"router": router_flags}
+        return
+
+    requested = flags.get("requested_write_title") or state.get("requested_write_title")
+    title = requested or state.get("title") or ""
+    if not title:
+        state["flags"] = flags | {"router": router_flags}
+        return
+
+    # 최소 예약 플래그만 설정(실제 라우팅 변경은 라우터에서)
+    router_flags["writer_pending"] = True
+    flags["router"] = router_flags
+    state["flags"] = flags
+
+def schedule_writer_if_needed_legacy(state, tasks, *, outline_text, mode=None, **kwargs):
     """
     Back-compat wrapper → utils.writer_scheduler.schedule_writer_if_needed 로 안전 포워딩.
 
@@ -308,9 +371,8 @@ def schedule_writer_if_needed(state, tasks, *, outline_text, mode=None, **kwargs
         kwargs['requested_title'] → 최근 user 메시지 'write: ...' → state.flags.requested_write_title
     - 선택 인자(messages, allow_during_research, debug)도 있으면 그대로 전달 (없으면 설정 기본값)
     """
-    if _fn_real is None:
+    if _fn_new is None and _fn_legacy is None:
         raise ImportError("utils.writer_scheduler.schedule_writer_if_needed not available")  # pragma: no cover
-
     # messages 추출(없으면 state에서 폴백)
     messages = kwargs.get("messages")
     if messages is None:
@@ -350,14 +412,28 @@ def schedule_writer_if_needed(state, tasks, *, outline_text, mode=None, **kwargs
         call_kwargs["debug"] = kwargs["debug"]
 
     try:
-        res = _fn_real(state, **call_kwargs)  
-        return bool(res)
+        if _fn_legacy is not None:
+            res = _fn_legacy(
+                state, tasks,
+                outline_text=outline_text, mode=mode, **kwargs
+            )
+            return bool(res)
+        # 신규만 있는 경우: flags로 요청을 주입한 뒤 신규 호출
+        try:
+            flags2 = dict(state.get("flags") or {})
+            if requested_title and not flags2.get("requested_write_title"):
+                flags2["requested_write_title"] = requested_title
+            state["flags"] = flags2 | {"router": (flags2.get("router") or {})}
+        except Exception:
+            pass
+        _fn_new(state, reason="legacy-adapter")  # type: ignore[misc]
+        return True
     except TypeError as e:
         # 예상치 못한 시그니처 불일치 시에도 힌트 로그 남기고 실패 처리
         logger.debug("writer-schedule shim TypeError: %s; kwargs=%r", e, call_kwargs, exc_info=True)
         return False
 
-# __all__는 상단에서 이미 선언/포함됨
+# __all__는 파일 끝에서 정리
 
 # ─────────────────────────────────────────────────────────────
 # (옵션) 캐시 무효화 훅 — 현재 구현은 per-call 조회이므로 no-op
@@ -367,3 +443,12 @@ def refresh_tasks() -> None:  # pragma: no cover
     현재 버전은 per-call 조회로 즉시 반영되므로 동작 없음."""
     return
 
+# ─────────────────────────────────────────────────────────────
+# 공개 심볼 정리 (__all__)
+# ─────────────────────────────────────────────────────────────
+__all__ = [
+    "HumanMessage", "AIMessage", "SystemMessage",
+    "has_pending", "get_last_write_target", "iter_tool_calls", "extract_write_title",
+    "schedule_writer_if_needed", "schedule_writer_if_needed_legacy",
+    "refresh_tasks",
+]

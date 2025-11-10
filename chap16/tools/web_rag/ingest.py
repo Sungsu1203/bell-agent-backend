@@ -464,6 +464,34 @@ def _resolve_ns(
         return f"{topic_slug}-default"
     return "default"
 
+def _resolve_persist_dir_strict(ns: str, persist_directory: Optional[str]) -> str:
+    """
+    옵션 A 정책(네임스페이스별 디렉터리 유지)을 강제합니다.
+    - split 모드(CHROMA_NAMESPACE_WEB/LOCAL 둘 다 설정)에서
+      ns가 web/local 중 하나라면, 외부에서 주어진 persist_directory 인자를 무시하고
+      해당 ns 고유 디렉터리로 강제 라우팅합니다.
+    - 그 외에는 기존 해석(_resolve_persist_dir)을 사용합니다.
+    """
+    try:
+        ns_web = (getattr(CFG, "CHROMA_NAMESPACE_WEB", "") or "").strip()
+        ns_loc = (getattr(CFG, "CHROMA_NAMESPACE_LOCAL", "") or "").strip()
+        split_mode = bool(ns_web and ns_loc)
+    except Exception:
+        ns_web = ns_loc = ""
+        split_mode = False
+
+    if split_mode and ns in (ns_web, ns_loc):
+        pd_expected = _resolve_persist_dir(ns, None)  # ← ns 고유 디렉터리
+        if persist_directory and os.path.normpath(persist_directory) != os.path.normpath(pd_expected):
+            logger.warning(
+                "[retrieve][strict] overriding persist_directory → ns='%s' dir='%s' (was: %s)",
+                ns, pd_expected, persist_directory,
+            )
+        return pd_expected
+    # split 모드가 아니거나 base ns인 경우는 기존 로직 유지
+    return _resolve_persist_dir(ns, persist_directory)
+
+
 # PDF/HTML 로더 유틸
 import re as _re
 _PDF_URL_RE = _re.compile(r"\.pdf($|\?)|filedownload|filedown(type)?=|/fileDown|/download", _re.I)
@@ -2270,7 +2298,8 @@ def retrieve(
         return []
 
     ns = _resolve_ns(namespace=namespace, collection_name=collection_name)
-    pd = _resolve_persist_dir(ns, persist_directory)
+    # ✅ 옵션 A 강제: split 모드에서 web/local 네임스페이스일 때는 항상 ns 전용 디렉터리로 라우팅
+    pd = _resolve_persist_dir_strict(ns, persist_directory)
     vs = _get_vs(ns, pd, embedding)
     logger.debug("[retrieve] using collection(ns=%s, dir=%s)", ns, pd)
 

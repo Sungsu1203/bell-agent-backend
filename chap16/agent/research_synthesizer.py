@@ -15,10 +15,12 @@ from prompts import get_research_synthesizer_prompt
 from core.state_types import State
 import core.config as config
 from core.paths import current_path, now_str as _now_str, research_topic_dir, research_resources_dir
-from utils.tasks import schedule_writer_if_needed
+# 레거시 시그니처 지원 어댑터 사용 (기존 호출부 유지)
+from utils.tasks import schedule_writer_if_needed_legacy as schedule_writer_if_needed
 from utils.rag_utils import score_doc as _score_doc
 
 from core.llm import get_llm
+from tools.web_rag.ingest import _default_chroma_dir  # Chroma persist dir resolver
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -54,6 +56,38 @@ def research_synthesizer(state: State):
 
     # [ANCHOR: LOOP_FLAG_ON_ENTRY]
     state["research_loop_active"] = True
+
+    # ── [CHROMA NS INIT] web/vector와 동일 규칙으로 NS/경로 기록 ────────────────
+    #  - CHROMA_NAMESPACE가 있으면 우선 사용
+    #  - 없으면 f"{topic_slug}-default" 적용
+    #  - flags.chroma에 {"ns","dir","ns_web?","ns_local?"} 형태로 저장
+    import re as _re
+    def _ns_sanitize(s: str) -> str:
+        s = (s or "").strip().lower()
+        s = _re.sub(r"[^a-z0-9\-]+", "-", s)
+        s = _re.sub(r"-{2,}", "-", s).strip("-")
+        return s or "default"
+
+    topic_slug_raw = (state.get("topic_slug") or _cfg_str("TOPIC_SLUG", "") or "default").strip()
+    env_ns_raw     = (_cfg_str("CHROMA_NAMESPACE", "") or "").strip()
+    ns_web_raw     = (_cfg_str("CHROMA_NAMESPACE_WEB", "") or "").strip()
+    ns_loc_raw     = (_cfg_str("CHROMA_NAMESPACE_LOCAL", "") or "").strip()
+
+    topic_slug = _ns_sanitize(topic_slug_raw)
+    env_ns     = _ns_sanitize(env_ns_raw) if env_ns_raw else ""
+    ns         = env_ns or _ns_sanitize(f"{topic_slug}-default")
+    persist_dir = _default_chroma_dir(ns)
+
+    flags_mm: MutableMapping[str, Any] = cast(MutableMapping[str, Any], state.setdefault("flags", {}))
+    chroma: MutableMapping[str, Any]   = cast(MutableMapping[str, Any], flags_mm.setdefault("chroma", {}))
+    chroma.update({"ns": ns, "dir": persist_dir})
+    if ns_web_raw:
+        chroma["ns_web"] = _ns_sanitize(ns_web_raw)
+    if ns_loc_raw:
+        chroma["ns_local"] = _ns_sanitize(ns_loc_raw)
+    logger.info("[Synth][ns] ns=%s dir=%s ns_web=%s ns_local=%s",
+                ns, persist_dir, chroma.get("ns_web", "-"), chroma.get("ns_local", "-"))
+
 
     # 안전한 기본값들
     msgs = list(state.get("messages") or [])
@@ -110,8 +144,15 @@ def research_synthesizer(state: State):
     state["round_new_urls"] = round_new_urls
 
     # 디버그 힌트
+    # debug 필드 타입 보정(과거 True/False로 오염된 경우 dict로 교체)
     flags = state.setdefault("flags", {})
-    flags.setdefault("debug", {})["synth_round_new_urls"] = round_new_urls
+    dbg = flags.get("debug")
+    if not isinstance(dbg, dict):
+        dbg = {}
+        flags["debug"] = dbg
+    dbg["synth_round_new_urls"] = round_new_urls
+    # state에 되돌려쓰기(상단 setdefault 사용 시에도 안전하게 유지)
+    state["flags"] = flags
 
     logger.debug("[SYNTH] round=%s/%s, round_new_urls=%s", rnd + 1, max_iter, round_new_urls)
 

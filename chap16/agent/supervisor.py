@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 import os
 import re
 from typing import Any, Mapping, MutableMapping, cast, Dict, List, Iterable, Optional, Protocol
-from utils.tasks import HumanMessage, AIMessage, schedule_writer_if_needed
+from utils.tasks import HumanMessage, AIMessage, schedule_writer_if_needed_legacy as schedule_writer_if_needed
 from core.models import Task, AgentName
 from utils.sanitize import sanitize_state, coerce_int
 from rag_expression import (
@@ -28,6 +28,9 @@ from prompts import get_supervisor_prompt
 from core.state_types import State  # TypedDict
 # Direct QA 가드/판별 유틸(연구 모드 차단 로직 포함)
 from utils.rag_utils import should_direct_qa as _should_direct_qa
+from utils.rag_utils import is_qa_like as _is_qa_like_ext
+
+from tools.web_rag.ingest import _default_chroma_dir  # Chroma persist dir resolver
 
 # ── Safe has_pending ─────────────────────────────────────────────────────────
 # utils.tasks.has_pending이 keyword-only 인자(prefix)를 갖는 시그니처를 가짐.
@@ -96,6 +99,39 @@ def _writer_agent_name() -> AgentName:
         w = "section_writer" if _doc_mode() == "report" else "chapter_writer"
     # mypy/pyright 만족을 위한 캐스트 (값은 위에서 보정)
     return cast(AgentName, w)
+
+# ── Chroma NS helpers (web/vector/synth와 동일 규칙) ─────────────────────────
+def _ns_sanitize(s: str) -> str:
+    s = (s or "").strip().lower()
+    return re.sub(r"-{2,}", "-", re.sub(r"[^a-z0-9\-]+", "-", s)).strip("-") or "default"
+
+def _ensure_chroma_ns(state: MutableMapping[str, Any]) -> None:
+    """flags.chroma에 {'ns','dir',('ns_web'),('ns_local')} 저장하고, legacy key 'chroma_ns'도 유지."""
+    flags: Dict[str, Any] = dict(state.get("flags") or {})
+    chroma: Dict[str, Any] = dict(flags.get("chroma") or {})
+
+    topic_slug_raw = (state.get("topic_slug") or _cfg_str("TOPIC_SLUG", "") or "default")
+    env_ns_raw     = _cfg_str("CHROMA_NAMESPACE", "")
+    ns_web_raw     = _cfg_str("CHROMA_NAMESPACE_WEB", "")
+    ns_loc_raw     = _cfg_str("CHROMA_NAMESPACE_LOCAL", "")
+
+    topic_slug = _ns_sanitize(topic_slug_raw)
+    ns = _ns_sanitize(env_ns_raw) if env_ns_raw.strip() else _ns_sanitize(f"{topic_slug}-default")
+    persist_dir = _default_chroma_dir(ns)
+
+    chroma.update({"ns": ns, "dir": persist_dir})
+    if ns_web_raw.strip():
+        chroma["ns_web"] = _ns_sanitize(ns_web_raw)
+    if ns_loc_raw.strip():
+        chroma["ns_local"] = _ns_sanitize(ns_loc_raw)
+
+    flags["chroma"] = chroma
+    state["flags"] = flags
+    # legacy/편의: 최상위에도 유지
+    state["chroma_ns"] = ns
+    logger.info("[Supervisor][ns] ns=%s dir=%s ns_web=%s ns_local=%s",
+                ns, persist_dir, chroma.get("ns_web", "-"), chroma.get("ns_local", "-"))
+
 
 # ── Dashboard (optional) ─────────────────────────────────────────────────────
 def _dash_on() -> bool:
@@ -212,6 +248,12 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
     _ensure_agent_env(mstate)
     _seed_objectives(mstate)
 
+    # ── Chroma NS/dir 초기화(최상단 1회 보장)
+    try:
+        _ensure_chroma_ns(mstate)
+    except Exception:
+        logger.exception("[Supervisor] _ensure_chroma_ns failed (continuing without ns init)")
+
     # ↓↓↓ Round 0 고착 문제 해결 로직(메타 기반 승격) ↓↓↓
     rnd = int(state.get("research_round", 0))
     refs = state.get("references", {}) or {}
@@ -248,25 +290,33 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
         has_locked_title = bool(_flags.get("pending_write_title"))
         if not has_writer_pending and not has_locked_title:
             logger.debug("qa_direct_reply flag detected")
-            # 1) 연구 모드/가드에 의해 Direct QA가 차단되어야 하는지 확인
-            if not _should_direct_qa(state):
-                logger.info("[Supervisor] research_mode active -> Direct QA blocked → route research_synthesizer")
-                if not _safe_has_pending(tasks, "research_synthesizer"):
-                    tasks.append(
-                        Task(agent="research_synthesizer", done=False, description="synthesize: qa_blocked", done_at="")
-                    )
-                _dash_emit(state, where="supervisor", picked="research_synthesizer", reason="direct_qa_blocked_by_research_mode")
-                return {
-                    "messages": messages,
-                    "task_history": tasks,
-                    "flags": state.get("flags", {}),
-                }
-            # 2) Direct QA 허용: 반드시 vector_search_agent를 펜딩으로 등록
+            # 마지막 사용자 입력 확보(예외 안전)
             try:
                 last_human = next((m for m in reversed(messages) if isinstance(m, HumanMessage)), None)
                 _last_text: str = coerce_message_content_to_str(getattr(last_human, "content", "") if last_human else "").strip()
             except Exception:
                 _last_text = ""
+
+            # [변경점] 연구 모드에서도 Direct QA 우선권 부여
+            # 연구 모드 && (qa_direct_reply 진행 중 OR 질의가 QA-like)이면 합성기 대신 벡터검색으로 보낸다.
+            if _is_research_mode(mstate) and (_flags.get("qa_direct_reply") or _is_qa_like_ext(_last_text)):
+                logger.info("[Supervisor] research_mode active but Direct QA prioritized → vector_search_agent")
+            else:
+                # 기존 가드: 필요 시 Direct QA 차단(연구 모드 일반 규칙)
+                if not _should_direct_qa(state):
+                    logger.info("[Supervisor] research_mode active -> Direct QA blocked → route research_synthesizer")
+                    if not _safe_has_pending(tasks, "research_synthesizer"):
+                        tasks.append(
+                            Task(agent="research_synthesizer", done=False, description="synthesize: qa_blocked", done_at="")
+                        )
+                    _dash_emit(state, where="supervisor", picked="research_synthesizer", reason="direct_qa_blocked_by_research_mode")
+                    return {
+                        "messages": messages,
+                        "task_history": tasks,
+                        "flags": state.get("flags", {}),
+                    }
+
+            # Direct QA 허용/우선: 반드시 vector_search_agent를 펜딩으로 등록
             desc = f"qa_query:{_last_text[:64]}" if _last_text else "qa_query:(empty)"
             if not _safe_has_pending(tasks, "vector_search_agent"):
                 tasks.append(
@@ -350,6 +400,11 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
         mstate = cast(MutableMapping[str, Any], state)
         _ensure_agent_env(mstate)
         _seed_objectives(mstate)
+        # 새 주제 부트스트랩 시에도 NS/dir 일관 세팅
+        try:
+            _ensure_chroma_ns(mstate)
+        except Exception:
+            logger.exception("[Supervisor] _ensure_chroma_ns (new topic) failed")
         msg = f"[Supervisor] 새 주제 세션 시작: '{state.get('topic_title','')}' (ns={state.get('chroma_ns','')})"
         messages.append(AIMessage(content=msg)); logger.info(msg)
         _dash_emit(state, where="supervisor", picked="content_strategist/web_search_agent", reason="new_topic_boot")

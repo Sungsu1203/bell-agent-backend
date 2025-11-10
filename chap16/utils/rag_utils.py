@@ -28,7 +28,17 @@ except Exception:
         return "Queries:\n" + ("\n".join(f"- {q}" for q in qs) if qs else "(none)")
 
 # 외부에서 import * 시 노출 대상
-__all__ = ["refs_preview_text", "merge_refs", "score_doc", "vector_count"]
+# (Direct QA 관련 심볼을 함께 노출)
+__all__ = [
+    "refs_preview_text",
+    "merge_refs",
+    "score_doc",
+    "vector_count",
+    "is_qa_like",
+    "set_direct_qa_flag",
+    "mark_qa_answer_ready",
+    "clear_qa",
+]
 
 # 외부 노출 이름 고정 (불필요한 ignore 제거)
 refs_preview_text = _refs_preview_text
@@ -479,13 +489,16 @@ def refresh_rag_utils() -> None:  # pragma: no cover
 
 
 # ─────────────────────────────────────────────────────────────
-# Direct QA 헬퍼 (경량 가드) — 기존 로직과 충돌 없이 플래그만 세팅
+# Direct QA 헬퍼 (의향/실답 분리)
 #  - is_qa_like(text): 질문이 단문·사실질문(정의/성분/가격 등)인지 판별
-#  - set_direct_qa_flag(state, text): qa_direct_reply 등 충돌 방지 플래그 주입
+#  - set_direct_qa_flag(state, text): **의향만** 기록 (flags["qa_intent"])
 #    * 트리거 조건
 #       1) CFG.DIRECT_QA 또는 ENV:DIRECT_QA=1
 #       2) (CFG.SKIP_WEB_SEARCH 또는 ENV:SKIP_WEB_SEARCH=1) 이면서 is_qa_like(text)=True
-#    * 효과: flags.qa_direct_reply=True, research_loop_active=False, suppress_writer=True
+#    * 효과: flags["qa_intent"]=True 만 설정
+#           (여기서는 qa_direct_reply를 절대 올리지 않음)
+#  - mark_qa_answer_ready(state, text): 실제 답 생성 직후 호출 → qa_reply 저장 + qa_direct_reply=True
+#  - clear_qa(state): 폴백/실패 시 의향/실답 플래그/값 정리
 # ─────────────────────────────────────────────────────────────
 def _truthy(v: Any, *, default: bool = False) -> bool:
     try:
@@ -536,36 +549,67 @@ def is_qa_like(text: str) -> bool:
 
 def set_direct_qa_flag(state: MutableMapping[str, Any], user_text: str, *, force: Optional[bool] = None) -> None:
     """
-    Direct QA 경로를 사용할지 판단해 state.flags에 최소 가드만 세팅.
-    다른 모듈(routers/writer_scheduler 등)은 이 플래그를 보고 우회합니다.
+    Direct QA 의향만 기록합니다.
+    - flags['qa_intent'] = True/False
+    - 여기서는 qa_direct_reply를 절대 건드리지 않습니다.
     """
     try:
         flags = state.setdefault("flags", {})
-        # 외부에서 강제 지정이 들어오면 최우선
         if force is None:
             force = _get_bool("DIRECT_QA", "DIRECT_QA", default=False)
         skip_web = _get_bool("SKIP_WEB_SEARCH", "SKIP_WEB_SEARCH", default=False)
-
-        trigger = bool(force) or (skip_web and is_qa_like(user_text))
-        if not trigger:
-            return
-        # 이미 세팅되어 있으면 중복 변경 회피
-        if flags.get("qa_direct_reply"):
-            return
-        flags["qa_direct_reply"] = True
-        # 연구/집필 충돌 방지 보조 플래그
-        flags["research_loop_active"] = False
-        flags["suppress_writer"] = True
+        intent = bool(force) or (skip_web and is_qa_like(user_text))
+        # 의향만 세팅
+        flags["qa_intent"] = bool(intent)
         state["flags"] = flags
+        # (선택) 최근 사용자 질문 저장
+        try:
+            state["last_user_query"] = user_text
+        except Exception:
+            pass
     except Exception:
         # 방어적 무시
         return
 
-# 외부에서 import * 시 노출(선택)
-if "is_qa_like" not in __all__:
-    __all__.append("is_qa_like")
-if "set_direct_qa_flag" not in __all__:
-    __all__.append("set_direct_qa_flag")
+def mark_qa_answer_ready(state: MutableMapping[str, Any], text: Optional[str]) -> None:
+    """
+    실제 답 생성 직후 호출:
+    - state['qa_reply'] 저장
+    - flags['qa_direct_reply']=True 로 승격 (의향→실답)
+    """
+    try:
+        reply = (text or "").strip()
+        flags = state.setdefault("flags", {})
+        if reply:
+            state["qa_reply"] = reply
+            flags["qa_direct_reply"] = True
+        else:
+            # 빈 텍스트면 승격하지 않음
+            flags["qa_direct_reply"] = False
+        state["flags"] = flags
+    except Exception:
+        return
+
+def clear_qa(state: MutableMapping[str, Any]) -> None:
+    """
+    폴백/실패/루프 종료 시 사용:
+    - qa_reply 제거
+    - qa_direct_reply / qa_intent 내려서 정리
+    """
+    try:
+        flags = state.setdefault("flags", {})
+        flags["qa_direct_reply"] = False
+        flags["qa_intent"] = False
+        state["flags"] = flags
+        if "qa_reply" in state:
+            try:
+                del state["qa_reply"]
+            except Exception:
+                pass
+    except Exception:
+        return
+
+# (참고) __all__은 파일 상단에서 이미 선언함
 
 
 # ─────────────────────────────────────────────────────────────

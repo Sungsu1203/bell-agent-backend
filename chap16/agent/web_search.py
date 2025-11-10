@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 from core.paths import current_path, now_str as _now_str, research_resources_dir
 from core.models import Task
 from utils.sanitize import sanitize_state
-from utils.writer_scheduler import schedule_writer_if_needed
+from utils.tasks import schedule_writer_if_needed_legacy as schedule_writer_if_needed
 from utils.rag_utils import merge_refs, vector_count
 from prompts import get_web_search_prompt
 from utils.tasks import has_pending, iter_tool_calls, HumanMessage, AIMessage
@@ -64,6 +64,28 @@ def _get_cfg_attr(name: str, default: Any) -> Any:
     except Exception:
         pass
     return default
+
+
+# ─────────────────────────────────────────────────────────────
+# NS 정규화/디렉토리 해상 (vector_search.py와 동일 규칙)
+# ─────────────────────────────────────────────────────────────
+def _wr_sanitize_ns(ns: str) -> str:
+    s = (ns or "").strip().lower()
+    # 공백/슬래시/역슬래시 → 하이픈, 연속 하이픈 축약, 앞뒤 하이픈 제거
+    s = re.sub(r"[\\/\s]+", "-", s)
+    s = re.sub(r"-{2,}", "-", s).strip("-")
+    return s or "default"
+
+def _wr_resolve_persist_dir(ns: str, default_dir: str) -> str:
+    """
+    - 기본은 _default_chroma_dir(ns)
+    - 외부에서 전달된 default_dir이 있으면 우선 사용 (leaf/base 경로 모두 허용)
+    """
+    try:
+        d = (default_dir or "").strip()
+        return d if d else _default_chroma_dir(ns)
+    except Exception:
+        return _default_chroma_dir(ns)
 
 def _cfg_bool(name: str, default: bool = False) -> bool:
     v = _get_cfg_attr(name, default)
@@ -136,7 +158,7 @@ def _host_of(u: str) -> str:
         return ""
 
 def _item_rank(it: dict, idx: int) -> tuple[int, int, int]:
-    """정렬 키(내림차순 유리): (weight, year, -idx_inv)."""
+    """정렬 키(내림차순 유리): (weight, year, -idx). idx는 enumerate에서 전달."""
     u = (it.get("url") or it.get("source") or "").strip()
     host = _host_of(u)
     w = int(AUTH_WEIGHTS.get(host, 0)) + int(NOISE_WEIGHTS.get(host, 0))
@@ -187,11 +209,13 @@ def web_search_agent(state: MutableMapping[str, Any]):
             parent[key] = cur
         return cast(_MM[str, Any], cur)
 
-    # === NS + Persist Dir (Calculated once) ===
-    topic_slug = (state.get("topic_slug") or config.CFG.TOPIC_SLUG or "default").strip()
-    env_ns = (config.CFG.CHROMA_NAMESPACE or "").strip()
-    ns = env_ns or f"{topic_slug}-default"
-    persist_dir = _default_chroma_dir(ns)
+    # === NS + Persist Dir (Calculated once) — vector_search.py와 일치 ===
+    topic_slug_raw = (state.get("topic_slug") or getattr(config.CFG, "TOPIC_SLUG", "") or "default").strip()
+    env_ns_raw     = (getattr(config.CFG, "CHROMA_NAMESPACE", "") or "").strip()
+    topic_slug     = _wr_sanitize_ns(topic_slug_raw)
+    env_ns         = _wr_sanitize_ns(env_ns_raw) if env_ns_raw else ""
+    ns             = env_ns or _wr_sanitize_ns(f"{topic_slug}-default")
+    persist_dir    = _wr_resolve_persist_dir(ns, _default_chroma_dir(ns))
 
     # Record in state (TypedDict 안전화): 전체 state를 가변 매핑으로 확장 후 보장
     _s = cast(_MM[str, Any], state)
@@ -201,7 +225,7 @@ def web_search_agent(state: MutableMapping[str, Any]):
     chroma["ns"] = ns
     chroma["dir"] = persist_dir
 
-    logger.info("[web_search] ns=%s (CHROMA_NAMESPACE=%r, topic_slug=%r)", ns, env_ns, topic_slug)
+    logger.info("[web_search] ns=%s (CHROMA_NAMESPACE=%r, topic_slug=%r)", ns, env_ns or "-", topic_slug)
     logger.info("[web_search] persist_dir(default_resolve)=%s", persist_dir)
 
     # --- (1) Get Task ------------------------------------------------------
@@ -650,10 +674,14 @@ def web_search_agent(state: MutableMapping[str, Any]):
                         or (_extract_year_from_url((it.get("url") or it.get("source") or "")) or YEAR_FLOOR) >= YEAR_FLOOR
                     ]
                     # (b) 권위/잡음 가중치 + 연식 기반 정렬(내림차순)
-                    _items_all = [
-                        it for it in _items_all if isinstance(it, dict)
-                    ]
-                    _items_all = sorted(_items_all, key=lambda it_i: _item_rank(it_i, idx=_items_all.index(it_i)), reverse=True)
+                    _items_all = [it for it in _items_all if isinstance(it, dict)]
+                    # enumerate로 idx 제공(성능/안정성)
+                    _items_all = sorted(
+                        ((i, it) for i, it in enumerate(_items_all)),
+                        key=lambda pair: _item_rank(pair[1], idx=pair[0]),
+                        reverse=True
+                    )
+                    _items_all = [it for _, it in _items_all]
 
                     # (c) 도메인 정규화 기반 디듀프
                     _seen_norm_urls = set()
@@ -1168,7 +1196,11 @@ def web_search_agent(state: MutableMapping[str, Any]):
 
     # AUTO_WRITE_AFTER_RAG
     try:
-        schedule_writer_if_needed(_s)
+        # vector_search.py와 동일 시그니처 사용
+        schedule_writer_if_needed(
+            _s, tasks=tasks, messages=messages,
+            outline_text=outline_text, debug=True
+        )
     except Exception as _e:
         logger.debug("schedule_writer_if_needed skipped: %s", _e)
 

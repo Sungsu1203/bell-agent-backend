@@ -48,9 +48,12 @@ from core.state_types import State
 from utils.sanitize import as_int
 from utils.outline import get_topic_outline_text
 from utils.tasks import has_pending
-from utils.writer_scheduler import schedule_writer_if_needed
+try:
+    from utils.writer_scheduler import schedule_writer_if_needed  # 실제 구현
+except Exception:
+    schedule_writer_if_needed = None  # 타입/런타임 가드
 from core.paths import research_resources_dir  # 중앙 경로 유틸 사용
-from utils.rag_utils import set_direct_qa_flag, is_qa_like
+from utils.rag_utils import set_direct_qa_flag, is_qa_like, clear_qa
 
 
 # ─────────────────────────────────────────────────────────────
@@ -85,6 +88,13 @@ def _preferred_writer() -> str:
 
 def _alt_writer() -> str:
     return "chapter_writer" if _preferred_writer() == "section_writer" else "section_writer"
+
+def _custom_writer_agent() -> Optional[str]:
+    try:
+        wa = getattr(config.CFG, "WRITER_AGENT", None)
+        return wa if isinstance(wa, str) and wa.strip() else None
+    except Exception:
+        return None
 
 def _skip_web_search(state: State) -> bool:
     flags = state.get("flags") or {}
@@ -166,9 +176,58 @@ def _retry_under(state: State, router_key: str, *, max_times: int = 1) -> bool:
         return False
     except Exception:
         return False
+    
+def _suppress_writer(state: State) -> bool:
+    try:
+        return bool((state.get("flags") or {}).get("suppress_writer"))
+    except Exception:
+        return False  
+
+def _has_qa_intent(state: State) -> bool:
+    """flags.qa_intent을 안전하게 확인."""
+    try:
+        return bool((state.get("flags") or {}).get("qa_intent"))
+    except Exception:
+        return False
+
+def _has_writer_pending_strict(state: State) -> bool:
+    """
+    write: prefix 대기, 커스텀 WRITER_AGENT, prefix 없이 열린 writer 태스크, pending_write_title까지 포착.
+    suppress_writer=True면 False를 반환해 우회.
+    """
+    if _suppress_writer(state):
+        return False
+    tasks = state.get("task_history", []) or []
+    preferred = _preferred_writer()
+    alt = _alt_writer()
+    if has_pending(tasks, preferred, prefix="write:") or has_pending(tasks, alt, prefix="write:"):
+        return True
+    wa = _custom_writer_agent()
+    if wa and has_pending(tasks, wa, prefix="write:"):
+        return True
+    # prefix 없이 열린 writer 태스크 안전망
+    for t in reversed(tasks):
+        if (not getattr(t, "done", True)) and getattr(t, "agent", "") in (preferred, alt, wa or ""):
+            return True
+    # 제목 대기 락도 writer pending으로 취급
+    if bool((state.get("flags") or {}).get("pending_write_title")):
+        return True
+    return False
+
 
 def tail_task_router(state: State) -> str:
     """작성 단계(테일)에서 다음 노드를 선택."""
+    # ── STRICT WRITER GUARD: writer가 펜딩이면 최우선 라우팅
+    if _has_writer_pending_strict(state):
+        preferred_writer = _preferred_writer()
+        refs = state.get("references") or {}
+        refs_empty = not (refs.get("docs") or [])
+        if refs_empty and not _skip_web_search(state):
+            logger.debug("[router.tail] writer pending but refs empty → web_search_agent")
+            return "web_search_agent"
+        logger.debug("[router.tail] writer pending(strict) → %s", preferred_writer)
+        return preferred_writer
+
     # 아웃라인 존재/표시 상태 점검
     outline_text = get_topic_outline_text(state)
     outline_missing = not (outline_text or "").strip()
@@ -186,7 +245,7 @@ def tail_task_router(state: State) -> str:
     if need_outline_display:
         # writer-락(pending_write_title) 우선 라우팅
         flags = state.get("flags") or {}
-        if flags.get("pending_write_title"):
+        if flags.get("pending_write_title") and not _suppress_writer(state):
             tasks = state.get("task_history", []) or []
             preferred_writer = _preferred_writer()
             alt_writer = _alt_writer()
@@ -247,9 +306,13 @@ def after_user_message(state: State) -> str:
     # last_user가 object로 들어오는 경우 방어: 문자열일 때만 strip()
     raw = state.get("last_user")
     user_q = raw.strip() if isinstance(raw, str) else ""
-    # Direct QA 플래그 설정(환경/DIRECT_QA, SKIP_WEB_SEARCH, 질의 형태 기반)
+    # Direct QA 의향만 기록(환경/DIRECT_QA, SKIP_WEB_SEARCH, 질의 형태 기반)
     set_direct_qa_flag(cast(MutableMapping[str, Any], state), user_q)
-    if (state.get("flags") or {}).get("qa_direct_reply"):
+    # 답 생성 전에 올라가 있던 qa_direct_reply를 선제적으로 내린다(루프 충돌 방지).
+    _set_flag(state, "qa_direct_reply", False)
+    # 의도가 있으면 writer 방해를 막고 곧바로 벡터검색으로
+    if _has_qa_intent(state):
+        _set_flag(state, "suppress_writer", True)
         return "vector_search_agent"
     return "supervisor"
 
@@ -269,8 +332,8 @@ def after_web_search_agent(state: State) -> str:
     refs = state.get("references") or {}
     refs_light = state.get("refs") or {}
 
-    # Direct QA는 웹검색 경로를 사용하지 않음
-    if (flags or {}).get("qa_direct_reply"):
+    # Direct QA는 웹검색 경로를 사용하지 않음(이미 답이 준비된 경우)
+    if (flags or {}).get("qa_direct_reply") or _has_qa_intent(state):
         logger.info("[router.after_web] qa_direct_reply=True → vector_search_agent")
         return "vector_search_agent"
 
@@ -293,7 +356,17 @@ def after_web_search_agent(state: State) -> str:
     rag_on_disk = bool(state.get("rag_on_disk"))
     skip_web = _skip_web_search(state)
 
-    # 0) pending 리스트로 강제 지정된 경우 우선
+    # 0) writer strict guard — 검색 이후에도 writer가 대기면 우선 라우팅
+    if _has_writer_pending_strict(state):
+        preferred_writer = _preferred_writer()
+        refs_empty = not ((state.get("references") or {}).get("docs") or [])
+        if refs_empty and not _skip_web_search(state):
+            logger.debug("[router.after_web] writer pending but refs empty → web_search_agent")
+            return "web_search_agent"
+        logger.info("[router.after_web] writer pending(strict) → %s", preferred_writer)
+        return preferred_writer
+
+    # 0-b) pending 리스트로 강제 지정된 경우 우선
     if "vector_search_agent" in (state.get("pending") or []):
         logger.info("[router.after_web] pending contains vector_search_agent → vector_search_agent")
         return "vector_search_agent"
@@ -348,8 +421,8 @@ def after_vector_router(state: State) -> str:
 
     # 0) 연구 모드 강제 합성 라우팅
     if bool(state.get("research_loop_active")):
-        # QA 단락 플래그를 내려 부작용 방지(FLAGS 경로로 일원화)
-        _set_flag(state, "qa_direct_reply", False)
+        # 연구 모드에서는 Direct QA 상태를 정리해 부작용 방지
+        clear_qa(cast(MutableMapping[str, Any], state))
         logger.info("[router.after_vector] research_loop_active=True → research_synthesizer (override qa_direct_reply)")
         return "research_synthesizer"
 
@@ -358,7 +431,8 @@ def after_vector_router(state: State) -> str:
     # - 답이 없으면 → web_search_agent 1회 재시도 (키: after_web_ws_retries)
     # - 재시도 후에도 없으면 → qa_direct_reply를 내려 벡터로 종료 보고
     if (flags or {}).get("qa_direct_reply"):
-        _set_flag(state, "suppress_writer", True)  # writer 충돌 방지
+        # (답이 준비된 상태) writer 충돌 방지 — suppress_writer는 답 생성 시점에서 이미 켜졌을 수 있음
+        _set_flag(state, "suppress_writer", True)
         has_reply = bool(state.get("qa_reply")) or bool(_last_ai_message(state))
         if has_reply:
             logger.info("[router.after_vector] qa_direct_reply=True & reply found → communicator")
@@ -368,12 +442,13 @@ def after_vector_router(state: State) -> str:
             logger.info("[router.after_vector] qa_direct_reply=True but no reply → web_search_agent (retry 1/1)")
             return "web_search_agent"
         # 재시도 소진: Direct QA 종료(루프 충돌 방지), 벡터로 종료 보고
-        _set_flag(state, "qa_direct_reply", False)
+        clear_qa(cast(MutableMapping[str, Any], state))
         logger.info("[router.after_vector] qa_direct_reply exhausted without reply → vector_search_agent (final)")
         return "vector_search_agent"
 
     # 1) (옵션) 집필 예약 — 연구 중 허용 플래그로 제어
-    schedule_writer_if_needed(
+    if callable(schedule_writer_if_needed):
+        schedule_writer_if_needed(
         cast(MutableMapping[str, Any], state),
         tasks=tasks,
         messages=state.get("messages"),
@@ -384,10 +459,16 @@ def after_vector_router(state: State) -> str:
     # refs 가드: refs 비어있으면 write: 펜딩이어도 우선 RAG(Web)
     preferred_writer = _preferred_writer()
     alt_writer = _alt_writer()
-    has_write_pending = (
-        has_pending(tasks, preferred_writer, prefix="write:") or
-        has_pending(tasks, alt_writer, prefix="write:")
-    )
+    # STRICT: suppress_writer가 꺼져 있고, 커스텀 writer/제목락까지 포함
+    has_write_pending = False
+    if not _suppress_writer(state):
+        wa = _custom_writer_agent()
+        has_write_pending = (
+            has_pending(tasks, preferred_writer, prefix="write:")
+            or has_pending(tasks, alt_writer, prefix="write:")
+            or (wa is not None and has_pending(tasks, wa, prefix="write:"))
+            or bool((state.get("flags") or {}).get("pending_write_title"))
+        )
     if has_write_pending:
         refs = state.get("references") or {}
         refs_empty = not (refs.get("docs") or [])
@@ -435,14 +516,26 @@ def after_planner_router(state: State) -> str:
             pass
 
     def _pending_writer() -> Optional[str]:
+        if _suppress_writer(state):
+            return None
         preferred = _preferred_writer()
-        for t in reversed(tasks):
-            if (not getattr(t, "done", False)) and getattr(t, "agent", "") == preferred:
-                return preferred
         alt = _alt_writer()
+        wa = _custom_writer_agent()
+        # write: prefix 우선
+        if has_pending(tasks, preferred, prefix="write:"):
+            return preferred
+        if has_pending(tasks, alt, prefix="write:"):
+            return alt
+        if wa and has_pending(tasks, wa, prefix="write:"):
+            return wa
+        # prefix 없이 열린 태스크도 포착
         for t in reversed(tasks):
-            if (not getattr(t, "done", False)) and getattr(t, "agent", "") == alt:
-                return alt
+            agent = getattr(t, "agent", "")
+            if (not getattr(t, "done", False)) and agent in (preferred, alt, wa or ""):
+                return agent
+        # 제목 대기 락
+        if bool((state.get("flags") or {}).get("pending_write_title")):
+            return preferred
         return None
 
     announce = bool(config.CFG.RESEARCH_PLANNER_ANNOUNCE) or as_int(state, "research_planner_announce", 0) == 1
@@ -492,7 +585,8 @@ def after_synthesizer_router(state: State) -> str:
     """
     tasks = state.get("task_history", []) or []
 
-    schedule_writer_if_needed(
+    if callable(schedule_writer_if_needed):
+        schedule_writer_if_needed(
         cast(MutableMapping[str, Any], state),
         tasks=tasks,
         messages=state.get("messages"),
@@ -500,14 +594,21 @@ def after_synthesizer_router(state: State) -> str:
         allow_during_research=bool(config.CFG.AUTO_WRITE_DURING_RESEARCH),
     )
 
-    # write: 펜딩이 있으면 writer 우선
+    # write: 펜딩이 있으면 writer 우선 (STRICT + suppress 고려)
     preferred_writer = _preferred_writer()
     alt_writer = _alt_writer()
-    if has_pending(tasks, preferred_writer, prefix="write:") or has_pending(tasks, alt_writer, prefix="write:"):
-        logger.info("[router.after_synth] writer pending(write:) → %s", preferred_writer)
-        # 합성 이후 writer로 즉시 전이되는 경우도 라운드 종료로 간주하여 스냅샷/알람
-        _metrics_snapshot_and_alert(state)
-        return preferred_writer
+    if not _suppress_writer(state):
+        wa = _custom_writer_agent()
+        if (
+            has_pending(tasks, preferred_writer, prefix="write:")
+            or has_pending(tasks, alt_writer, prefix="write:")
+            or (wa is not None and has_pending(tasks, wa, prefix="write:"))
+            or bool((state.get("flags") or {}).get("pending_write_title"))
+        ):
+            logger.info("[router.after_synth] writer pending(write:) → %s", preferred_writer)
+            # 합성 이후 writer로 즉시 전이되는 경우도 라운드 종료로 간주하여 스냅샷/알람
+            _metrics_snapshot_and_alert(state)
+            return preferred_writer
 
     rounds_done = as_int(state, "research_round", 0)
     max_iter = as_int(state, "iteration_count", 0)

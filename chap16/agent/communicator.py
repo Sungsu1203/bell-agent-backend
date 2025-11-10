@@ -4,11 +4,10 @@ from typing import Any
 from utils.tasks import HumanMessage, AIMessage, has_pending
 import core.config as config
 from core.paths import now_str as _now_str, current_path, sections_dir
+from typing import cast
 from core.state_types import State
 from core.models import Task
 from utils.sanitize import sanitize_state, coerce_int
-from typing import cast
-from core.state_types import State
 from rag_expression import is_outline_display
 from prompts import get_communicator_prompt
 from core.paths import read_outline
@@ -174,7 +173,62 @@ def communicator(state: State):
     DASH_RATE = float(getattr(config.CFG, "DASH_RATE_SEC", 0.0) or 0.0)
 
     llm = get_llm()
+    # Mapping → dict(materialize) for mutation safety & type-check compatibility
     state = cast(State, sanitize_state(state))
+
+    # ─────────────────────────────────────────────────────────────
+    # [STRICT WRITER GUARD — 최상단]
+    # - writer가 pending이면 communicator가 개입/메시지 추가/저장을 하지 않도록 즉시 반환
+    # - 단, suppress_writer=True면 우회(직답/안내 허용)
+    # - 기준: write: prefix 대기, CFG.WRITER_AGENT, open writer task, pending_write_title
+    # ─────────────────────────────────────────────────────────────
+    _flags0 = state.get("flags") or {}
+    _suppress_writer = bool(_flags0.get("suppress_writer"))
+    _tasks0 = state.get("task_history", []) or []
+
+    def _has_writer_pending_strict(ts) -> bool:
+        try:
+            # 표준 writer 대기
+            if has_pending(ts, "section_writer", prefix="write:") or has_pending(ts, "chapter_writer", prefix="write:"):
+                return True
+            # 커스텀 WRITER_AGENT 지원
+            wa = getattr(config.CFG, "WRITER_AGENT", None)
+            if isinstance(wa, str) and has_pending(ts, wa, prefix="write:"):
+                return True
+        except Exception:
+            pass
+        # 안전망: 'write:' 없이 열린 writer 태스크가 있는지 점검
+        for t in reversed(ts):
+            if (getattr(t, "done", True) is False) and getattr(t, "agent", "") in ("section_writer", "chapter_writer"):
+                return True
+        return False
+
+    _writer_lock = bool(_flags0.get("pending_write_title"))
+    if (not _suppress_writer) and (_has_writer_pending_strict(_tasks0) or _writer_lock):
+        # 현재 communicator 태스크가 있으면 auto-close
+        _pending = next((t for t in reversed(_tasks0)
+                         if (not getattr(t, "done", True)) and getattr(t, "agent", "") == "communicator"), None)
+        if _pending:
+            _pending.done = True
+            _pending.done_at = _now_str()
+            _pending.description = (getattr(_pending, "description", "") or "") + " [auto-closed: writer pending(strict)]"
+        # Direct QA 플래그를 안전하게 정리
+        _f = dict(_flags0)
+        _f["qa_direct_reply"] = False
+        state["flags"] = _f
+        state["task_history"] = _tasks0
+        # 마지막 AI 메시지는 안전 저장(있을 때만)
+        try:
+            _msgs0 = state.get("messages") or []
+            last_ai = next((m for m in reversed(_msgs0) if isinstance(m, AIMessage)), None)
+            if last_ai is not None and hasattr(last_ai, "content") and str(getattr(last_ai, "content") or "").strip():
+                # 내부 헬퍼 활용(이미 선언됨)
+                # _save_last_ai_if_any는 state/messages 기반으로 안전 저장
+                _save_last_ai_if_any(state, _msgs0)  # noqa: F405
+        except Exception:
+            pass
+        return {"messages": state.get("messages", []) or [], "task_history": _tasks0, "qa_direct_reply": False}
+
 
     # ── Direct QA 모드(간단 경로): 벡터검색 요약만 1~2문장으로 반환 ─────────────
     _flags_obj = state.get("flags") or {}
@@ -184,13 +238,25 @@ def communicator(state: State):
     else:
         # dict가 아닐 비정상 상황 가드
         _qa_mode = bool(state.get("qa_direct_reply", False))
+    # 안전 정규화: 답변 실체가 없으면 qa_direct_reply 강제 해제(루프/경고 방지)
+    if _qa_mode:
+        _has_reply = bool(state.get("qa_reply")) or bool(_to_text(
+            getattr(next((m for m in reversed(state.get("messages") or [])
+                        if hasattr(m, "content")), None), "content", "")
+        ).strip())
+        if not _has_reply:
+            flags_fix = dict(state.get("flags") or {})
+            flags_fix["qa_direct_reply"] = False
+            state["flags"] = flags_fix
+            state["qa_direct_reply"] = False
+            _qa_mode = False
 
     if _qa_mode:
-        # 우선순위: state.answer → state.last_summary → 마지막 AI 메시지 → 기본 문구
+        # 우선순위: state.answer → state.last_summary → 마지막 AI 메시지
         ans = (str(state.get("answer") or "") or str(state.get("last_summary") or "")).strip()
+        _msgs = state.get("messages") or []
+        _last_ai = next((m for m in reversed(_msgs) if hasattr(m, "content")), None)
         if not ans:
-            _msgs = state.get("messages") or []
-            _last_ai = next((m for m in reversed(_msgs) if hasattr(m, "content")), None)
             try:
                 ans = (str(getattr(_last_ai, "content", "") or "")).strip()
             except Exception:
@@ -199,11 +265,16 @@ def communicator(state: State):
         if not ans:
             tasks = state.get("task_history", []) or []
             # 폴백 선택: refs가 없거나 SKIP_WEB_SEARCH가 꺼져 있으면 웹서치, 아니면 벡터 재시도
-            have_refs = bool(((state.get("references") or {}).get("docs") or []))
-            allow_web = not bool(getattr(config.CFG, "SKIP_WEB_SEARCH", False))
+        have_refs = bool(((state.get("references") or {}).get("docs") or []))
+        allow_web = not bool(getattr(config.CFG, "SKIP_WEB_SEARCH", False))
+        if have_refs:
+            if not has_pending(tasks, "vector_search_agent"):
+                tasks.append(Task(agent="vector_search_agent", done=False, description="fallback: direct_qa_missing → retry", done_at=""))
+                logger.info("[COMMUNICATOR][fallback] refs present → scheduled vector_search_agent")
+        else:
             if allow_web and not has_pending(tasks, "web_search_agent"):
                 tasks.append(Task(agent="web_search_agent", done=False, description="fallback: direct_qa_missing → rag_update:auto", done_at=""))
-                logger.info("[COMMUNICATOR][fallback] direct QA missing → scheduled web_search_agent")
+                logger.info("[COMMUNICATOR][fallback] refs empty → scheduled web_search_agent")
             elif not has_pending(tasks, "vector_search_agent"):
                 tasks.append(Task(agent="vector_search_agent", done=False, description="fallback: direct_qa_missing → retry", done_at=""))
                 logger.info("[COMMUNICATOR][fallback] direct QA missing → scheduled vector_search_agent")
@@ -219,11 +290,12 @@ def communicator(state: State):
             state["flags"] = flags_fix
             return {"messages": state.get("messages", []) or [], "task_history": tasks, "qa_direct_reply": False}
 
-        # (정상) 답변이 존재하면 그대로 전달
+        # (정상) 답변이 존재하면 그대로 전달하되, 중복 append 방지
         reply_text = ans
         messages = state.get("messages", []) or []
-        messages.append(AIMessage(content=reply_text))
-        state["messages"] = messages
+        if not (_last_ai and hasattr(_last_ai, "content") and str(getattr(_last_ai, "content") or "").strip() == reply_text):
+            messages.append(AIMessage(content=reply_text))
+            state["messages"] = messages
         # 현재 communicator 태스크가 있으면 auto-close
         tasks = state.get("task_history", []) or []
         pending = next((t for t in reversed(tasks) if (not t.done) and t.agent == "communicator"), None)
@@ -231,12 +303,17 @@ def communicator(state: State):
             pending.done = True
             pending.done_at = _now_str()
         state["task_history"] = tasks
-        # 플래그 정리
+        # 플래그 정리(직답 종료 → writer 억제 해제)
         flags_fix = dict(state.get("flags") or {})
         flags_fix["qa_direct_reply"] = False
         flags_fix["suppress_writer"] = False
         state["flags"] = flags_fix
-        return {"messages": messages, "task_history": tasks, "qa_direct_reply": False, "suppress_writer": False}
+        return {
+            "messages": messages,
+            "task_history": tasks,
+            "qa_direct_reply": False,
+            "suppress_writer": False,
+        }
 
 
     # 🔸 집필 언블락을 위해, 필요한 경우 자동 타이틀 주입
@@ -249,10 +326,17 @@ def communicator(state: State):
         raise ValueError("작업 이력이 없습니다.")
     pending = next((t for t in reversed(tasks) if (not t.done) and t.agent == "communicator"), None)
 
-   # [GUARD] write: 펜딩이 있으면 플래그와 무관하게 커뮤니케이터를 건너뜀
-    if (
+    # [GUARD] writer pending이면 communicator를 건너뜀(하단도 동일 정책 적용)
+    # - suppress_writer=True면 우회(커뮤니케이터 허용)
+    # - pending_write_title(제목 대기)도 writer 대기 취급
+    _flags_now = state.get("flags") or {}
+    _suppress_writer2 = bool(_flags_now.get("suppress_writer"))
+    _writer_lock2 = bool(_flags_now.get("pending_write_title"))
+    if (not _suppress_writer2) and (
         has_pending(tasks, "section_writer", prefix="write:") or
-        has_pending(tasks, "chapter_writer", prefix="write:")
+        has_pending(tasks, "chapter_writer", prefix="write:") or
+        (isinstance(getattr(config.CFG, "WRITER_AGENT", None), str) and has_pending(tasks, getattr(config.CFG, "WRITER_AGENT"), prefix="write:")) or
+        _writer_lock2
     ):
         logger.info("[COMMUNICATOR] writer pending(write:) → skipping reply and handing off to writer")
         # 현재 communicator 태스크가 있다면 auto-close 해서 재진입 방지
@@ -260,8 +344,10 @@ def communicator(state: State):
             pending.done = True
             pending.done_at = _now_str()
             pending.description = (pending.description or "") + " [auto-closed: writer pending]"
-        # 혹시 직전 단계에서 QA 직답 플래그가 켜졌다면 안전하게 끔
-        state["qa_direct_reply"] = False
+        # Direct QA/Suppress 플래그 안전 정리
+        _ff = dict(_flags_now)
+        _ff["qa_direct_reply"] = False
+        state["flags"] = _ff
         # ← 여기서 반환값에 명시적으로 포함
         _save_last_ai_if_any(state, messages)
         return {"messages": messages, "task_history": tasks, "qa_direct_reply": False}
@@ -354,7 +440,8 @@ def communicator(state: State):
         # 아웃라인 저장 정책(헬퍼)만 사용: REPORT_OUT_DIR/outlines → 없으면 <project>/outlines
         _outline_res = read_outline(
             filename=fname,
-            root_dir=str(current_path),               # ✅ 프로젝트 루트
+            # current_path가 함수/값 모두 가능 → 안전 처리
+            root_dir=str(current_path() if callable(current_path) else current_path),
             topic_slug=state.get("topic_slug"),
             mode=config.CFG.DOC_MODE,
             allow_fallbacks=False,
@@ -419,18 +506,16 @@ def communicator(state: State):
             reply_text = _to_text(last_ai_msg.content)
 
             # 1) 파일 로그에 QA 본문 기록 (COMM_LOG_QA_BODY=1)
+            log_text = reply_text or ""
             if COMM_LOG_QA_BODY:
-                _out = reply_text or ""
-                if COMM_LOG_QA_MAXLEN > 0 and len(_out) > COMM_LOG_QA_MAXLEN:
-                    _out = _out[:COMM_LOG_QA_MAXLEN] + "…"
-                logger.info("[COMMUNICATOR][DirectQA] text=%s", _out)
+                if COMM_LOG_QA_MAXLEN > 0 and len(log_text) > COMM_LOG_QA_MAXLEN:
+                    log_text = log_text[:COMM_LOG_QA_MAXLEN] + "…"
+                logger.info("[COMMUNICATOR][DirectQA] text=%s", log_text)
 
-            # 2) 콘솔 에코는 옵션(ECHO_QA=1 또는 COMMUNICATOR_ECHO=1)이고,
-            #    사람용 간소화(HUMAN_LOGS=1 & HUMAN_LOGS_VERBOSE=0)일 땐 억제
+            # 2) 콘솔 에코(옵션). 간소 로그 모드(HUMAN_LOGS_STRICT)에서는 억제
             if COMMUNICATOR_ECHO and not HUMAN_LOGS_STRICT:
                 try:
-                    echo_text = (_out if COMM_LOG_QA_BODY else (reply_text or ""))  # _out은 True일 때만 정의
-                    sys.stdout.write((echo_text or "").rstrip() + "\n")
+                    sys.stdout.write((log_text if COMM_LOG_QA_BODY else (reply_text or "")).rstrip() + "\n")
                     sys.stdout.write("---------------------\n")
                     sys.stdout.flush()
                 except Exception:

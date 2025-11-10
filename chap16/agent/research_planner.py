@@ -20,7 +20,7 @@ import re
 import core.config as config
 
 from core.llm import get_llm
-
+from tools.web_rag.ingest import _default_chroma_dir  # Chroma persist dir resolver
 
 def research_planner(state: State):
     logger.info("============ RESEARCH PLANNER ============")
@@ -50,6 +50,14 @@ def research_planner(state: State):
     def _cfg_bool(name: str, default: bool = False) -> bool:
         s = _cfg_str(name, "1" if default else "0").strip().lower()
         return s in {"1","true","yes","y","on"}
+    
+    # ── ns helper (간단 정규화: 소문자, 영문/숫자/하이픈만 유지) ──────────────────
+    import re as _re
+    def _ns_sanitize(s: str) -> str:
+        s = (s or "").strip().lower()
+        s = _re.sub(r"[^a-z0-9\-]+", "-", s)
+        s = _re.sub(r"-{2,}", "-", s).strip("-")
+        return s or "default"
 
 
     # ── topic_title 통합 헬퍼 & 로깅 ───────────────────────────────
@@ -68,6 +76,33 @@ def research_planner(state: State):
 
     # 연구 루프 시작 표식 (writer 자동 기동 가드와 연동)
     cast(MutableMapping[str, Any], state)["research_loop_active"] = True
+
+
+    # ── [CHROMA NS INIT] 웹/벡터 단계와 조응되는 네임스페이스/디렉터리 기록 ─────
+    # topic_slug 우선, 없으면 CFG.TOPIC_SLUG → 'default'
+    topic_slug_raw = (state.get("topic_slug") or _cfg_str("TOPIC_SLUG", "") or "default").strip()
+    env_ns_raw     = (_cfg_str("CHROMA_NAMESPACE", "") or "").strip()
+    ns_web_raw     = (_cfg_str("CHROMA_NAMESPACE_WEB", "") or "").strip()
+    ns_loc_raw     = (_cfg_str("CHROMA_NAMESPACE_LOCAL", "") or "").strip()
+
+    topic_slug = _ns_sanitize(topic_slug_raw)
+    env_ns     = _ns_sanitize(env_ns_raw) if env_ns_raw else ""
+    ns         = env_ns or _ns_sanitize(f"{topic_slug}-default")
+    persist_dir = _default_chroma_dir(ns)
+
+    # flags.chroma에 일관 포맷으로 주입 (web_search/vector_search와 동일 키)
+    flags_mm = cast(MutableMapping[str, Any], state.setdefault("flags", {}))
+    chroma   = cast(MutableMapping[str, Any], flags_mm.setdefault("chroma", {}))
+    chroma.update({
+        "ns": ns,
+        "dir": persist_dir,
+    })
+    if ns_web_raw:
+        chroma["ns_web"] = _ns_sanitize(ns_web_raw)
+    if ns_loc_raw:
+        chroma["ns_local"] = _ns_sanitize(ns_loc_raw)
+    logger.info("[Planner][ns] ns=%s dir=%s ns_web=%s ns_local=%s",
+                ns, persist_dir, chroma.get("ns_web","-"), chroma.get("ns_local","-"))
 
     max_iter = int(state.get("iteration_count", 0))
     rnd = int(state.get("research_round", 0))

@@ -195,6 +195,57 @@ def _truthy_cfg(name: str, default: bool = False) -> bool:
     """CFG 불리언 키를 안전하게 해석."""
     return _cfg_bool(name, default=default)
 
+# -----------------------------------------------------------------------------
+# Namespace sanitizer (공개 API)
+# -----------------------------------------------------------------------------
+def sanitize_ns(raw: str) -> str:
+    """
+    네임스페이스 안전화 규칙:
+      - 허용 문자: 한글(AC00–D7A3) / A–Z a–z 0–9 / '.' '_' '-'
+      - 경로 구분자(\\ /)와 기타 문자는 '_'로 치환, 연속 '_'는 1개로 압축
+      - 선두/말미의 '.' '-' '_'는 제거(숨김/경로 이슈 방지)
+      - 옵션: 전부 소문자(CFG.NAMESPACE_LOWERCASE, 기본 True)
+      - 길이 캡: CFG.NAMESPACE_MAX_LENGTH (기본 120)
+      - 폴백명: CFG.NAMESPACE_FALLBACK_NAME (기본 'ns_default')
+    """
+    s = (raw or "").strip()
+    if not s:
+        return _cfg_str("NAMESPACE_FALLBACK_NAME", default="ns_default") or "ns_default"
+
+    # 1) 경로 구분자 → '_' 치환
+    s = s.replace("\\", "/")
+    s = re.sub(r"/+", "_", s)
+
+    # 2) 허용 문자만 유지(그 외는 '_'), 한글 \uAC00-\uD7A3 포함
+    s = re.sub(rf"[^A-Za-z0-9\uAC00-\uD7A3._-]+", "_", s)
+
+    # 3) 연속 '_' 압축
+    s = re.sub(r"_+", "_", s)
+
+    # 4) 선두/말미 위험 문자 제거
+    s = s.strip("._-")
+
+    # 5) 소문자 옵션
+    if _cfg_bool("NAMESPACE_LOWERCASE", default=True):
+        s = s.lower()
+
+    # 6) 비어버렸다면 폴백
+    if not s:
+        s = _cfg_str("NAMESPACE_FALLBACK_NAME", default="ns_default") or "ns_default"
+
+    # 7) 길이 캡
+    max_len = max(1, _cfg_int("NAMESPACE_MAX_LENGTH", default=120))
+    if len(s) > max_len:
+        s = s[:max_len].rstrip("._-")
+        if not s:
+            s = _cfg_str("NAMESPACE_FALLBACK_NAME", default="ns_default") or "ns_default"
+
+    return s
+
+# 과거 호환용 비공개 별칭
+_sanitize_ns = sanitize_ns
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # JSON-safe 변환(바이너리 → base64) 헬퍼
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1115,31 +1166,57 @@ def _enrich_raw_content(results: List[Dict[str, Any]]) -> None:
             continue
 
 # -----------------------------------------------------------------------------
-# persist_directory 해석
+# persist_directory 해석 (ns 안전화 + 다양한 케이스 보정)
 # -----------------------------------------------------------------------------
-def _resolve_persist_dir(namespace: str, persist_directory: Optional[str]) -> str:
+def _resolve_persist_dir(
+    namespace: str,
+    persist_directory: Optional[Union[str, Path]],
+) -> str:
     """
-    persist_directory가 주어지면 그대로 사용.
-    아니면 CHROMA_DIR/ENV/기본(DATA_DIR/chroma_store/<ns>) 규칙으로 경로를 결정.
+    경로 결정 우선순위
+      1) persist_directory 인자(leaf 혹은 base 모두 허용)
+      2) CFG.CHROMA_DIR (leaf 혹은 base 모두 허용)
+      3) DATA_DIR / 'chroma_store' / <ns>
+
+    - namespace 는 파일시스템 안전 문자열로 정규화한다.
+    - leaf(이미 <ns>로 끝남)면 그대로 사용, base면 /<ns>를 붙인다.
+    - 최종 경로를 생성(parents=True, exist_ok=True).
     """
+    # 공개 sanitizer 사용
+    ns = sanitize_ns(namespace)
+
+    def _attach_leaf(base: Path) -> Path:
+        # base가 이미 ns로 끝나면 leaf로 간주
+        if base.name == ns:
+            return base
+        # 흔한 루트명(chroma / chroma_store)면 ns를 붙임
+        if base.name in {"chroma", "chroma_store"}:
+            return base / ns
+        # 상위가 chroma_store인 케이스도 ns를 붙임
+        if base.parent.name == "chroma_store":
+            return base.parent / ns if base.name != ns else base
+        # 일반 base면 ns를 붙임
+        return base / ns
+
+    # 1) 명시 persist_directory
     if persist_directory is not None:
-        s = persist_directory.strip()
-        if s:
-            return s
+        base = Path(persist_directory).expanduser()
+        out = _attach_leaf(base)
+        out.mkdir(parents=True, exist_ok=True)
+        return str(out)
 
-    # CFG.CHROMA_DIR 우선 → 기본(DATA_DIR/chroma_store/ns)
-    chroma_dir = _cfg_str("CHROMA_DIR", default="")
-    if chroma_dir is not None:
-        s = chroma_dir.strip()
-        if s:
-            p = Path(s)
-            if p.name == namespace:
-                return str(p)
-            if p.parent.name == "chroma_store":
-                return str(p.parent / namespace)
-            return str(p / namespace)
+    # 2) CFG.CHROMA_DIR
+    chroma_dir = (_cfg_str("CHROMA_DIR", default="") or "").strip()
+    if chroma_dir:
+        base = Path(chroma_dir).expanduser()
+        out = _attach_leaf(base)
+        out.mkdir(parents=True, exist_ok=True)
+        return str(out)
 
-    return str(DATA_DIR / "chroma_store" / namespace)
+    # 3) 기본 경로
+    out = (DATA_DIR / "chroma_store" / ns)
+    out.mkdir(parents=True, exist_ok=True)
+    return str(out)
 
 # -----------------------------------------------------------------------------
 # 공개 심볼
@@ -1161,6 +1238,8 @@ __all__ = [
     "_apply_gatekeep_to_results",
     "_load_web_page", "_enrich_raw_content",
     "_resolve_persist_dir",
+    # 공개 네임스페이스 정규화 API
+    "sanitize_ns", "_sanitize_ns",
     "_RECENTLY_CLEARED", "_FRESH_KEYS","_host_only",
     # 신규 공개 헬퍼
     "normalize_or_block_intermediate_news",

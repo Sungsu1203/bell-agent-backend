@@ -12,7 +12,7 @@ from core.paths import current_path, now_str as _now_str
 from core.state_types import State
 from core.models import Task
 from utils.sanitize import sanitize_state, as_int
-from utils.rag_utils import merge_refs
+from utils.rag_utils import merge_refs, is_qa_like, set_direct_qa_flag, mark_qa_answer_ready, clear_qa
 from utils.query_filters import (
     strip_web_filters as _strip_web_filters,
     looks_like_local_glob as _looks_like_local_glob,
@@ -20,7 +20,7 @@ from utils.query_filters import (
     ok_query as _ok_query,
 )
 from prompts import get_vector_search_prompt
-from utils.tasks import has_pending, iter_tool_calls, schedule_writer_if_needed
+from utils.tasks import has_pending, iter_tool_calls, schedule_writer_if_needed_legacy as schedule_writer_if_needed
 from utils.outline import get_topic_outline_text
 from tools.web_rag import (
     retrieve,
@@ -28,6 +28,13 @@ from tools.web_rag import (
     web_page_json_to_documents,
     ensure_vector_store_cleared_once,
     _default_chroma_dir,
+)
+# URL/NS/경로 유틸(공식)
+from tools.web_rag.utils import (
+    sanitize_ns as _wr_sanitize_ns,
+    _resolve_persist_dir as _wr_resolve_persist_dir,
+    normalize_url as _wr_normalize_url,
+    _host_only as _wr_host_only,
 )
 from tools.local_rag import ingest_local_files
 from utils.text_utils import plain_snip as _plain_snip
@@ -114,11 +121,8 @@ def _ell(s: str, n: Optional[int] = None) -> str:
     return (s[:n-1] + "…") if len(s) > n else s
 
 def _host(u: str) -> str:
-    try:
-        from urllib.parse import urlparse
-        return (urlparse(u).netloc or "").lower()
-    except Exception:
-        return ""
+    # 안전 호스트 추출(경로 혼입 방지) — 공통 유틸 사용
+    return _wr_host_only(u)
 
 def _raw_title(d: Any) -> str:
     meta = getattr(d, "metadata", {}) or {}
@@ -145,20 +149,9 @@ def _doc_score(d: Any):
     return s
 
 # URL 정규화(추적 파라미터 제거 + fragment 제거 + 소문자 + 트레일링 슬래시 제거)
-from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
-_TRACKING = {"utm_source","utm_medium","utm_campaign","utm_term","utm_content","gclid","fbclid","igsh","mc_cid","mc_eid"}
 def _normalize_url(u: str) -> str:
-    try:
-        pu = urlparse((u or "").strip())
-        qs = [(k, v) for k, v in parse_qsl(pu.query, keep_blank_values=False)
-              if k.lower() not in _TRACKING]
-        base = urlunparse((pu.scheme or "https",
-                           (pu.netloc or "").replace("m.","www.").lower(),
-                           (pu.path or "/"),
-                           "", urlencode(qs, doseq=True), ""))  # drop fragment
-        return base.rstrip("/")
-    except Exception:
-        return (u or "").strip().lower().rstrip("/")
+    # 규칙 일원화: tools.web_rag.utils.normalize_url 사용
+    return _wr_normalize_url(u)
 
 def _dedupe_docs(docs: list[Any]) -> list[Any]:
     """(normalized url, lowered title) 키로 문서 중복 제거."""
@@ -248,8 +241,14 @@ def _dual_retrieve(query: str, *, top_k: int, ns_default: str, persist_dir: str)
     mode = (_cfg_str("MERGE_RETRIEVE_MODE", "web_first") or "web_first").lower()
 
     # persist_directory 일관성: 외부 인자가 있으면 모든 NS에 동일 적용, 없으면 기본 규칙
-    def _dir_for(ns: str) -> str:
-        return persist_dir.strip() if (persist_dir and persist_dir.strip()) else _default_chroma_dir(ns)
+    def _dir_for(ns_name: str) -> str:
+        """
+        persist_directory 인자가 주어졌다면 모든 NS에 동일 규칙을 적용하되,
+        최종 경로는 _resolve_persist_dir로 일관 생성한다.
+        """
+        base = persist_dir.strip() if (persist_dir and str(persist_dir).strip()) else _default_chroma_dir(ns_name)
+        # ns_name은 반드시 sanitize된 값이어야 함
+        return _wr_resolve_persist_dir(ns_name, base)
 
     # ◀︎ 개선: base 컬렉션이 비어 있으면 include_base 비활성화
     include_base = False
@@ -282,16 +281,16 @@ def _dual_retrieve(query: str, *, top_k: int, ns_default: str, persist_dir: str)
             return []
 
     # 내부 헬퍼
-    def _get(ns: str, k: int) -> List[Any]:
+    def _get(ns_name: str, k: int) -> List[Any]:
         if k <= 0:
             return []
         try:
             return retrieve.invoke({
-                "query": query, "namespace": ns,
-                "persist_directory": _dir_for(ns), "top_k": k
+                "query": query, "namespace": ns_name,
+                "persist_directory": _dir_for(ns_name), "top_k": k
             }) or []
         except Exception as e:
-            logger.warning("retrieve 실패(ns='%s'): %s", ns, e)
+            logger.warning("retrieve 실패(ns='%s'): %s", ns_name, e)
             return []
 
     # 1) (공통) 웹/로컬 조회
@@ -412,8 +411,7 @@ def vector_search_agent(state: State):
         # 과거 선세팅 잔여치가 남아있다면 방지
         flags_mm0.pop("qa_direct_reply", None)
         flags_mm0.pop("suppress_writer", None)
-        logger.debug("[vector_search][direct_qa] intent=1 (qa_direct_reply will be set only when reply is generated)")
-
+        logger.debug("[vector_search][direct_qa] intent=1 (qa_direct_reply will be set only after answer is generated)")
 
     tasks = state.get("task_history", []) or []
     messages = state.get("messages", []) or []
@@ -456,14 +454,20 @@ def vector_search_agent(state: State):
     refs_qs = list(references.get("queries") or [])
 
     # Namespace & persist dir
-    topic_slug: str = (state.get("topic_slug") or getattr(config.CFG, "TOPIC_SLUG", "") or "default").strip()
-    env_ns = (_cfg_str("CHROMA_NAMESPACE", "") or "").strip()
-    ns: str = env_ns or f"{topic_slug}-default"
-    persist_dir = _default_chroma_dir(ns)
+    topic_slug_raw: str = (state.get("topic_slug") or getattr(config.CFG, "TOPIC_SLUG", "") or "default").strip()
+    env_ns_raw = (_cfg_str("CHROMA_NAMESPACE", "") or "").strip()
+    # ▶︎ 네임스페이스 정규화(일관 규칙)
+    topic_slug = _wr_sanitize_ns(topic_slug_raw)
+    env_ns    = _wr_sanitize_ns(env_ns_raw) if env_ns_raw else ""
+    ns: str   = env_ns or _wr_sanitize_ns(f"{topic_slug}-default")
+    # ▶︎ persist_dir도 공식 규칙으로 결정(leaf/base 모두 허용)
+    persist_dir = _wr_resolve_persist_dir(ns, _default_chroma_dir(ns))
 
     # ── [ANCHOR: NS_POLICY_INIT] 웹/로컬 NS 병합 정책(환경변수 우선) ─────────────
-    ns_web = (_cfg_str("CHROMA_NAMESPACE_WEB", "") or "").strip()
-    ns_loc = (_cfg_str("CHROMA_NAMESPACE_LOCAL", "") or "").strip()
+    ns_web_raw = (_cfg_str("CHROMA_NAMESPACE_WEB", "") or "").strip()
+    ns_loc_raw = (_cfg_str("CHROMA_NAMESPACE_LOCAL", "") or "").strip()
+    ns_web = _wr_sanitize_ns(ns_web_raw) if ns_web_raw else ""
+    ns_loc = _wr_sanitize_ns(ns_loc_raw) if ns_loc_raw else ""
     merge_mode = (_cfg_str("MERGE_RETRIEVE_MODE", "web_first") or "web_first").lower()
     web_ratio = _cfg_float("RETRIEVE_WEB_RATIO", 0.5)
     include_base = _cfg_bool("CHROMA_INCLUDE_BASE", False)
@@ -517,7 +521,7 @@ def vector_search_agent(state: State):
     chroma["ns"], chroma["dir"] = ns, persist_dir
 
     logger.info("[vector_search] ns=%s (CHROMA_NAMESPACE=%r, topic_slug=%r)", ns, env_ns, topic_slug)
-    logger.info("[vector_search] persist_dir(default_resolve)=%s", persist_dir)
+    logger.info("[vector_search] persist_dir(resolved)=%s", persist_dir)
 
     TOP_K = _cfg_int("RAG_TOP_K", 5)
 
@@ -580,20 +584,34 @@ def vector_search_agent(state: State):
         flags_boot["smoke_retrieve_done"] = True
 
         if not hits:
-            # 전부 실패 → 라우팅 중단 + 안내
-            note = (
-                "[VECTOR SEARCH AGENT] 스모크 조회 결과, 인덱스에서 적합한 문서를 찾지 못했습니다.\n"
-                "- 점검 사항: (1) 네임스페이스/저장 경로, (2) 로컬 인제스트 수행 여부, (3) 웹 검색 후 인덱싱 상태\n"
-                "- 제안: web_search_agent 실행 또는 LOCAL_RAG_GLOBS 설정 후 재인제스트를 시도하세요."
-            )
-            messages.append(AIMessage(content=note))
-            logger.warning("[smoke] all queries miss → stop routing (ns=%s dir=%s)", ns, persist_dir)
-            # 조기 종료(라우팅 stop)
-            pending.done = True
-            pending.done_at = _now_str()
-            # 선택: 상위 라우터가 참조할 수 있게 플래그 남김
-            flags_boot["routing_stopped_by_smoke"] = True
-            return {"messages": messages, "task_history": tasks}
+            # 전부 실패
+            # ▶ DIRECT_QA가 켜져 있으면 스모크 실패만으로 중단하지 않고,
+            #    곧이어 진행될 사용자 질의(DQ) 경로로 계속 진행한다.
+            _direct_qa_on = False
+            try:
+                _direct_qa_on = bool(getattr(config.CFG, "DIRECT_QA", False))
+            except Exception:
+                _direct_qa_on = False
+
+            if _direct_qa_on:
+                logger.warning(
+                    "[smoke] all queries miss, but DIRECT_QA=True → continue to user-query path "
+                    "(ns=%s dir=%s)", ns, persist_dir
+                )
+                # 중단하지 않고 아래 일반 흐름으로 진행
+            else:
+                # 조기 종료(라우팅 stop) + 안내
+                note = (
+                    "[VECTOR SEARCH AGENT] 스모크 조회 결과, 인덱스에서 적합한 문서를 찾지 못했습니다.\n"
+                    "- 점검 사항: (1) 네임스페이스/저장 경로, (2) 로컬 인제스트 수행 여부, (3) 웹 검색 후 인덱싱 상태\n"
+                    "- 제안: web_search_agent 실행 또는 LOCAL_RAG_GLOBS 설정 후 재인제스트를 시도하세요."
+                )
+                messages.append(AIMessage(content=note))
+                logger.warning("[smoke] all queries miss → stop routing (ns=%s dir=%s)", ns, persist_dir)
+                pending.done = True
+                pending.done_at = _now_str()
+                flags_boot["routing_stopped_by_smoke"] = True
+                return {"messages": messages, "task_history": tasks}
         
         else:
             # ── [DIRECT QA 게이트] 스모크 hit 중 최상위 스코어가 임계 이상이면 communicator 우선
@@ -806,7 +824,8 @@ def vector_search_agent(state: State):
 
             _flags = state.get("flags") or {}
             if _has_writer_pending(tasks) and _flags.get("pending_write_title"):
-                state["qa_direct_reply"] = False
+                # writer 대기 시 직답 모드 사용하지 않음
+                clear_qa(cast(MutableMapping[str, Any], state))
                 logger.info("[vector_search] writer pending detected → skip Direct QA generation; hand off to writer.")
                 pending.done = True; pending.done_at = _now_str()
                 return {"messages": messages, "task_history": tasks, "references": references}
@@ -833,16 +852,12 @@ def vector_search_agent(state: State):
                             _writer_waiting = _has_writer_pending(tasks) and flags_now.get("pending_write_title")
                             if _writer_waiting:
                                 # writer가 대기 중이면 직답 모드를 켜지 않음
-                                flags_now["qa_direct_reply"] = False
+                                clear_qa(cast(MutableMapping[str, Any], state))
                                 logger.info("[vector_search] writer pending detected → skip qa_direct_reply; hand off to writer.")
                             else:
                                 messages.append(AIMessage(content=reply_text))
-                                # ✅ 실제 답변 생성 성공 → 이 시점에서만 직답 모드 on
-                                flags_now["qa_direct_reply"] = True
-                                flags_now["suppress_writer"] = True
-                                # 직답 의도 플래그는 소모 처리(선택)
-                                if flags_now.get("direct_qa_intent"):
-                                    flags_now.pop("direct_qa_intent", None)
+                                # ✅ 실제 답변 생성 성공 시점에만 직답 승격
+                                mark_qa_answer_ready(cast(MutableMapping[str, Any], state), reply_text)
                                 state["new_url_count"] = as_int(state, "new_url_count", 0)
                                 state["new_url_count_round"] = as_int(state, "new_url_count_round", 0)
                                 state["round_new_urls"] = as_int(state, "round_new_urls", 0)
@@ -873,6 +888,8 @@ def vector_search_agent(state: State):
                                     "qa_direct_reply": bool(cast(MutableMapping[str, Any], state.get("flags", {})).get("qa_direct_reply"))}
                         except Exception as e:
                             logger.warning("QA 요약 생성 실패: %s", e)
+                            # 요약 실패 시 직답 상태 정리
+                            clear_qa(cast(MutableMapping[str, Any], state))
 
             if not ALLOW_SUMMARY and _cfg_bool("AUTO_WRITE_DURING_RESEARCH", False):
                 schedule_writer_if_needed(
