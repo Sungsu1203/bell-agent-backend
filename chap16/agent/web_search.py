@@ -228,13 +228,57 @@ def web_search_agent(state: MutableMapping[str, Any]):
     logger.info("[web_search] ns=%s (CHROMA_NAMESPACE=%r, topic_slug=%r)", ns, env_ns or "-", topic_slug)
     logger.info("[web_search] persist_dir(default_resolve)=%s", persist_dir)
 
-    # --- (1) Get Task ------------------------------------------------------
-    tasks = state.get("task_history", [])
-    if not tasks:
-        raise ValueError("Task history is empty.")
-    pending = next((t for t in reversed(tasks) if (not t.done) and t.agent == "web_search_agent"), None)
+    # --- (1) Get/Ensure Task ------------------------------------------------
+    # 하드 예외 → 소프트 가드: 태스크 없으면 즉석 생성하여 진행
+    # task_history에는 Task 또는 dict 형태가 혼재할 수 있으므로 Union으로 명시
+    tasks: list[Task | Dict[str, Any]] = list(state.get("task_history", []) or [])
+    pending: Task | Dict[str, Any] | None = next(
+        (t for t in reversed(tasks)
+         if (not getattr(t, "done", True)) and getattr(t, "agent", "") == "web_search_agent"),
+        None
+    )
     if pending is None:
-        raise ValueError(f"web_search_agent pending task missing. Last task: {tasks[-1]}")
+        new_task: Task | Dict[str, Any]
+        try:
+            new_task = Task(
+                agent="web_search_agent",
+                done=False,
+                description="auto-created: pending missing",
+                done_at="",
+            )
+        except Exception:
+            # Task가 dataclass/TypedDict 등 다양한 구현일 수 있어 dict 폴백
+            new_task = {
+                "agent": "web_search_agent",
+                "done": False,
+                "description": "auto-created: pending missing",
+                "done_at": "",
+            }
+        tasks.append(new_task)
+        state["task_history"] = tasks
+        logger.warning("[web_search_agent] pending task was missing → auto-created (soft-guard)")
+        pending = new_task  # 이후 로직에서 description 등을 사용하므로 지정
+
+    # --- Task attribute access helpers (support dataclass and dict) ----------
+    from typing import Any as _Any
+    def _task_get(t: _Any, key: str, default: _Any = None) -> _Any:
+        try:
+            return getattr(t, key)  # dataclass/obj
+        except Exception:
+            try:
+                return t.get(key, default) if isinstance(t, dict) else default
+            except Exception:
+                return default
+
+    def _task_set(t: _Any, key: str, value: _Any) -> None:
+        try:
+            if hasattr(t, key):
+                setattr(t, key, value)     # dataclass/obj
+                return
+        except Exception:
+            pass
+        if isinstance(t, dict):
+            t[key] = value                 # dict
 
     web_search_system_prompt = get_web_search_prompt()
     messages = state.get("messages", [])
@@ -249,7 +293,7 @@ def web_search_agent(state: MutableMapping[str, Any]):
     }
 
     outline_text = get_topic_outline_text(state)
-    mission = (pending.description or "").strip()
+    mission = str(_task_get(pending, "description", "") or "").strip()
 
     inputs = {
         "mission": mission,
@@ -674,14 +718,16 @@ def web_search_agent(state: MutableMapping[str, Any]):
                         or (_extract_year_from_url((it.get("url") or it.get("source") or "")) or YEAR_FLOOR) >= YEAR_FLOOR
                     ]
                     # (b) 권위/잡음 가중치 + 연식 기반 정렬(내림차순)
-                    _items_all = [it for it in _items_all if isinstance(it, dict)]
-                    # enumerate로 idx 제공(성능/안정성)
-                    _items_all = sorted(
-                        ((i, it) for i, it in enumerate(_items_all)),
+                    # dict 항목만 유지하고, 정렬은 (idx, dict) 쌍으로 계산한 뒤 dict 리스트로 복원
+                    _items_dicts: list[dict] = [it for it in _items_all if isinstance(it, dict)]
+                    # enumerate 결과는 (int, dict) 튜플 → 별도 변수에 담아 타입 혼동 방지
+                    ranked_pairs: list[tuple[int, dict]] = sorted(
+                        [(i, it) for i, it in enumerate(_items_dicts)],
                         key=lambda pair: _item_rank(pair[1], idx=pair[0]),
-                        reverse=True
+                        reverse=True,
                     )
-                    _items_all = [it for _, it in _items_all]
+                    # 최종적으로 list[dict] 형태 보장
+                    _items_all = [it for _, it in ranked_pairs]
 
                     # (c) 도메인 정규화 기반 디듀프
                     _seen_norm_urls = set()
@@ -1243,8 +1289,8 @@ def web_search_agent(state: MutableMapping[str, Any]):
         actual, capped, chunk_total, len(queries)
     )
 
-    pending.done = True
-    pending.done_at = _now_str()
+    _task_set(pending, "done", True)
+    _task_set(pending, "done_at", _now_str())
 
     if not has_pending(tasks, "vector_search_agent"):
         desc = "Perform vector search/verification for RAG indexing."

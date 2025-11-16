@@ -177,6 +177,41 @@ def communicator(state: State):
     state = cast(State, sanitize_state(state))
 
     # ─────────────────────────────────────────────────────────────
+    # [FAST PASS — QA 즉시응답 우선 전달]
+    # vector_search가 이미 AIMessage(additional_kwargs["qa_direct_reply"]=True)를
+    # 넣어둔 경우, 커뮤니케이터는 재가공/추가생성 없이 그대로 전달하고 종료.
+    # 프론트가 messages의 마지막 AI를 그대로 표시한다는 전제에서 UX를 단순화.
+    # ─────────────────────────────────────────────────────────────
+    try:
+        _msgs_fast = state.get("messages") or []
+        last_ai = next((m for m in reversed(_msgs_fast) if isinstance(m, AIMessage)), None)
+        if isinstance(last_ai, AIMessage):
+            extra = getattr(last_ai, "additional_kwargs", {}) or {}
+            if isinstance(extra, dict) and (extra.get("qa_direct_reply") is True):
+                logger.info("[communicator] fast passthrough (AIMessage.qa_direct_reply=True)")
+                return {
+                    "messages": _msgs_fast,
+                    "task_history": state.get("task_history") or [],
+                }
+    except Exception as e:
+        logger.debug("[communicator] fast passthrough guard skipped: %s", e)
+
+    # ─────────────────────────────────────────────────────────────
+    # [PASS-THROUGH for Direct QA]
+    # vector_search가 이미 AIMessage를 추가했고 qa_direct_reply=True인 경우
+    # communicator는 추가 생성을 하지 않고 그대로 종료(중복 생성/저장 방지).
+    # ※ 플래그는 변경하지 않음(라우터/후속단 의존 가능성 고려).
+    # ─────────────────────────────────────────────────────────────
+    _flags_pt = dict(state.get("flags") or {})
+    if _flags_pt.get("qa_direct_reply") is True:
+        logger.info("[communicator] passthrough (qa_direct_reply=True)")
+        return {
+            "messages": state.get("messages") or [],
+            "task_history": state.get("task_history") or [],
+        }
+
+
+    # ─────────────────────────────────────────────────────────────
     # [STRICT WRITER GUARD — 최상단]
     # - writer가 pending이면 communicator가 개입/메시지 추가/저장을 하지 않도록 즉시 반환
     # - 단, suppress_writer=True면 우회(직답/안내 허용)

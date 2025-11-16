@@ -48,10 +48,9 @@ from core.state_types import State
 from utils.sanitize import as_int
 from utils.outline import get_topic_outline_text
 from utils.tasks import has_pending
-try:
-    from utils.writer_scheduler import schedule_writer_if_needed  # 실제 구현
-except Exception:
-    schedule_writer_if_needed = None  # 타입/런타임 가드
+# 라우터에서 사용하는 호출 시그니처(state, tasks, *, outline_text=..., messages=..., allow_during_research=..., ...)
+# 에 정확히 맞는 레거시 어댑터를 사용한다.
+from utils.tasks import schedule_writer_if_needed_legacy as schedule_writer_if_needed
 from core.paths import research_resources_dir  # 중앙 경로 유틸 사용
 from utils.rag_utils import set_direct_qa_flag, is_qa_like, clear_qa
 
@@ -356,6 +355,47 @@ def after_web_search_agent(state: State) -> str:
     rag_on_disk = bool(state.get("rag_on_disk"))
     skip_web = _skip_web_search(state)
 
+    # ─────────────────────────────────────────────────────────────
+    # (A/D) Direct QA 콜드스타트 보강:
+    #  - 웹검색 직후 인덱스 증가가 감지되면(added_chunks_* > 0)
+    #  - DIRECT_QA=True 이고 last_user_query 가 있을 때
+    #  - 동일 질의로 vector_search_agent 1회 강제 재실행
+    #  - 재시도 키는 after_web_ws_retries 를 재사용(질문 단위 1회)
+    # ─────────────────────────────────────────────────────────────
+    try:
+        metrics: Dict[str, Any] = dict(cast(dict, state.get("metrics") or {}))
+    except Exception:
+        metrics = {}
+
+    def _i(v: Any) -> int:
+        try:
+            return int(v)
+        except Exception:
+            return 0
+
+    added_chunks_total = (
+        _i(metrics.get("added_chunks_web", 0))
+        + _i(metrics.get("added_chunks_local", 0))
+        + _i(metrics.get("added_chunks_base", 0))
+    )
+    direct_qa = bool((flags or {}).get("DIRECT_QA"))
+    last_q = ""
+    try:
+        v = (flags or {}).get("last_user_query")
+        last_q = v.strip() if isinstance(v, str) else ""
+    except Exception:
+        last_q = ""
+
+    if direct_qa and last_q and added_chunks_total > 0:
+        # 재시도 1회 제한: 내부 헬퍼 사용(typed safely)
+        if _retry_under(state, "after_web_ws_retries", max_times=1):
+            logger.info(
+                "[router.after_web] Direct QA coldstart: index increased (+%d) → vector_search_agent (retry 1/1)",
+                added_chunks_total,
+            )
+            return "vector_search_agent"
+
+
     # 0) writer strict guard — 검색 이후에도 writer가 대기면 우선 라우팅
     if _has_writer_pending_strict(state):
         preferred_writer = _preferred_writer()
@@ -419,20 +459,25 @@ def after_vector_router(state: State) -> str:
     tasks = state.get("task_history", []) or []
     flags = state.get("flags") or {}
 
-    # ── Direct QA 가드: 이미 답변이 준비되어 있으면 communicator로 즉시 전송
-    try:
-        if bool((flags or {}).get("qa_direct_reply", False)):
-            msgs = state.get("messages") or []
-            # 마지막 AI 메시지(content가 비어있지 않으면 OK) 또는 answer/qa_reply가 있으면 충분
-            _has_ai = any(bool(getattr(m, "content", None)) for m in reversed(list(msgs)))
-            _has_ans = bool(str(state.get("answer") or state.get("qa_reply") or "").strip())
-            if _has_ai or _has_ans:
-                logger.info("[router.after_vector] Direct QA ready → route to communicator")
-                return "communicator"
-    except Exception:
-        # 가드는 조용히 폴백
-        pass
-
+    # ── (NEW) Direct QA 패스스루: 플래그가 True면 내용 유무와 무관하게 communicator로 전달
+    if bool((flags or {}).get("qa_direct_reply", False)):
+        logger.info("[router.after_vector] direct_qa=True → communicator (passthrough & clear flags)")
+        # Direct QA 응답 경로를 잡았으므로, 같은 턴/다음 턴에서 writer가 살아나도록 플래그 정리
+        try:
+            # qa_direct_reply / DIRECT_QA 플래그 제거
+            clear_qa(cast(MutableMapping[str, Any], state))
+            # (선택) 디버깅 편의 표식: flags.router.writer_skipped="direct_qa"
+            from typing import Dict, Any
+            flags_typed: Dict[str, Any] = dict(cast(Dict[str, Any], state.get("flags") or {}))
+            router_flags: Dict[str, Any] = dict(cast(Dict[str, Any], flags_typed.get("router") or {}))
+            if "writer_skipped" not in router_flags:
+                router_flags["writer_skipped"] = "direct_qa"
+            flags_typed["router"] = router_flags
+            cast(MutableMapping[str, Any], state)["flags"] = flags_typed
+        except Exception:
+            # 타입/구조 이상 시에도 조용히 통과
+            pass
+        return "communicator"
 
     # 0) 연구 모드 강제 합성 라우팅
     if bool(state.get("research_loop_active")):
@@ -441,23 +486,7 @@ def after_vector_router(state: State) -> str:
         logger.info("[router.after_vector] research_loop_active=True → research_synthesizer (override qa_direct_reply)")
         return "research_synthesizer"
 
-    # Direct QA 가드(보조 경로):
-    # - 위의 즉시 가드에서 답이 없었던 경우에 한해 재시도/정리 로직 수행
-    if (flags or {}).get("qa_direct_reply"):
-        # (답이 준비된 상태) writer 충돌 방지 — suppress_writer는 답 생성 시점에서 이미 켜졌을 수 있음
-        _set_flag(state, "suppress_writer", True)
-        has_reply = bool(state.get("qa_reply")) or bool(_last_ai_message(state))
-        if has_reply:
-            logger.info("[router.after_vector] qa_direct_reply=True & reply found → communicator")
-            return "communicator"
-        # 답이 없으면 — web_search_agent 재시도(최대 1회, after_web_ws_retries 공유)
-        if _retry_under(state, "after_web_ws_retries", max_times=1):
-            logger.info("[router.after_vector] qa_direct_reply=True but no reply → web_search_agent (retry 1/1)")
-            return "web_search_agent"
-        # 재시도 소진: Direct QA 종료(루프 충돌 방지), 벡터로 종료 보고
-        clear_qa(cast(MutableMapping[str, Any], state))
-        logger.info("[router.after_vector] qa_direct_reply exhausted without reply → vector_search_agent (final)")
-        return "vector_search_agent"
+    #   ↑ 위에서 Direct QA는 무조건 communicator로 보냈으므로, 이하 분기는 Direct QA 비활성 시에만 실행
 
     # 1) (옵션) 집필 예약 — 연구 중 허용 플래그로 제어
     if callable(schedule_writer_if_needed):
@@ -491,9 +520,39 @@ def after_vector_router(state: State) -> str:
         logger.info("[router.after_vector] writer pending(write:) → %s", preferred_writer)
         return preferred_writer
 
-    # 2) (이전 가드에서 이미 처리됨) — qa_direct_reply는 위에서 커뮤니케이터로 전환
+    # 2) (Direct QA는 상단에서 이미 처리됨)
 
-    # 3) 연구 루프 조건 충족 시 → synthesizer
+    # 3) refs 비면 웹검색 1회 재시도(공통 가드) — refs/references 혼용 모두 대응
+    # refs / references 둘 다 지원 (견고성 보강)
+    refs_all = (state.get("refs") or {}) or (state.get("references") or {})
+    try:
+        refs_empty = not bool((refs_all.get("docs") or []))
+    except Exception:
+        refs_empty = True
+    if refs_empty:
+        # after_vector 단계의 재시도 카운터를 분리 관리 (가독성/추적성 향상)
+        if _retry_under(state, "after_vector_ws_retries", max_times=1):
+            # ❗ 실제로 web_search_agent 태스크를 추가하여 pending 누락 방지
+            _tasks = list(state.get("task_history") or [])
+            _has_ws_pending = False
+            for t in _tasks:
+                agent = getattr(t, "agent", None) if hasattr(t, "agent") else (t.get("agent") if isinstance(t, dict) else None)
+                done = getattr(t, "done", True) if hasattr(t, "done") else (bool(t.get("done", True)) if isinstance(t, dict) else True)
+                if (agent == "web_search_agent") and (not done):
+                    _has_ws_pending = True
+                    break
+            if not _has_ws_pending:
+                from core.models import Task
+                _tasks.append(Task(agent="web_search_agent", done=False,
+                                   description="router.after_vector: refs empty → rag_update:auto",
+                                   done_at=""))
+                cast(MutableMapping[str, Any], state)["task_history"] = _tasks
+            logger.info("[router.after_vector] refs empty → web_search_agent (retry 1/1, key=after_vector_ws_retries)")
+            return "web_search_agent"
+        logger.info("[router.after_vector] refs empty (retry exhausted) → research_synthesizer")
+        return "research_synthesizer"
+
+    # 4) 연구 루프 조건 충족 시 → synthesizer
     role = (state.get("agent_role") or "").strip().lower()
     rounds_done = as_int(state, "research_round", 0)
     max_iter = as_int(state, "iteration_count", 0)
@@ -503,7 +562,7 @@ def after_vector_router(state: State) -> str:
         logger.info("[router.after_vector] research loop continues → research_synthesizer")
         return "research_synthesizer"
 
-    # 4) 그 외 → tail router
+    # 5) 그 외 → tail router
     nxt = tail_task_router(state)
     logger.info("[router.after_vector] fallback → %s", nxt)
     return nxt

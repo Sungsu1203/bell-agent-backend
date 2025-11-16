@@ -12,7 +12,14 @@ from core.paths import current_path, now_str as _now_str
 from core.state_types import State
 from core.models import Task
 from utils.sanitize import sanitize_state, as_int
-from utils.rag_utils import merge_refs, is_qa_like, set_direct_qa_flag, mark_qa_answer_ready, clear_qa
+from utils.rag_utils import (
+    merge_refs,
+    is_qa_like,
+    set_direct_qa_flag,
+    mark_qa_answer_ready,
+    clear_qa,
+    refs_preview_text as _refs_preview_text,
+)
 from utils.query_filters import (
     strip_web_filters as _strip_web_filters,
     looks_like_local_glob as _looks_like_local_glob,
@@ -41,13 +48,71 @@ from utils.text_utils import plain_snip as _plain_snip
 
 from utils.ref_format import format_ref_for_log
 
-from typing import Callable, Optional
+from typing import Callable, Optional, TYPE_CHECKING
 from pathlib import Path
 
 try:
     from tools.metrics import record_retrieval_source as _record_retrieval_source  # pyright: ignore[reportMissingImports]
 except Exception:
     _record_retrieval_source = None  # type: ignore[assignment]
+
+# ── QA 최소 응답 보장 유틸(Direct QA 실패 시에도 메시지 생성) ────────────────
+def _emit_min_qa(
+    state: MutableMapping[str, Any],
+    references: "Refs",
+    messages: list[Any],
+    *,
+    reason: str = ""
+) -> None:
+    try:
+        used_refs = _refs_preview_text(cast(Mapping[str, Any], references)) if (references.get("docs") or []) else ""
+    except Exception:
+        used_refs = ""
+    if used_refs:
+        answer_text = (
+            "핵심 근거를 토대로 간단히 답합니다. 상세 근거는 이어서 보강하겠습니다.\n\n"
+            "현재 확보 근거 미니요약:\n" + used_refs
+        )
+    else:
+        answer_text = (
+            "현재 확보된 근거가 부족해 신뢰도 높은 직답을 구성하기 어렵습니다. "
+            "웹 소스를 보강하는 동안 우선 요지를 안내드립니다."
+        )
+    messages.append(
+        AIMessage(
+            content=answer_text,
+            additional_kwargs={
+                "role": "qa",
+                "qa_direct_reply": True,
+                "refs_preview": used_refs,
+                "reason": (reason or "direct_qa_min_response"),
+            },
+        )
+    )
+    # 플래그 세팅: 직답 완료로 간주(작성기는 잠시 억제)
+    flags_now = cast(MutableMapping[str, Any], state.setdefault("flags", {}))
+    flags_now["qa_direct_reply"] = True
+    flags_now["suppress_writer"] = True
+    state["flags"] = dict(flags_now)
+    state["messages"] = messages
+    # 라우터 힌트
+    cast(MutableMapping[str, Any], state)["next_agent"] = "communicator"
+
+
+# ── Optional runtime hooks from tools.web_rag.ingest (safe optional binding) ──
+#   - mypy `no-redef` 회피: 임시 이름으로 import → 사전 선언 변수에 대입
+_get_collection_count: Optional[Callable[[str, str], int]] = None
+_has_any_docs: Optional[Callable[[str, str], bool]] = None
+try:
+    from tools.web_rag.ingest import get_collection_count as _ingest_get_collection_count  # noqa: F401
+    from tools.web_rag.ingest import has_any_docs as _ingest_has_any_docs  # noqa: F401
+    _get_collection_count = _ingest_get_collection_count
+    _has_any_docs = _ingest_has_any_docs
+except Exception:
+    # 두 훅은 선택 사항이므로 실패해도 무시
+    _get_collection_count = None
+    _has_any_docs = None
+
 
 def record_retrieval_source(
     web_cnt: int,
@@ -75,7 +140,14 @@ def _to_refs(raw: Mapping[str, Any] | None) -> Refs:
             "docs":    list(cast(List[Any], raw.get("docs") or []))}
 
 def get_refs(state: Mapping[str, Any]) -> Refs:
-    return _to_refs(cast(Mapping[str, Any] | None, state.get("references")))
+    """
+    호환성 유지: 우선 refs → references 순으로 조회.
+    일부 경로가 refs만 갱신하거나 references만 갱신하는 문제를 방지.
+    """
+    raw = cast(Mapping[str, Any] | None, state.get("refs"))
+    if not raw:
+        raw = cast(Mapping[str, Any] | None, state.get("references"))
+    return _to_refs(raw)
 
 # ── config helpers (env → CFG → module default) ───────────────────────────────
 def _cfg_str(name: str, default: str = "") -> str:
@@ -121,8 +193,11 @@ def _ell(s: str, n: Optional[int] = None) -> str:
     return (s[:n-1] + "…") if len(s) > n else s
 
 def _host(u: str) -> str:
-    # 안전 호스트 추출(경로 혼입 방지) — 공통 유틸 사용
-    return _wr_host_only(u)
+    # 안전 호스트 추출(경로 혼입 방지) — 정규화 후 host-only
+    try:
+        return _wr_host_only(_wr_normalize_url(u))
+    except Exception:
+        return _wr_host_only(u)
 
 def _raw_title(d: Any) -> str:
     meta = getattr(d, "metadata", {}) or {}
@@ -250,22 +325,18 @@ def _dual_retrieve(query: str, *, top_k: int, ns_default: str, persist_dir: str)
         # ns_name은 반드시 sanitize된 값이어야 함
         return _wr_resolve_persist_dir(ns_name, base)
 
-    # ◀︎ 개선: base 컬렉션이 비어 있으면 include_base 비활성화
-    include_base = False
-    if include_base_cfg:
-        base_ns = ns_default
-        base_dir = _dir_for(base_ns)
+    # ◀︎ 변경: 사용자가 CHROMA_INCLUDE_BASE=1 을 지정한 경우,
+    #          컬렉션 비어있어도 include_base를 유지(초기 빈약 문제 완화).
+    include_base = bool(include_base_cfg)
+    if include_base:
         try:
+            base_ns = ns_default
+            base_dir = _dir_for(base_ns)
             cnt = _collection_count(base_ns, base_dir)
-            include_base = (cnt > 0)
-            if not include_base:
-                logger.debug("[dual-retrieve] base collection empty (ns=%s dir=%s) → include_base=False", base_ns, base_dir)
-            else:
-                logger.debug("[dual-retrieve] base collection count=%s (ns=%s) → include_base=True", cnt, base_ns)
+            logger.debug("[dual-retrieve] base collection count=%s (ns=%s dir=%s) | include_base=%s",
+                         cnt, base_ns, base_dir, include_base)
         except Exception as e:
-            # 불명일 땐 보수적으로 끔(불필요한 0건 조회 방지)
-            include_base = False
-            logger.debug("[dual-retrieve] base collection check failed → include_base=False (%s)", e)
+            logger.debug("[dual-retrieve] base collection check skipped: %s | include_base=%s", e, include_base)
 
 
     # 0) 아무 것도 없으면 기본 NS만
@@ -375,22 +446,21 @@ def _collection_count(ns: str, persist_dir: str) -> int:
     - 없으면 has_any_docs로 0/1만 판정
     - 실패 시 -1 반환(불명)
     """
+    # 1) 명시적 카운트 함수가 있으면 그것을 사용
     try:
-        # 최우선: 명시적 카운트 함수
-        from tools.web_rag.ingest import get_collection_count as _gcc  # type: ignore
-        try:
-            return int(_gcc(ns, persist_dir))
-        except Exception:
-            pass
+        if callable(_get_collection_count):
+            return int(_get_collection_count(ns, persist_dir))
     except Exception:
         pass
+    # 2) 폴백: 존재 여부만 체크(있으면 1, 없으면 0)
     try:
-        # 폴백: 존재 여부만 체크(있으면 1, 없으면 0)
-        from tools.web_rag.ingest import has_any_docs as _had  # type: ignore
-        ok = bool(_had(ns, persist_dir))
-        return 1 if ok else 0
+        if callable(_has_any_docs):
+            ok = bool(_has_any_docs(ns, persist_dir))
+            return 1 if ok else 0
     except Exception:
-        return -1
+        pass
+    # 3) 불명
+    return -1
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -483,15 +553,20 @@ def vector_search_agent(state: State):
         "include_base": include_base,
     })
 
-    # [P0-5] base 컬렉션이 비어 있으면 include_base 비활성화
+    # [변경] base 컬렉션이 비어 있어도, 사용자가 CHROMA_INCLUDE_BASE=1이면 유지
     try:
-        from tools.web_rag.ingest import has_any_docs as _has_any_docs
-        if callable(_has_any_docs) and not _has_any_docs(ns, persist_dir):
-            include_base = False
-            chroma["include_base"] = False
-            logger.debug("[vector_search] base collection empty → include_base=False (ns=%s)", ns)
+        want_include = _cfg_bool("CHROMA_INCLUDE_BASE", False)
+        if callable(_has_any_docs):
+            has_base = bool(_has_any_docs(ns, persist_dir))
+            if not has_base and not want_include:
+                include_base = False
+                chroma["include_base"] = False
+                logger.debug("[vector_search] base empty & CHROMA_INCLUDE_BASE=0 → include_base=False (ns=%s)", ns)
+            else:
+                logger.debug("[vector_search] base %s, CHROMA_INCLUDE_BASE=%s → include_base=%s",
+                             "present" if has_base else "empty", want_include, include_base)
     except Exception as e:
-        logger.debug("[vector_search] base collection check skipped: %s", e)
+        logger.debug("[vector_search] base presence check skipped: %s | include_base=%s", e, include_base)
 
     # 양쪽(NS_WEB/NS_LOCAL) 모두 설정되어 있고 include_base가 꺼져 있으면
     # 기본 NS에서도 부족분을 보충하도록 안내 로그(정책 확인용)
@@ -501,6 +576,32 @@ def vector_search_agent(state: State):
 
     logger.info("[vector_search][ns_policy] ns(web)=%r ns(local)=%r base=%r | mode=%s ratio=%.2f",
                 ns_web or "-", ns_loc or "-", ns, merge_mode, web_ratio)
+
+    # ── 비어있는 컬렉션 자동 스킵(환경으로 on/off) ─────────────────────────
+    _skip_empty = _cfg_bool("RETRIEVE_SKIP_EMPTY_NS", True)
+    if _skip_empty:
+        try:
+            def _cnt(_ns: str) -> int:
+                if not _ns: return 0
+                return _collection_count(_ns, _wr_resolve_persist_dir(_ns, _default_chroma_dir(_ns)))
+            _web_cnt  = _cnt(ns_web)
+            _loc_cnt  = _cnt(ns_loc)
+            _base_cnt = _cnt(ns)
+            logger.info("[vector_search][ns_counts] web=%s local=%s base=%s", _web_cnt, _loc_cnt, _base_cnt)
+            # 실제 문서가 0이면 해당 NS 비활성화
+            if ns_web and _web_cnt <= 0:
+                logger.info("[vector_search] web ns empty → skip web retrieve (ns=%s)", ns_web)
+                ns_web = ""
+            if ns_loc and _loc_cnt <= 0:
+                logger.info("[vector_search] local ns empty → skip local retrieve (ns=%s)", ns_loc)
+                ns_loc = ""
+            # base가 비면 include_base는 끔(아래 로직과 일관)
+            # base=0이어도 사용자가 CHROMA_INCLUDE_BASE=1이면 유지
+            if _base_cnt <= 0 and not _cfg_bool("CHROMA_INCLUDE_BASE", False):
+                include_base = False
+                chroma["include_base"] = False
+        except Exception as e:
+            logger.debug("[vector_search] ns count check skipped: %s", e)
 
 
     # 웹/로컬 네임스페이스가 있으면 1회 초기화 가드도 양쪽 적용
@@ -671,7 +772,13 @@ def vector_search_agent(state: State):
 
                     # 답변이 생성되었으면 messages에 추가하고 Direct QA 플래그를 확실히 세움
                     if reply_text:
-                        messages.append(AIMessage(content=reply_text))
+                        # 메시지 객체에도 직답 플래그를 명시하여 다운스트림이 확실히 감지하도록 한다.
+                        messages.append(
+                            AIMessage(
+                                content=reply_text,
+                                additional_kwargs={"qa_direct_reply": True, "role": "qa"},
+                            )
+                        )
                         state["messages"] = messages
                         # TypedDict(State)에는 명시 키가 없을 수 있으므로 가변 매핑으로 캐스팅 후 기록
                         state_mm = cast(MutableMapping[str, Any], state)
@@ -713,6 +820,7 @@ def vector_search_agent(state: State):
                         "task_history": tasks,
                         "references": references,
                         "qa_direct_reply": True,
+                        "next_agent": "communicator",
                     }
 
 
@@ -748,8 +856,10 @@ def vector_search_agent(state: State):
                 )
                 if l_docs:
                     merged_dict = merge_refs(cast(dict[str, Any], references), [], l_docs)
+                    # ✅ refs / references 동시 반영
+                    cast(MutableMapping[str, Any], state)["refs"] = merged_dict
+                    cast(MutableMapping[str, Any], state)["references"] = merged_dict
                     references = _to_refs(merged_dict)
-                    cast(MutableMapping[str, Any], state)["references"] = references
                 state["local_ingested_once"] = True
     except Exception as e:
         logger.warning("on-demand local ingest 실패: %s", e)
@@ -822,6 +932,25 @@ def vector_search_agent(state: State):
         user_q_clean = _strip_web_filters(user_q)
         user_key = user_q_clean.strip().lower()
 
+    # ── (A) 콜드스타트 대비: 진입 직후 질의 저장 + 질문 변경 시 재시도키 리셋 ─────────────
+    try:
+        # flags/router는 복제 후 수정 → 다시 되돌려쓰기(타입 경고 회피)
+        from typing import Mapping  # 상단 import에 이미 있으면 생략
+        _flags: Dict[str, Any] = dict(cast(Mapping[str, Any] | None, state.get("flags")) or {})
+        _router: Dict[str, Any] = dict(cast(Mapping[str, Any] | None, _flags.get("router")) or {})
+        prev_q: str = (_flags.get("last_user_query") or "").strip()
+        new_q: str = (user_q_clean or "").strip()
+        if new_q:
+            _flags["last_user_query"] = new_q
+            if new_q != prev_q:
+                _router["after_web_ws_retries"] = 0
+        if _router:
+            _flags["router"] = _router
+        cast(MutableMapping[str, Any], state)["flags"] = _flags  # Flags(TypedDict) ← plain dict 재대입
+    except Exception:
+        pass
+
+
     if user_q_clean and (not _is_noise_query(user_q_clean)) and _ok_query(user_q_clean) and (user_key not in ran_queries):
         if _looks_like_local_glob(user_q_clean):
             logger.debug("[FILTER] skip local/glob query: %s", user_q_clean)
@@ -838,8 +967,10 @@ def vector_search_agent(state: State):
             accum_queries.append(user_q_clean); accum_docs.extend(retrieved_docs); ran_queries.add(user_key)
 
             merged_dict = merge_refs(cast(dict[str, Any], references), accum_queries, accum_docs)
+            # ✅ refs / references 동시 반영
+            cast(MutableMapping[str, Any], state)["refs"] = merged_dict
+            cast(MutableMapping[str, Any], state)["references"] = merged_dict
             references = _to_refs(merged_dict)
-            cast(MutableMapping[str, Any], state)["references"] = references
 
             ALLOW_SUMMARY = _cfg_bool("ALLOW_LOCAL_SUMMARY", False)
 
@@ -853,8 +984,10 @@ def vector_search_agent(state: State):
                                and str(getattr(t, "description", "")).startswith("write:")
                                for t in (_tasks or []))
 
-            _flags = state.get("flags") or {}
-            if _has_writer_pending(tasks) and _flags.get("pending_write_title"):
+            # Flags(TypedDict) | dict → 항상 dict[str, Any]로 정규화
+            from typing import Mapping  # (파일 상단에 이미 있으면 이 줄은 생략)
+            flags_now2: Dict[str, Any] = dict(cast(Mapping[str, Any] | None, state.get("flags")) or {})
+            if _has_writer_pending(tasks) and flags_now2.get("pending_write_title"):
                 # writer 대기 시 직답 모드 사용하지 않음
                 clear_qa(cast(MutableMapping[str, Any], state))
                 logger.info("[vector_search] writer pending detected → skip Direct QA generation; hand off to writer.")
@@ -886,8 +1019,13 @@ def vector_search_agent(state: State):
                                 clear_qa(cast(MutableMapping[str, Any], state))
                                 logger.info("[vector_search] writer pending detected → skip qa_direct_reply; hand off to writer.")
                             else:
-                                messages.append(AIMessage(content=reply_text))
-                                # ✅ 실제 답변 생성 성공 시점에만 직답 승격
+                                messages.append(
+                                    AIMessage(
+                                        content=reply_text,
+                                        additional_kwargs={"qa_direct_reply": True, "role": "qa"},
+                                    )
+                                )
+                                # ✅ 실제 답변 생성 성공 시점에만 직답 승격 (state.flags 세팅 포함)
                                 mark_qa_answer_ready(cast(MutableMapping[str, Any], state), reply_text)
                                 state["new_url_count"] = as_int(state, "new_url_count", 0)
                                 state["new_url_count_round"] = as_int(state, "new_url_count_round", 0)
@@ -909,6 +1047,8 @@ def vector_search_agent(state: State):
                                                 done_at=""
                                             )
                                         )
+                                # ✅ Direct QA 성공 → router 힌트로 communicator 지정
+                                cast(MutableMapping[str, Any], state)["next_agent"] = "communicator"
                             pending.done = True; pending.done_at = _now_str()
                             logger.info("[DIRECT QA] %s",
                                         "Summary generated and returning to communicator."
@@ -916,17 +1056,47 @@ def vector_search_agent(state: State):
                                         "Writer pending; suppressed QA handoff (no communicator).")
                             return {"messages": messages, "task_history": tasks,
                                     "references": references,
-                                    "qa_direct_reply": bool(cast(MutableMapping[str, Any], state.get("flags", {})).get("qa_direct_reply"))}
+                                    "qa_direct_reply": bool(cast(MutableMapping[str, Any], state.get("flags", {})).get("qa_direct_reply")),
+                                    "next_agent": "communicator"}
                         except Exception as e:
                             logger.warning("QA 요약 생성 실패: %s", e)
-                            # 요약 실패 시 직답 상태 정리
+                            # 요약 실패 → Direct QA 최소 응답 보장으로 즉시 커밋
                             clear_qa(cast(MutableMapping[str, Any], state))
+                            _emit_min_qa(cast(MutableMapping[str, Any], state), references, messages, reason="summary_failed_min_qa")
+                            pending.done = True; pending.done_at = _now_str()
+                            if not has_pending(tasks, "communicator"):
+                                tasks.append(Task(agent="communicator", done=False, description="Direct QA 최소 응답 전달", done_at=""))
+                            return {
+                                "messages": messages,
+                                "task_history": tasks,
+                                "references": references,
+                                "qa_direct_reply": True,
+                                "next_agent": "communicator",
+                            }
 
             if not ALLOW_SUMMARY and _cfg_bool("AUTO_WRITE_DURING_RESEARCH", False):
                 schedule_writer_if_needed(
                     cast(MutableMapping[str, Any], state),
                     tasks=tasks, messages=messages, outline_text=outline_text, debug=True
                 )
+            # 🔁 ALLOW_SUMMARY=0 이고 Direct QA 의도인데 답변을 못 만든 경우 → 최소 응답 보장
+            try:
+                _dq_on2 = bool(getattr(config.CFG, "DIRECT_QA", False))
+            except Exception:
+                _dq_on2 = False
+            if _dq_on2 and not bool(cast(MutableMapping[str, Any], state.get("flags", {})).get("qa_direct_reply")):
+                logger.warning("[vector_search] Direct QA produced no answer (ALLOW_SUMMARY=0) → MIN QA emit to communicator")
+                _emit_min_qa(cast(MutableMapping[str, Any], state), references, messages, reason="no_summary_min_qa")
+                pending.done = True; pending.done_at = _now_str()
+                if not has_pending(tasks, "communicator"):
+                    tasks.append(Task(agent="communicator", done=False, description="Direct QA 최소 응답 전달", done_at=""))
+                return {
+                    "messages": messages,
+                    "task_history": tasks,
+                    "references": references,
+                    "qa_direct_reply": True,
+                    "next_agent": "communicator",
+                }
     else:
         logger.debug("[SKIP user] q='%s' empty=%s noise=%s ok=%s dup=%s",
                      user_q_clean, not bool(user_q_clean), _is_noise_query(user_q_clean),
@@ -952,8 +1122,10 @@ def vector_search_agent(state: State):
                 accum_queries.append(seed_clean); accum_docs.extend(retrieved_docs); ran_queries.add(seed_key)
 
                 merged_dict = merge_refs(cast(dict[str, Any], references), accum_queries, accum_docs)
+                # ✅ refs / references 동시 반영
+                cast(MutableMapping[str, Any], state)["refs"] = merged_dict
+                cast(MutableMapping[str, Any], state)["references"] = merged_dict
                 references = _to_refs(merged_dict)
-                cast(MutableMapping[str, Any], state)["references"] = references
 
                 flags = cast(MutableMapping[str, Any], state.setdefault("flags", {}))
                 flags["last_user_query"] = seed_raw
@@ -1004,8 +1176,10 @@ def vector_search_agent(state: State):
 
     accum_docs = _dedupe_docs(accum_docs)
     merged_dict = merge_refs(cast(dict[str, Any], references), accum_queries, accum_docs)
+    # ✅ refs / references 동시 반영 (최종 병합도 동일 규칙 적용)
+    cast(MutableMapping[str, Any], state)["refs"] = merged_dict
+    cast(MutableMapping[str, Any], state)["references"] = merged_dict
     references = _to_refs(merged_dict)
-    cast(MutableMapping[str, Any], state)["references"] = references
 
     if _cfg_bool("AUTO_WRITE_DURING_RESEARCH", False):
         schedule_writer_if_needed(cast(MutableMapping[str, Any], state),

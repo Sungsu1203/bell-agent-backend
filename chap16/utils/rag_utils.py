@@ -1,7 +1,7 @@
 # utils/rag_utils.py — dynamic config access (v2025-10-27)
 from __future__ import annotations
 
-from typing import Mapping, Any, List, Sequence, Dict, Optional, cast, TypedDict, MutableMapping
+from typing import Mapping, Any, List, Sequence, Dict, Optional, cast, TypedDict, MutableMapping, Callable
 from langchain_core.documents import Document
 import re, hashlib
 from urllib.parse import urlparse
@@ -17,15 +17,56 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────
 import core.config as config
 
-# ── refs 프리뷰 함수 re-export (안전 임포트) ─────────────────────
+# ── refs 프리뷰 함수 로드(안전) + 어댑터 ──────────────────────────
+# 내부 핸들: 어떤 시그니처든 수용하기 위해 가변 Callable로 보관
+_refs_preview_handler: Callable[..., str]
 try:
-    from utils.refs import refs_preview_text as _refs_preview_text
+    # utils.refs의 정식 구현: (state, max_q=..., max_docs=..., snippet_len=...)
+    from utils.refs import refs_preview_text as _rp
+    _refs_preview_handler = cast(Callable[..., str], _rp)
 except Exception:
-    def _refs_preview_text(state: Mapping[str, Any], max_q: int = 5, max_docs: int = 8, snippet_len: int = 350) -> str:
-        """임시 폴백: refs 미구현 환경에서도 깨지지 않도록."""
+    # 폴백: 정식 시그니처(state, ...)를 따르는 간단 구현
+    def _refs_preview_fallback(state: Mapping[str, Any], max_q: int = 5, max_docs: int = 8, snippet_len: int = 350) -> str:
         refs = dict(state or {}).get("references", {}) or {}
-        qs = (refs.get("queries") or [])[:max_q]
-        return "Queries:\n" + ("\n".join(f"- {q}" for q in qs) if qs else "(none)")
+        qs = list(cast(List[str], refs.get("queries") or []))[:max_q]
+        docs = list(cast(List[Any], refs.get("docs") or []))[:max_docs]
+        lines: List[str] = []
+        for d in docs:
+            try:
+                if isinstance(d, Document):
+                    meta = d.metadata or {}
+                    title = meta.get("title") or meta.get("source") or "(untitled)"
+                    url = meta.get("source") or meta.get("url") or ""
+                elif isinstance(d, dict):
+                    meta = d.get("metadata") or {}
+                    title = meta.get("title") or d.get("source") or "(untitled)"
+                    url = meta.get("source") or d.get("url") or d.get("path") or ""
+                else:
+                    meta = getattr(d, "metadata", {}) or {}
+                    title = meta.get("title") or getattr(d, "source", "") or "(untitled)"
+                    url = meta.get("source") or getattr(d, "url", "") or ""
+                lines.append(f"- {str(title).strip() or '(untitled)'} ({url})")
+            except Exception:
+                lines.append("- (doc)")
+        q_block = "\n".join(f"- {q}" for q in qs) if qs else "(none)"
+        d_block = ("\n\nDocs:\n" + "\n".join(lines)) if lines else ""
+        return "Queries:\n" + q_block + d_block
+    _refs_preview_handler = cast(Callable[..., str], _refs_preview_fallback)
+# 외부 공개 API(일관 시그니처): (refs, limit) → 내부 핸들 호출
+def refs_preview_text(refs: Mapping[str, Any], limit: int = 3) -> str:
+    """
+    통합 어댑터:
+    - 인자로 refs(dict: {"queries":[], "docs":[]})를 받는다.
+    - 내부 구현이 (state, ...) 시그니처면 state={"references": refs}로 래핑하여 max_docs=limit로 전달.
+    - 혹시 (refs, limit) 시그니처 구현이 남아있다면 TypeError 분기에서 안전 호출.
+    """
+    try:
+        state = {"references": refs}
+        return _refs_preview_handler(state, max_docs=int(limit))
+    except TypeError:
+        # 구현이 (refs, limit) 형태인 구버전 헬퍼 대응
+        fn = cast(Callable[[Mapping[str, Any], int], str], _refs_preview_handler)
+        return fn(refs, int(limit))
 
 # 외부에서 import * 시 노출 대상
 # (Direct QA 관련 심볼을 함께 노출)
@@ -40,9 +81,7 @@ __all__ = [
     "clear_qa",
 ]
 
-# 외부 노출 이름 고정 (불필요한 ignore 제거)
-refs_preview_text = _refs_preview_text
-
+# (주의) 더 이상 핸들을 직접 재바인딩하지 않음. 어댑터 함수명을 그대로 export.
 # ─────────────────────────────────────────────────────────────
 # Config helpers & defaults (per-call read; no module-level cache)
 # ─────────────────────────────────────────────────────────────

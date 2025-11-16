@@ -97,15 +97,20 @@ def _resolve_title(state: State, outline_text: str | None) -> Tuple[str | None, 
 
     messages = state.get("messages", []) or []
     tasks = state.get("task_history", []) or []
-    title = (
-        get_last_write_target(messages, tasks)
-        or next_unwritten_title(
-            outline_text or "",
-            mode="report",
-            # current_path는 함수/값 양 경로 지원
-            root_dir=str(current_path() if callable(current_path) else current_path),
-            topic_slug=_as_str(state.get("topic_slug")) or None,
-        )
+    # 완료 목록: flags.completed_sections (TypedDict 충돌 회피)
+    _flags = dict(cast(Dict[str, Any], state.get("flags") or {}))
+    _completed = _flags.get("completed_sections") or []
+    done: set[str] = {str(t).strip() for t in _completed if str(t).strip()}
+    # 1) 직전 타깃 우선, 단 완료 목록이면 무시
+    _last = get_last_write_target(messages, tasks)
+    if _last and _last.strip() in done:
+        _last = None
+    title = _last or next_unwritten_title(
+        outline_text or "",
+        mode="report",
+        root_dir=str(current_path() if callable(current_path) else current_path),
+        topic_slug=_as_str(state.get("topic_slug")) or None,
+        excluded_titles=done,  # 완료 목록 제외
     )
     return title, False
 
@@ -265,6 +270,25 @@ def section_writer(state: State):
                     logger.debug("[Section Writer][QA] cleared writer lock: %s", target_title)
         except Exception as _e:
             logger.debug("[Section Writer][QA] writer lock clear skipped: %s", _e)
+
+    # ---- 섹션 작성 완료 후 후처리: 완료 목록(flags) 반영 + 재선택 방지 + 락 해제 ----
+    try:
+        logger.info("[Section Writer] 섹션 작성 완료: %s", target_title)
+        # flags 사본
+        _flags: Dict[str, Any] = dict(cast(Dict[str, Any], state.get("flags") or {}))
+        # 1) 완료 목록(flags.completed_sections) 반영 (중복 방지)
+        completed = list(_flags.get("completed_sections") or [])
+        if target_title and target_title not in completed:
+            completed.append(target_title)
+        _flags["completed_sections"] = completed
+        # 2) 같은 섹션 재선택 방지: writer_target 초기화
+        _flags.pop("writer_target", None)
+        # 3) writer 락 해제 보강
+        _flags.pop("writer_lock", None)
+        state["flags"] = cast(Flags, _flags)
+    except Exception as _e:
+        logger.debug("[Section Writer] post-completion update skipped: %s", _e)
+
 
     # ---- 진행률 플래그 업데이트 ----
     try:

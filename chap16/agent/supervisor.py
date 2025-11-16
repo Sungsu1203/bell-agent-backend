@@ -5,7 +5,7 @@ logger = logging.getLogger(__name__)
 
 import os
 import re
-from typing import Any, Mapping, MutableMapping, cast, Dict, List, Iterable, Optional, Protocol
+from typing import Any, Mapping, MutableMapping, cast, Dict, List, Iterable, Optional, Protocol, Callable
 from utils.tasks import HumanMessage, AIMessage, schedule_writer_if_needed_legacy as schedule_writer_if_needed
 from core.models import Task, AgentName
 from utils.sanitize import sanitize_state, coerce_int
@@ -31,6 +31,19 @@ from utils.rag_utils import should_direct_qa as _should_direct_qa
 from utils.rag_utils import is_qa_like as _is_qa_like_ext
 
 from tools.web_rag.ingest import _default_chroma_dir  # Chroma persist dir resolver
+
+# ── 웹 NS 시드(선택 훅) ───────────────────────────────────────────────────────
+# 명시 타입 선언(동적 임포트 실패 시 None 유지)
+_seed_web_ns: Optional[Callable[..., Any]] = None
+_has_any_docs: Optional[Callable[..., bool]] = None
+try:
+    from tools.web_rag.ingest import seed_web_namespace as _seed_web_ns  # 동적 훅
+except Exception:
+    pass
+try:
+    from tools.web_rag.ingest import has_any_docs as _has_any_docs  # 동적 훅
+except Exception:
+    pass
 
 # ── Safe has_pending ─────────────────────────────────────────────────────────
 # utils.tasks.has_pending이 keyword-only 인자(prefix)를 갖는 시그니처를 가짐.
@@ -131,6 +144,64 @@ def _ensure_chroma_ns(state: MutableMapping[str, Any]) -> None:
     state["chroma_ns"] = ns
     logger.info("[Supervisor][ns] ns=%s dir=%s ns_web=%s ns_local=%s",
                 ns, persist_dir, chroma.get("ns_web", "-"), chroma.get("ns_local", "-"))
+
+def _get_seed_urls(state: Mapping[str, Any]) -> list[str]:
+    """
+    시드 URL 소스:
+      1) CFG.SEED_URLS (list[str] 또는 콤마구분 str)
+      2) ENV SEED_URLS  (콤마구분 str)
+    """
+    urls: list[str] = []
+    try:
+        raw = getattr(config.CFG, "SEED_URLS", None)
+        if isinstance(raw, (list, tuple)):
+            urls.extend([str(u).strip() for u in raw if str(u).strip()])
+        elif isinstance(raw, str) and raw.strip():
+            urls.extend([u.strip() for u in raw.split(",") if u.strip()])
+    except Exception:
+        pass
+    env_raw = os.getenv("SEED_URLS", "")
+    if env_raw.strip():
+        urls.extend([u.strip() for u in env_raw.split(",") if u.strip()])
+    # 중복 제거(순서 유지)
+    dedup: list[str] = []
+    seen = set()
+    for u in urls:
+        if u in seen: continue
+        seen.add(u); dedup.append(u)
+    return dedup
+
+def _maybe_seed_web_namespace(state: MutableMapping[str, Any]) -> None:
+    """
+    web ns가 설정되어 있고, 컬렉션이 비어 있으면 1회 시드.
+    flags.web_seeded_once = True로 재실행 방지.
+    """
+    try:
+        flags = cast(Dict[str, Any], state.setdefault("flags", {}))
+        if flags.get("web_seeded_once"):
+            return
+        chroma = cast(Dict[str, Any], flags.get("chroma") or {})
+        ns_web = str(chroma.get("ns_web") or "").strip()
+        if not ns_web or _seed_web_ns is None:
+            return
+        persist_dir = _default_chroma_dir(ns_web)
+        # 이미 문서가 있으면 시드 생략
+        try:
+            if callable(_has_any_docs) and _has_any_docs(ns_web, persist_dir):
+                return
+        except Exception:
+            pass
+        seed_urls = _get_seed_urls(state)
+        if not seed_urls:
+            return
+        topic_slug = str(state.get("topic_slug") or "")
+        # 실행
+        _seed_web_ns(seed_urls, ns_web, persist_directory=persist_dir, topic_slug=topic_slug)
+        flags["web_seeded_once"] = True
+        state["flags"] = flags
+        logger.info("[Supervisor] web namespace seeded: ns=%s, urls=%d", ns_web, len(seed_urls))
+    except Exception as e:
+        logger.warning("[Supervisor] web namespace seeding skipped/failed: %s", e)
 
 
 # ── Dashboard (optional) ─────────────────────────────────────────────────────
@@ -253,6 +324,12 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
         _ensure_chroma_ns(mstate)
     except Exception:
         logger.exception("[Supervisor] _ensure_chroma_ns failed (continuing without ns init)")
+
+    # ▶︎ 웹 NS 시드(once): web=0 편향 해소
+    try:
+        _maybe_seed_web_namespace(mstate)
+    except Exception:
+        logger.debug("[Supervisor] _maybe_seed_web_namespace skipped")
 
     # ↓↓↓ Round 0 고착 문제 해결 로직(메타 기반 승격) ↓↓↓
     rnd = int(state.get("research_round", 0))
@@ -405,6 +482,11 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
             _ensure_chroma_ns(mstate)
         except Exception:
             logger.exception("[Supervisor] _ensure_chroma_ns (new topic) failed")
+        # 새 주제 부트스트랩 시에도 웹 NS 시드 시도
+        try:
+            _maybe_seed_web_namespace(mstate)
+        except Exception:
+            logger.debug("[Supervisor] _maybe_seed_web_namespace (new topic) skipped")
         msg = f"[Supervisor] 새 주제 세션 시작: '{state.get('topic_title','')}' (ns={state.get('chroma_ns','')})"
         messages.append(AIMessage(content=msg)); logger.info(msg)
         _dash_emit(state, where="supervisor", picked="content_strategist/web_search_agent", reason="new_topic_boot")

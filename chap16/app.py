@@ -314,7 +314,8 @@ def initial_state(iteration_count: int, agent_role: str | None = None) -> State:
         # 일부 라우터/도구는 경량 미러 키 'refs'도 참조하므로 초깃값에서 함께 준비
         "refs": {"queries": [], "docs": []},
         # Optional/Any 섞임 방지: 안전한 문자열 변환 후 처리
-        "agent_role": str(agent_role or getattr(config.CFG, "BLOCKAGI_AGENT_ROLE", "") or "").strip().lower(),
+        # CFG.AGENT_ROLE 우선(하위호환: 호출 인자/BLOCKAGI_*는 상위에서 폴백)
+        "agent_role": str(agent_role or getattr(config.CFG, "AGENT_ROLE", "") or "").strip().lower(),
         "iteration_count": int(iteration_count),
         "research_objectives": [],
         "research_round": 0,
@@ -421,7 +422,7 @@ if __name__ == "__main__":
     parser.add_argument("--iteration_count", type=str,
                         default=str(getattr(config.CFG, "ITERATION_COUNT", 3)))
     parser.add_argument("--agent_role", type=str,
-                        default=(getattr(config.CFG, "BLOCKAGI_AGENT_ROLE", "") or "").strip().lower())
+                        default=(getattr(config.CFG, "AGENT_ROLE", "") or "").strip().lower())
     parser.add_argument("--recursion_limit", type=int, default=int(os.getenv("RECURSION_LIMIT", "200")))
     parser.add_argument("--log-level", type=str, default=getattr(config.CFG, "LOG_LEVEL", "INFO"))
     parser.add_argument("--log-file", type=str, default=os.getenv("LOG_FILE"))
@@ -531,8 +532,15 @@ if __name__ == "__main__":
         pass
 
     iter_count = coerce_int(args.iteration_count, default=3)
-    # Optional 처리: getenv는 Optional[str]이므로 기본값 보장 + 문자열화
-    effective_role = (str(args.agent_role or os.getenv("BLOCKAGI_AGENT_ROLE", "") or "").strip().lower() or None)
+    # role 우선순위: CLI → CFG.AGENT_ROLE → ENV.BLOCKAGI_AGENT_ROLE
+    effective_role = (
+        str(
+            args.agent_role
+            or getattr(config.CFG, "AGENT_ROLE", "")
+            or os.getenv("BLOCKAGI_AGENT_ROLE", "")
+        ).strip().lower()
+        or None
+    )
 
 
     # state에 반영하되, ENV는 최소한으로만 사용(호환 위해 TOPIC_* 유지)
@@ -541,6 +549,33 @@ if __name__ == "__main__":
         os.environ["TOPIC_TITLE"] = args.topic_slug.replace("-", " ")
 
     state: State = initial_state(iteration_count=iter_count, agent_role=effective_role)
+
+    # ── 초기 상태 시드: agent_role / research_objectives ──────────────────────
+    try:
+        from typing import MutableMapping, Any, List, cast
+        mm = cast(MutableMapping[str, Any], state)
+        # agent_role이 비어있다면 CFG.AGENT_ROLE로 보강
+        if not (str(mm.get("agent_role") or "").strip()):
+            mm["agent_role"] = (getattr(config.CFG, "AGENT_ROLE", "") or "").strip().lower() or None
+        # 연구 목적: CFG.RESEARCH_OBJECTIVES → ENV 번호키 폴백
+        if not mm.get("research_objectives"):
+            objs: List[str] = []
+            # 1) CFG에 있으면 그대로 사용
+            try:
+                _cfg_objs = list(getattr(config.CFG, "RESEARCH_OBJECTIVES", []) or [])
+                objs.extend([s for s in _cfg_objs if isinstance(s, str) and s.strip()])
+            except Exception:
+                pass
+            # 2) 비어있으면 ENV(BLOCKAGI_OBJECTIVE_1..N) 폴백
+            if not objs:
+                for k in ("BLOCKAGI_OBJECTIVE_1","BLOCKAGI_OBJECTIVE_2","BLOCKAGI_OBJECTIVE_3","BLOCKAGI_OBJECTIVE_4"):
+                    v = os.getenv(k)
+                    if v and v.strip():
+                        objs.append(v.strip())
+            if objs:
+                mm["research_objectives"] = objs
+    except Exception:
+        pass
 
     state["topic_slug"] = args.topic_slug
     update_flags(state, topic_title=os.environ.get("TOPIC_TITLE", ""))

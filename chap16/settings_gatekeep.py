@@ -18,6 +18,14 @@ from typing import cast
 # 런타임 주입 허용 도메인(에이전트 계산 결과가 즉시 반영되도록)
 _RUNTIME_ALLOWED: Set[str] = set()
 
+# ── (선택) URL 정규화기: ingest/utils와 규칙 일치 ─────────────────────────────
+try:
+    # tools.web_rag.utils에서 사용 중인 normalize_url을 재사용
+    from tools.web_rag.utils import normalize_url as _canon_url
+except Exception:  # utils 미존재/순환 임포트 등 모든 상황에서 안전 폴백
+    def _canon_url(u: str) -> str:
+        return (u or "").strip()
+
 def _get_cfg_attr(name: str, default):
     """CFG → module attr → ENV → default"""
     try:
@@ -42,6 +50,23 @@ _BASE_ALLOWED_DOMAINS: tuple[str, ...] = (
     "yakup.com",  # 약업신문 (신규 추가)
 )
 
+# ── 공공 포털/기관 도메인: www 강제 금지 규칙 ──────────────────────────────────
+_NO_WWW_SUFFIXES: tuple[str, ...] = ("go.kr", "or.kr")
+_NO_WWW_EXACT: tuple[str, ...] = ("kosis.kr", "mfds.go.kr", "khidi.or.kr", "index.go.kr", "hira.or.kr")
+
+def _no_www_domain(hostname: str) -> bool:
+    """
+    www 접두사를 강제 부여하면 안 되는 도메인 여부.
+    - *.go.kr, *.or.kr, 그리고 명시 예외 리스트는 www 금지
+    """
+    h = (hostname or "").strip().lower()
+    if not h:
+        return False
+    base = h.split(":", 1)[0]
+    if base in _NO_WWW_EXACT:
+        return True
+    return any(base.endswith(suf) for suf in _NO_WWW_SUFFIXES)
+
 
 def set_runtime_allowed_domains(domains: Iterable[str]) -> None:
     """에이전트가 계산한 허용 도메인을 런타임으로 주입."""
@@ -53,7 +78,9 @@ def set_runtime_allowed_domains(domains: Iterable[str]) -> None:
     # 주입 직후 캐시 무효화(즉시 반영)
     try:
         _normalized_allowed_domains.cache_clear()  
-        _normalize_host.cache_clear()              
+        _normalize_host.cache_clear()
+        # 향후 _is_allowed 캐시를 도입하는 경우 여기도 같이 비워야 합니다.
+        # _is_allowed_cached.cache_clear()  # (도입 시 활성화)              
     except Exception:
         pass
 
@@ -152,8 +179,8 @@ def _normalized_allowed_domains() -> Set[str]:
         if not nd or not _valid_host(nd):
             continue
         out.add(nd)
-        # www 동치 옵션이 켜져있으면 상호 형태도 포함
-        if _treat_www_equiv():
+        # www 동치 옵션이 켜져있으면 상호 형태도 포함(단, 공공 포털은 제외)
+        if _treat_www_equiv() and not _no_www_domain(nd):
             if nd.startswith("www."):
                 out.add(nd[4:])
             else:
@@ -246,8 +273,11 @@ def _normalize_host(u: str) -> str:
                 parts.pop(1); changed = True
             # 접은 뒤 www 선호(옵션 성격): 이미 다른 서브도메인이 있으면 추가 안 함
             if changed and parts:
+                # 공공 포털/기관 도메인은 www 강제 금지
                 if not parts[0].startswith("www") and len(parts) == 2:
-                    parts.insert(0, "www")
+                    base_host = ".".join(parts)
+                    if not _no_www_domain(base_host):
+                        parts.insert(0, "www")
             host = ".".join(parts)
 
         # 4) www 동치 옵션: 비교 일관성 위해 접두 제거(allowed도 동일 규칙 적용)
@@ -288,7 +318,11 @@ def is_allowed_url(url: str) -> bool:
     """
     if not gatekeep_enabled():
         return True
-    if is_local_like(url):
+    # ① URL 자체를 먼저 정규화(모바일/AMP/추적 파라미터 제거 등)
+    #    - ingest 파이프라인과 동일한 규칙으로 맞추기 위함
+    _u = _canon_url(url)
+
+    if is_local_like(_u):
         return True
 
     # 허용 세트(정규화/확장 포함)를 가져옴
@@ -297,7 +331,8 @@ def is_allowed_url(url: str) -> bool:
         logger.warning("GATE_KEEP_SOURCES=ON 이지만 ALLOWED_DOMAINS가 비었습니다. 외부 소스는 차단됩니다.")
         return False
 
-    host_port = _normalize_host(url)
+    # ② 호스트 정규화(모바일 라벨 접기, www 동치, 포트 보정 등)
+    host_port = _normalize_host(_u)
     if not host_port:
         return False
 
@@ -341,5 +376,6 @@ __all__ = [
     "is_allowed_url",
     "url_allowed",
     "_normalize_host",
+    "_no_www_domain",
     "_valid_host",
 ]

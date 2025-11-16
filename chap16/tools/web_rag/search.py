@@ -6,21 +6,19 @@ logger = logging.getLogger(__name__)
 import re
 import os, json, time
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple, Sequence, Callable
+from typing import List, Dict, Any, Optional, Tuple, Sequence, Callable, TYPE_CHECKING, cast, Type
 from datetime import datetime
 import threading
 
 import requests
 from langchain_core.tools import tool
 from tools.web_rag.ingest import get_requests_session  # 공용 재시도 세션/CA 번들 재사용
+# documents_to_chroma는 ingest 리팩토링 이후 심볼/시그니처가 바뀔 수 있어
+# 아래 import_module 경로로만 동적 탐색합니다(중복 임포트 제거).
 
 # ── Timeout defaults (module-level) ──────────────────────────────────────────
-# P1-3: 재시도·타임아웃 완화 (Tavily 6→8초)
-# 전역 기본 타임아웃 상수. 후속에서 CFG.SEARCH_TIMEOUT 또는 ENV 로 오버라이드 가능.
 DEFAULT_TIMEOUT_SECONDS: int = 8
 
-
-from typing import Any  # for untyped 3rd-party fallbacks
 # ── Metrics (best-effort wrapper) ─────────────────────────────────────────────
 from tools.metrics import (
     record_query_issued,
@@ -33,6 +31,191 @@ from tools.metrics import (
 # ── Config 단일 진입점 ────────────────────────────────────────────────────────
 import core.config as config
 from core.config import CFG, reload_config
+
+# ── (옵션) url→Document 로더 동적 획득: 정적 임포트 금지, importlib 사용 ─────
+from importlib import import_module
+_load_urls_as_documents: Optional[Callable[..., Any]] = None
+try:
+    _ingest_mod = import_module("tools.web_rag.ingest")
+    _load_urls_as_documents = getattr(_ingest_mod, "load_urls_as_documents", None)
+except Exception:
+    _load_urls_as_documents = None
+
+# ── LangChain Document: 타입(정적)과 런타임 분리 ─────────────────────────────
+# 정적 힌트는 Any로, 런타임은 DocClass로 통일
+LCDocumentT = Any
+
+# 런타임에 사용할 문서 클래스 핸들(항상 '클래스' 보장). 실패 시 폴백 클래스 사용.
+try:
+    from langchain_core.documents import Document as _LC_Doc  # langchain >=0.2
+    _DOC_RUNTIME: Any = _LC_Doc
+except Exception:  # pragma: no cover
+    class _DocFallback:
+        page_content: str
+        metadata: Dict[str, Any]
+        def __init__(self, page_content: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+            self.page_content = page_content
+            self.metadata = dict(metadata or {})
+    _DOC_RUNTIME = _DocFallback
+
+# 단 한 번만 최종 타입으로 선언
+DocClass: Type[Any] = cast(Type[Any], _DOC_RUNTIME)
+
+# ── ingest 적재 함수 동적 호출 유틸 ─────────────────────────────────────────
+def _coerce_added_count(ret: Any) -> int:
+    """int | tuple[…], None 등 다양한 반환을 안전하게 정수로 변환"""
+    try:
+        if isinstance(ret, tuple):
+            if ret:
+                return int(ret[0] if ret[0] is not None else 0)
+            return 0
+        if ret is None:
+            return 0
+        return int(ret)
+    except Exception:
+        return 0
+
+def _ingest_add_docs(docs: List["LCDocumentT"], *, namespace: str) -> int:
+    """
+    ingest 모듈의 documents_to_chroma / add_documents_to_chroma / 호환 함수들을
+    런타임에 탐색하여 호출. 없으면 0을 반환.
+    """
+    fn = None
+    if _ingest_mod is not None:
+        # 우선순위: documents_to_chroma → add_documents_to_chroma → documents_to_chroma_compat
+        for name in ("documents_to_chroma", "add_documents_to_chroma", "documents_to_chroma_compat"):
+            _cand = getattr(_ingest_mod, name, None)
+            if callable(_cand):
+                fn = _cand
+                break
+    if not callable(fn):
+        logger.debug("[web_seed] ingest add function not found; skip seeding")
+        return 0
+    try:
+        # 파라미터 이름이 namespace 또는 ns 인 경우 모두 대응
+        params = fn.__code__.co_varnames if hasattr(fn, "__code__") else ()
+        kwargs: Dict[str, Any] = {}
+        if "namespace" in params:
+            kwargs["namespace"] = namespace
+        elif "ns" in params:
+            kwargs["ns"] = namespace
+        # 마지막 폴백: 키워드 없이 호출(함수 쪽에서 내부 기본 ns 사용 가능)
+        ret = cast(Callable[..., Any], fn)(docs, **kwargs)
+        return _coerce_added_count(ret)
+    except Exception as e:
+        logger.warning("[web_seed] ingest add call failed: %s", e)
+        return 0
+
+
+# ── 폴백 로더 ────────────────────────────────────────────────────────────────
+def _fallback_load_urls_as_documents(urls: list[str]) -> List["LCDocumentT"]:
+    """
+    폴백 로더: LangChain WebBaseLoader 사용(가벼운 HTML 스냅샷).
+    ingest 쪽 로더가 없을 때만 사용됩니다.
+    항상 List[Document] 반환으로 통일합니다.
+    """
+    docs_rt: list[Any] = []
+    try:
+        from langchain_community.document_loaders import WebBaseLoader
+        for u in urls or []:
+            try:
+                loader = WebBaseLoader([u])
+                loaded = loader.load() or []
+                # source 메타 보강
+                for d in loaded:
+                    try:
+                        md = getattr(d, "metadata", {}) or {}
+                        if "source" not in md:
+                            md["source"] = u
+                        # 타입체커 경고 없이 안전하게 대입
+                        setattr(d, "metadata", md)
+                    except Exception:
+                        pass
+                # Document 타입으로 통일
+                for d in loaded:
+                    try:
+                        if isinstance(d, DocClass):
+                            docs_rt.append(d)
+                        else:
+                            pc = getattr(d, "page_content", "") if hasattr(d, "page_content") else ""
+                            md = getattr(d, "metadata", {}) if hasattr(d, "metadata") else {}
+                            docs_rt.append(DocClass(page_content=str(pc or ""), metadata=dict(md or {})))
+                    except Exception:
+                        # 마지막 안전망
+                        docs_rt.append(DocClass(page_content="", metadata={"source": u}))
+            except Exception:
+                logger.debug("[web_seed][fallback] load failed: %s", u)
+                docs_rt.append(DocClass(page_content="", metadata={"source": u}))
+    except Exception:
+        # WebBaseLoader 자체가 없을 때: URL만 source로 넣어 빈 Document 생성
+        docs_rt = [DocClass(page_content="", metadata={"source": u}) for u in (urls or [])]
+    from typing import cast as _cast
+    return _cast(List["LCDocumentT"], docs_rt)
+
+def _normalize_documents(docs_in: object) -> List["LCDocumentT"]:
+    """
+    다양한 형태(list[Document] | list[dict] | 기타)를 안전하게 List[Document]로 정규화.
+    - dict 항목은 {page_content, metadata} 키를 기준으로 변환
+    - 알 수 없는 타입은 page_content=str(x)로 승격
+    """
+    out_rt: list[Any] = []
+    if not isinstance(docs_in, list):
+        from typing import cast as _cast
+        return _cast(List["LCDocumentT"], out_rt)
+    for x in docs_in:
+        # 1) 이미 Document 타입인 경우
+        try:
+            if isinstance(x, DocClass):
+                out_rt.append(x)
+                continue
+        except Exception:
+            # 2) 속성으로 유추 가능한 객체: 강제 승격
+            if hasattr(x, "page_content") and hasattr(x, "metadata"):
+                try:
+                    pc = getattr(x, "page_content", "")
+                    md = getattr(x, "metadata", {}) or {}
+                    out_rt.append(DocClass(page_content=str(pc or ""), metadata=dict(md)))
+                    continue
+                except Exception:
+                    pass
+        # 3) dict → Document
+        if isinstance(x, dict):
+            pc = x.get("page_content", "")
+            md = x.get("metadata", {}) or {}
+            out_rt.append(DocClass(page_content=str(pc or ""), metadata=dict(md)))
+        else:
+            # 4) 기타 → 문자열로 승격
+            out_rt.append(DocClass(page_content=str(x), metadata={}))
+    from typing import cast as _cast
+    return _cast(List["LCDocumentT"], out_rt)
+
+# ── 빠른 시드: URL → Documents → Chroma 적재 ────────────────────────────────
+def seed_web_namespace(urls: list[str], namespace: str) -> int:
+    """
+    URL 리스트를 로드하여 web 네임스페이스에 한 번에 적재합니다.
+    - 반환값: 신규 추가된 문서 수(중복이면 0일 수 있음)
+    - 사용 예: seed_web_namespace(SEED_URLS, f"{topic_slug}-web")
+    """
+    if not urls:
+        logger.info("[web_seed] no urls provided; skip seeding")
+        return 0
+    try:
+        if callable(_load_urls_as_documents):
+            raw_docs = _load_urls_as_documents(urls)
+        else:
+            raw_docs = _fallback_load_urls_as_documents(urls)
+
+        docs_typed: List["LCDocumentT"] = _normalize_documents(raw_docs)
+        # ingest 적재 호출(리팩토링 전후 시그니처 차이 흡수)
+        added_count = _ingest_add_docs(list(docs_typed), namespace=namespace)
+
+        logger.info("[web_seed] seeded %d docs into namespace=%s", added_count, namespace)
+        return added_count
+    except Exception as e:
+        logger.exception("[web_seed] failed: %s", e)
+        return 0
+
+# ── truthy helpers & metrics wrapper ─────────────────────────────────────────
 def _truthy_env(name: str, default: bool = False) -> bool:
     v = (os.getenv(name) or "").strip().lower()
     if not v:
@@ -40,17 +223,14 @@ def _truthy_env(name: str, default: bool = False) -> bool:
     return v in {"1","true","yes","y","on"}
 
 def _truthy_cfg(name: str, default: bool = False) -> bool:
-    # config.truthy가 있으면 우선 사용
     try:
         return bool(config.truthy(name, default))
     except Exception:
         return _truthy_env(name, default)
 
 def _metrics_disabled() -> bool:
-    # CFG/ENV 통합: METRICS_DISABLED, DISABLE_METRICS, METRICS_ENABLED=0 중 하나라도 true면 비활성
     if _truthy_cfg("METRICS_DISABLED", False): return True
     if _truthy_cfg("DISABLE_METRICS", False):  return True
-    # enabled 플래그는 반대 의미(0/false → 비활성)
     v = (os.getenv("METRICS_ENABLED") or "").strip().lower()
     if v in ("0","false","no","off"): return True
     return False
@@ -62,12 +242,6 @@ def _try_call(fn) -> None:
         pass
 
 def _metrics_call(name: str, fn, timeout_s: float = 0.15) -> None:
-    """
-    메트릭스 호출이 메인 플로우를 블로킹하지 않도록 보호.
-    - timeout_s 내에 끝나지 않으면 조용히 스킵.
-    - 예외는 삼켜서 검색 로직에 영향 없게 함.
-    - METRICS_DISABLED/ DISABLE_METRICS/ METRICS_ENABLED=0 로 전체 비활성화 가능.
-    """
     if _metrics_disabled():
         return
     try:
@@ -83,41 +257,33 @@ from core.paths import research_base_dir
 from settings_gatekeep import (
     gatekeep_enabled,
     url_allowed,
-    _normalize_host,    # 로그 요약용 (없으면 제거 가능)
+    _normalize_host,
     get_allowed_domains,
     set_runtime_allowed_domains,
 )
 
-# Gatekeep 캐시를 모듈 로드시 최신 상태로 강제 동기화
 try:
     from settings_gatekeep import refresh_gatekeep_cache
-    refresh_gatekeep_cache()  # 인자/ENV 반영 후 항상 최신화
+    refresh_gatekeep_cache()
 except Exception:
     pass
 
+# ── 의도 추정/리랭크 ─────────────────────────────────────────────────────────
 def _infer_intent_from_query(q: str) -> str:
-    """쿼리에서 의도 힌트를 추정: stats | news | regulation | generic"""
     ql = (q or "").lower()
-    if any(k in ql for k in ["규제", "허가", "고시", "공고", "mfds", "법령", "식품의약품안전처"]): 
+    if any(k in ql for k in ["규제", "허가", "고시", "공고", "mfds", "법령", "식품의약품안전처"]):
         return "regulation"
-    if any(k in ql for k in ["시장", "규모", "점유율", "통계", "kosis", "index.go.kr", "khidi"]): 
+    if any(k in ql for k in ["시장", "규모", "점유율", "통계", "kosis", "index.go.kr", "khidi"]):
         return "stats"
-    if any(k in ql for k in ["뉴스", "보도", "기사", "단신", "속보", "news", "press"]): 
+    if any(k in ql for k in ["뉴스", "보도", "기사", "단신", "속보", "news", "press"]):
         return "news"
     return "generic"
 
-
 def _rerank_with_intent_and_diversity(items: List[Dict[str, Any]], *, intent: str, kr_boost: bool, domain_penalty: float) -> List[Dict[str, Any]]:
-    """
-    - 동일 host 반복에 패널티(coverage 확대)
-    - 의도(intent)에 맞는 도메인에 가산점
-    - 한국 맥락(kr_boost) 시 .go.kr/.kr 및 국내 매체에 소폭 가산
-    """
     def _host(u: str) -> str:
         try:
             from urllib.parse import urlparse
             h = (urlparse(u).netloc or "").lower()
-            # 모바일/AMP 간단 정규화(심화 버전은 utils 측에 있음)
             if h.startswith("m."): h = h[2:]
             if h.startswith("amp."): h = h[4:]
             return h
@@ -126,33 +292,25 @@ def _rerank_with_intent_and_diversity(items: List[Dict[str, Any]], *, intent: st
 
     host_seen: Dict[str, int] = {}
     scored: List[Tuple[float, Dict[str, Any]]] = []
-
     for it in items or []:
         u = it.get("url") or it.get("source") or ""
         h = _host(u)
         base = float(it.get("score") or 1.0)
-
-        # 1) 도메인 다양성 패널티
         repeat = host_seen.get(h, 0)
         base -= repeat * float(domain_penalty or 0.0)
 
-        # 2) 의도 기반 가산점
         if intent == "stats" and any(d in h for d in ("kosis.kr", "index.go.kr", "khidi.or.kr", "hira.or.kr")):
             base += 0.35
         if intent == "news" and any(d in h for d in ("dailypharm.com", "medipana.com", "newsmp.com", "healtho.co.kr")):
             base += 0.25
         if intent == "regulation" and ("mfds.go.kr" in h or h.endswith(".go.kr")):
             base += 0.25
-
-        # 3) 한국 맥락 부스트
         if kr_boost and (h.endswith(".go.kr") or h.endswith(".kr") or h in ("dailypharm.com","medipana.com","newsmp.com")):
             base += 0.15
 
-        # 4) PDF 과점 완화(뉴스/시장질의에 pdf가 과도하게 상위면 살짝 깎기)
-        if intent in ("news","stats"):
-            url_l = (u or "").lower()
-            if url_l.endswith(".pdf") or "/upload/" in url_l:
-                base -= 0.10  # 필요 시 조정
+        url_l = (u or "").lower()
+        if intent in ("news","stats") and (url_l.endswith(".pdf") or "/upload/" in url_l):
+            base -= 0.10
 
         scored.append((base, it))
         host_seen[h] = repeat + 1
@@ -160,46 +318,67 @@ def _rerank_with_intent_and_diversity(items: List[Dict[str, Any]], *, intent: st
     scored.sort(key=lambda x: x[0], reverse=True)
     return [it for _, it in scored]
 
-
 # ── Local utils ──────────────────────────────────────────────────────────────
 from .utils import (
-    # HTTP
     http_get,
-
-    # 로그/문자열
     _ell, _LOG_TOPK,
-
-    # 쿼리 전처리
     _append_default_negatives, _cap_minus_tokens,
-
-    # 결과 처리
     _apply_gatekeep_to_results, _normalize_results, _pick_top,
-    _enrich_raw_content, _save_results, _dedupe_keep_order_dicts,
+    _save_results, _dedupe_keep_order_dicts,
     normalize_or_block_intermediate_news,
-
-    # 기본값 폴백(ENV/CFG 우선 사용하되 없을 때만)
     _MIN_RESULTS_OK as __MIN_RESULTS_OK_FALLBACK,
     _SEARCH_TOPN as __SEARCH_TOPN_FALLBACK,
-
-    # 네이버 보조
     _simplify_for_naver, _should_skip_naver
 )
 
+from .utils import try_fetch_pdf, SSL_QUARANTINE  # PDF 단회 시도 / SSL 격리
 
-# ── Local helper: host for logs (utils._host_of 순환/정의순서 이슈 회피) ──
 from urllib.parse import urlparse
-from .utils import _normalize_url
+from tools.web_rag.utils import normalize_url  # URL 정규화 단일 진입점
 
 def _canon_url(u: str) -> str:
-    """외부 백엔드가 돌려준 URL을 우리 시스템 표준 규칙으로 즉시 정규화."""
     try:
-        return _normalize_url(u or "")
+        return normalize_url(u or "")
     except Exception:
         return u or ""
+    
+def _canon_and_dedupe(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    URL을 강제 정규화하고 중복을 제거합니다.
+    - 모바일/AMP 변형(예: /amp) 접기
+    - 추적 파라미터(utm_*, gclid, fbclid 등) 제거
+    - fragment(#...) 제거
+    """
+    out: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for it in items or []:
+        try:
+            raw = (it.get("url") or it.get("source") or "").strip()
+            if not raw:
+                continue
+            cu = _canon_url(raw)
+            if not cu or cu in seen:
+                continue
+            seen.add(cu)
+            it2 = dict(it)
+            if "url" in it2:
+                it2["url"] = cu
+            elif "source" in it2:
+                it2["source"] = cu
+            # 제목/요약 공백 정리
+            if isinstance(it2.get("title"), str):
+                it2["title"] = it2["title"].strip()
+            if isinstance(it2.get("snippet"), str):
+                it2["snippet"] = it2["snippet"].strip()
+            out.append(it2)
+        except Exception:
+            continue
+    return out
+
 
 def _host_for_log(u: str) -> str:
     try:
-        pu = urlparse(_normalize_url(u))
+        pu = urlparse(normalize_url(u))
         host = (pu.netloc or "").strip().lower()
         return host.split("/", 1)[0]
     except Exception:
@@ -210,16 +389,12 @@ def _host_for_log(u: str) -> str:
         except Exception:
             return ""
 
-import re as _re  # 네이버 간소화·정규화용
-
-# --- 원문 보강 메타 헬퍼 ------------------------------------------------------
+import re as _re
 from datetime import timezone
 
-# [PATCH A1] ── Korean query detector (naver 우선 라우팅 용)
 def _looks_korean(q: str) -> bool:
     if not q:
         return False
-    # 한글 범위 또는 .kr, ko-kr 등의 힌트
     if any('\uac00' <= ch <= '\ud7a3' for ch in q):
         return True
     ql = q.lower()
@@ -237,8 +412,35 @@ def _looks_like_pdf_url(u: str) -> bool:
         or "downfile" in s
     )
 
+
+# ── 연도 범위 확장(예: 2023..2025 → (2023 OR 2024 OR 2025)) ──────────────────
+_YEAR_RANGE_RE = _re.compile(r"\b(19|20)\d{2}\.\.(19|20)\d{2}\b")
+
+def _expand_year_ranges(q: str, *, max_span: int = 6) -> str:
+    """
+    '2023..2025' → '(2023 OR 2024 OR 2025)'
+    과도 확장 방지: max_span(기본 6년) 초과면 원문 유지.
+    연도 패턴(19xx/20xx)에만 반응.
+    """
+    def _repl(m: _re.Match[str]) -> str:
+        raw = m.group(0)
+        a, b = raw.split("..", 1)
+        try:
+            ya, yb = int(a), int(b)
+        except Exception:
+            return raw
+        if yb < ya:
+            ya, yb = yb, ya
+        if (yb - ya) > max_span:
+            return raw
+        years = " OR ".join(str(y) for y in range(ya, yb + 1))
+        return f"({years})"
+    try:
+        return _YEAR_RANGE_RE.sub(_repl, q)
+    except Exception:
+        return q
+
 def _pretag_content_type(items: List[Dict[str, Any]]) -> None:
-    """URL 휴리스틱으로 content_type 힌트를 미리 부여."""
     for it in items or []:
         if it.get("content_type"):
             continue
@@ -247,35 +449,73 @@ def _pretag_content_type(items: List[Dict[str, Any]]) -> None:
             it["content_type"] = "application/pdf"
 
 def _annotate_fetch_meta(items: List[Dict[str, Any]]) -> None:
-    """원문(raw_content) 보강 이후 메타(바이트 길이/타입/시각) 부착."""
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
     for it in items or []:
         raw = it.get("raw_content")
-        # raw_content가 존재할 때만 메타 부여
         if isinstance(raw, str) and raw:
-            # bytes 길이(UTF-8 기준)
             try:
                 it["raw_bytes"] = len(raw.encode("utf-8"))
             except Exception:
                 it["raw_bytes"] = len(raw)
-
-            # PDF 서명으로 타입 보정
             if (it.get("content_type") or "").strip() == "":
                 if raw.lstrip().startswith("%PDF-"):
                     it["content_type"] = "application/pdf"
-
-            # 원문 보강 시각
             it["fetched_at"] = now_iso
-
-        # 원문이 아직 없어도 URL 기반 힌트만 붙여둠
         if not it.get("content_type"):
             u = it.get("url") or it.get("source") or ""
             if _looks_like_pdf_url(u):
                 it["content_type"] = "application/pdf"
 
+def _fetch_pdf_once(u: str, timeout: int = 20) -> Optional[bytes]:
+    """
+    동일 URL은 세션 생존 동안 SSLError 발생 시 재시도하지 않도록 격리.
+    성공 시 bytes 반환, 실패/격리 시 None.
+    """
+    if not u or u in SSL_QUARANTINE:
+        return None
+    return try_fetch_pdf(u, timeout=timeout)
+
+def _enrich_raw_content(items: List[Dict[str, Any]], *, timeout: int = 20) -> None:
+    """
+    결과 원문 보강:
+      - PDF URL: try_fetch_pdf()로 단회 시도 → 성공하면 raw_bytes만 기록(텍스트 추출은 별도 파서 단계)
+                  실패(예: SSLError) 시 같은 세션에서 재시도하지 않음. 단, HTML 폴백 1회만 시도.
+      - 비-PDF URL: 기존 HTML 경로(http_get) 1회만 시도하여 text를 raw_content에 저장.
+    """
+    if not items:
+        return
+    for it in items or []:
+        try:
+            u = it.get("url") or it.get("source") or ""
+            if not u:
+                continue
+            # 이미 채워진 경우 스킵
+            if it.get("raw_content"):
+                continue
+
+            if _looks_like_pdf_url(u):
+                pdf_bytes = _fetch_pdf_once(u, timeout=timeout)
+                if pdf_bytes:
+                    it["raw_content"] = ""  # 텍스트 변환은 다운스트림 파서에 맡김
+                    it["raw_bytes"] = len(pdf_bytes)
+                    it["content_type"] = it.get("content_type") or "application/pdf"
+                else:
+                    # SSLError 등 실패 시: HTML 폴백 1회만 시도
+                    try:
+                        r = http_get(u, timeout=timeout)
+                        if r is not None:
+                            it["raw_content"] = r.text or ""
+                    except Exception:
+                        pass
+            else:
+                # 비-PDF: HTML 1회만
+                r = http_get(u, timeout=timeout)
+                if r is not None:
+                    it["raw_content"] = r.text or ""
+        except Exception:
+            continue
+
 # ---- 선택적 파서(존재 시 사용, 미설치라면 안전 폴백) ----
-# 모듈은 Optional로, 함수는 Optional[Callable[..., str]]로 표기하여
-# "Module"/"Callable[...] 에 None 대입" 경고 제거
 from types import ModuleType
 
 try:
@@ -290,7 +530,6 @@ try:
 except Exception:
     _pdfminer_extract_text = None
 
-
 # =============================================================================
 # Backend calls
 # =============================================================================
@@ -299,46 +538,39 @@ def _search_tavily(query: str, *, num: int = 10, timeout: int = 15) -> List[Dict
     if not (getattr(CFG, "HAS_TAVILY", False) and api_key):
         return []
     try:
-        # mypy가 stubs 없는 외부 모듈을 싫어하므로, 임포트 실패 시 조용히 스킵
         try:
             from tavily import TavilyClient  # type: ignore[import-untyped]
         except Exception:  # pragma: no cover
             logger.debug("tavily module not available; skipping tavily backend.")
             return []
-        # 임포트 성공 시에만 클라이언트 생성
         client = TavilyClient(api_key=api_key)
-
-        # [PATCH B1] ── 경량화: basic / raw_content 비활성 / 결과 상한
         max_results = max(1, min(int(num or 10), 5))
         resp = client.search(
             query=query,
-            search_depth="basic",          # advanced → basic (지연 절감)
-            include_raw_content=False,     # 원문 동시 수집 OFF (지연 절감)
-            max_results=max_results,       # 과다 수집 방지
-            timeout=timeout,               # 남은 버짓 기반 타임아웃
+            search_depth="basic",
+            include_raw_content=False,
+            max_results=max_results,
+            timeout=timeout,
         )
-
         items: List[Dict[str, Any]] = []
         if isinstance(resp, dict):
             items = resp.get("results", []) or []
         else:
             for r in getattr(resp, "results", []) or []:
                 items.append(r.model_dump() if hasattr(r, "model_dump") else dict(r))
-
         parsed: List[Dict[str, Any]] = []
         for it in items:
             parsed.append({
                 "title": it.get("title") or "",
                 "url": _canon_url(it.get("url") or ""),
                 "content": (it.get("content") or "")[:2000],
-                "raw_content": "",  # include_raw_content=False
+                "raw_content": "",
                 "source": _canon_url(it.get("url") or ""),
             })
         return parsed
     except Exception as e:
         logger.warning("Tavily search failed: %s", e)
         return []
-
 
 def _search_google_cse(query: str, *, num: int = 10, timeout: int = 20) -> List[Dict[str, Any]]:
     api_key = (os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_CSE_API_KEY") or "").strip()
@@ -351,7 +583,6 @@ def _search_google_cse(query: str, *, num: int = 10, timeout: int = 20) -> List[
         hl = os.getenv("SEARCH_HL", "en")
         num = max(1, min(int(num or 10), 10))
 
-        # 👇 Google 전용 상한(ENV/CFG로 조절 가능, 기본 DEFAULT_TIMEOUT_SECONDS)
         g_cap = max(3, int(os.getenv("GOOGLE_TIMEOUT_SEC", str(DEFAULT_TIMEOUT_SECONDS))))
         timeout = min(timeout, g_cap)
 
@@ -381,13 +612,12 @@ def _search_google_cse(query: str, *, num: int = 10, timeout: int = 20) -> List[
         logger.warning("Google CSE search failed: %s", e)
         return []
 
-
 def _search_serpapi(query: str, *, num: int = 10, timeout: int = 20) -> List[Dict[str, Any]]:
     api_key = (os.getenv("SERPAPI_API_KEY") or "").strip()
     if not (api_key and getattr(CFG, "HAS_SERPAPI", False)):
         return []
     try:
-        from serpapi import GoogleSearch  # type: ignore[import-untyped]  # 지연 임포트
+        from serpapi import GoogleSearch  # type: ignore[import-untyped]
         hl = os.getenv("SEARCH_HL", "en")
         gl = os.getenv("SEARCH_GL", "us")
         num = max(1, min(int(num or 10), 100))
@@ -417,7 +647,6 @@ def _search_serpapi(query: str, *, num: int = 10, timeout: int = 20) -> List[Dic
         logger.warning("SerpAPI search failed: %s", e)
         return []
 
-
 def _search_naver_direct(query: str, *, num: int = 10, timeout: int = 20) -> List[Dict[str, Any]]:
     client_id = os.getenv("NAVER_CLIENT_ID")
     client_secret = os.getenv("NAVER_CLIENT_SECRET")
@@ -430,7 +659,7 @@ def _search_naver_direct(query: str, *, num: int = 10, timeout: int = 20) -> Lis
         return []
     from urllib.parse import quote
     encoded_query = quote(q_naver)
-    url = "https://openapi.naver.com/v1/search/news.json"  # 정책상 뉴스 우선
+    url = "https://openapi.naver.com/v1/search/news.json"
     num = max(1, min(int(num or 10), 100))
     headers = {"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": client_secret}
     params = {"query": q_naver, "display": num, "start": 1, "sort": "sim"}
@@ -462,7 +691,6 @@ def _search_naver_direct(query: str, *, num: int = 10, timeout: int = 20) -> Lis
     except Exception as e:
         logger.warning("Naver(Direct) search failed: %s", e)
         return []
-
 
 def _search_serpapi_naver(query: str) -> List[dict]:
     api_key = (os.getenv("SERPAPI_API_KEY") or "").strip()
@@ -546,25 +774,19 @@ def _search_serpapi_naver(query: str) -> List[dict]:
     return []
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2xx 이외 응답 사전 필터링: 재시도 없이 즉시 스킵
-#  - dailypharm 404 등의 케이스에서 원문 보강 단계로 넘어가기 전에 제거
-#  - HEAD 우선 시도, 405/403 등 HEAD 불가 시 GET(stream)으로 1회만 확인
-#  - 네트워크 예외(타임아웃/SSL 등)는 "판단 불가"로 간주하여 유지(보수적)
+# 2xx 이외 응답 사전 필터링
 def _probe_http_status(u: str, timeout: float = 6.0) -> Optional[int]:
     if not u:
         return None
     try:
         s = get_requests_session()
         verify = getattr(s, "verify", True)
-        # HEAD 우선
         try:
             r = requests.head(u, allow_redirects=True, timeout=timeout, verify=verify)
             return int(r.status_code)
         except requests.exceptions.RequestException:
-            # 일부 서버는 HEAD 미지원 → GET(stream)으로 최소 확인
             try:
                 r2 = requests.get(u, allow_redirects=True, timeout=timeout, verify=verify, stream=True)
-                # 즉시 연결만 확인하고 본문은 소비하지 않음
                 return int(r2.status_code)
             except requests.exceptions.RequestException:
                 return None
@@ -572,15 +794,10 @@ def _probe_http_status(u: str, timeout: float = 6.0) -> Optional[int]:
         return None
 
 def _filter_non_2xx(items: List[Dict[str, Any]], *, timeout: float = 6.0, limit: Optional[int] = None) -> List[Dict[str, Any]]:
-    """
-    결과 목록에서 2xx 응답이 아닌 URL을 선제적으로 제거합니다.
-    - limit가 지정되면 상위 limit개 항목만 프로빙(과도한 네트워크 부하 방지)
-    """
     if not items:
         return items
     out: List[Dict[str, Any]] = []
     n = len(items) if limit is None else max(0, min(len(items), int(limit)))
-    # 상위 n개만 프로빙, 나머지는 일단 보존(보수적)
     for idx, it in enumerate(items):
         u = it.get("url") or it.get("source") or ""
         if idx < n:
@@ -591,7 +808,6 @@ def _filter_non_2xx(items: List[Dict[str, Any]], *, timeout: float = 6.0, limit:
         out.append(it)
     return out
 
-
 # =============================================================================
 # Query shaping / normalization
 # =============================================================================
@@ -599,56 +815,38 @@ def _sanitize_query(q: str) -> str:
     if not q:
         return q
     s = q.strip()
-    # (untitled) 제거
     s = _re.sub(r"^\(\s*untitled\s*\)\s*", "", s, flags=_re.I)
 
-    # 연도 스팬 2000..2024 → (2000 OR 2001 …)
-    year_span_pat = r"\b((?:19|20)\d{2})\.\.((?:19|20)\d{2})\b"
-    def _expand_years(m):
-        y1, y2 = int(m.group(1)), int(m.group(2))
-        if y2 < y1: y1, y2 = y2, y1
-        return "(" + " OR ".join(str(y) for y in range(y1, y2 + 1)) + ")"
-    s = _re.sub(year_span_pat, _expand_years, s)
-
-    # 공백 정규화
     s = _re.sub(r"\s{2,}", " ", s).strip()
     return s
 
-
 def _normalize_query(q: str) -> str:
-    """스마트 따옴표 정리 + site: 파이프를 OR로 묶기 (중복 접두어/괄호 보존)"""
     s = (q or "").strip()
     if not s:
         return s
-    # 따옴표/이스케이프 정규화
     s = s.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
     s = s.replace('\\"', '"').replace("\\'", "'")
-
-    # site:a|b|site:c → (site:a OR site:b OR site:c), site:(a OR b)는 보존
     def _site_or_repl(m: re.Match[str]) -> str:
         tail = m.group(1)
-        # 이미 괄호로 묶인 경우 그대로 보존
         if tail.startswith("(") and tail.endswith(")"):
             return "site:" + tail
-
         parts = [p.strip() for p in tail.split("|") if p.strip()]
         if len(parts) <= 1:
             p = parts[0] if parts else tail
             return p if p.lower().startswith("site:") else ("site:" + p)
-
         norm_parts = []
         for p in parts:
             norm_parts.append(p if p.lower().startswith("site:") else ("site:" + p))
         ors = " OR ".join(norm_parts)
         return f"({ors})"
 
-    s = re.sub(r"site:([^\s)]+)", _site_or_repl, s, flags=re.I)
-    s = re.sub(r"\s{2,}", " ", s).strip()
+    s = _re.sub(r"site:([^\s)]+)", _site_or_repl, s, flags=_re.I)
+    # 숫자 범위 → OR 확장 (연도 한정 + 스팬 상한)
+    s = _expand_year_ranges(s, max_span=6)
+    s = _re.sub(r"\s{2,}", " ", s).strip()
     return s
 
-
 def _to_google_precision(q: str) -> str:
-    """Google/Tavily용 정밀형: |→OR, site: 묶음 괄호화, 연도 OR trimmed, 네거티브 2개 제한"""
     s = q.strip()
     s = _re.sub(r"\s*\|\s*", " OR ", s)
 
@@ -674,23 +872,18 @@ def _to_google_precision(q: str) -> str:
     s = _re.sub(r"\s{2,}", " ", s).strip()
     return s
 
-
 def _to_google_precision_alt(q: str) -> str:
-    """정밀형 B: 네거티브 제거 + 핵심 키워드만 / site 묶음 유지"""
     s = _re.sub(r"(^|\s)-\S+", " ", q).strip()
     s = _re.sub(r"\s*\|\s*", " OR ", s)
     s = _re.sub(r"\s{2,}", " ", s).strip()
     return s
 
-
 def _to_naver_recall(q: str) -> str:
-    """네이버 리콜형: 내부 간소화 + 더 짧게"""
     s = _simplify_for_naver(q)
     toks = s.split()
     if len(toks) > 5:
         s = " ".join(toks[:5])
     return s
-
 
 # =============================================================================
 # Backend router & helpers
@@ -698,7 +891,6 @@ def _to_naver_recall(q: str) -> str:
 def _backend_call(backend_key: str, query: str, *, num: int = 10, timeout: int = 15) -> List[Dict[str, Any]]:
     key = (backend_key or "").strip().lower()
     if key in ("google", "google_cse"):
-        # 👇 Google 호출은 더 공격적 타임아웃 상한 적용
         g_cap = max(3, int(os.getenv("GOOGLE_TIMEOUT_SEC", "8")))
         return _search_google_cse(query, num=num, timeout=min(timeout, g_cap))
     if key in ("serpapi", "serpapi_google"):
@@ -710,7 +902,6 @@ def _backend_call(backend_key: str, query: str, *, num: int = 10, timeout: int =
     if key == "tavily":
         return _search_tavily(query, num=num, timeout=timeout)
     return []
-
 
 def _normalize_backend_alias(b: str) -> str:
     b = (b or "").strip().lower()
@@ -726,19 +917,15 @@ def _normalize_backend_alias(b: str) -> str:
         return "naver_direct"
     return b
 
-
 def _is_googleish(q: str) -> bool:
-    """site:, OR/AND, 괄호가 포함되면 Google 우선 힌트"""
     s = q or ""
     return any(tok in s for tok in ("site:", " OR ", " AND ", "(", ")"))
-
 
 def _resolve_backend_chain(engine_arg: Optional[str], *, num: int, googleish: bool) -> List[str]:
     eng = (engine_arg or os.getenv("WEB_SEARCH_ENGINE") or "auto").strip().lower()
     cfg_backends = (getattr(CFG, "SEARCH_BACKENDS", "") or "").strip()
     default_chain = "google_cse,naver_direct,serpapi_naver,serpapi,tavily"
 
-    # google-ish면 auto에서도 google_cse를 맨 앞으로
     if eng == "auto" and googleish:
         base = cfg_backends or (os.getenv("SEARCH_BACKENDS") or default_chain)
         chain = ["google_cse"]
@@ -763,7 +950,6 @@ def _resolve_backend_chain(engine_arg: Optional[str], *, num: int, googleish: bo
 
     return [s.strip() for s in default_chain.split(",")]
 
-
 # =============================================================================
 # Public Tool: web_search
 # =============================================================================
@@ -786,19 +972,26 @@ def web_search(
       SEARCH_TIME_BUDGET_SEC=25
       BACKEND_TIMEOUT_SEC=15 (cap to DEFAULT_TIMEOUT_SECONDS)
     """
-    # 런타임 ENV 변경 반영(안전): CFG in-place 리로드 + 게이트키프 캐시 리프레시
     try:
         reload_config()
         from settings_gatekeep import refresh_gatekeep_cache as _refresh_gk
         _refresh_gk()
     except Exception:
         pass
-    
+
+    # NOTE: 검색 모듈은 인덱스 병합/조회(retrieval)를 수행하지 않습니다.
+    # CHROMA_INCLUDE_BASE는 agent/vector_search.py 등 'retrieval' 단계에서만 동작합니다.
+    try:
+        _incl = getattr(CFG, "CHROMA_INCLUDE_BASE", None)
+        if _incl is None:
+            _incl = (os.getenv("CHROMA_INCLUDE_BASE", "").strip().lower() in {"1","true","yes","on"})
+        logger.debug("[web_search] CHROMA_INCLUDE_BASE=%s (info only; used in retrieval stage)", bool(_incl))
+    except Exception:
+        pass
+
     engine = (engine or os.getenv("WEB_SEARCH_ENGINE") or "auto").strip().lower()
     results: List[Dict[str, Any]] = []
     used: Optional[str] = None
-    # 저장 경로는 Exception 분기에서 None일 수 있으므로 함수 초반 1회만 선언(재정의 방지)
-    # (mypy: "Name 'path' already defined" 해결)
     path: Optional[str] = None
 
     raw_query = query
@@ -812,14 +1005,12 @@ def web_search(
 
     logger.info("[web_search][query] %s", _ell(raw_query))
 
-    # (A0) 선택적 프리플라이트 핑: DNS/프록시 이슈 조기감지(실패해도 진행)
     if _truthy_cfg("SEARCH_PREFLIGHT_PING", False):
         try:
             _ = http_get("https://www.google.com", timeout=1)
         except Exception:
             logger.warning("[web_search] preflight ping failed (non-fatal)")
 
-    # [METRICS] 라운드 고정 + 쿼리 발행 기록 (best-effort, fire-and-forget)
     try:
         round_id = os.getenv("RUN_ROUND_ID") or datetime.now().isoformat(timespec="seconds")
         _metrics_call("set_round", lambda: set_round(round_id))
@@ -827,9 +1018,6 @@ def web_search(
     except Exception:
         pass
 
-    # ─────────────────────────────────────────────────────────────
-    # [GATEKEEP] 허용 도메인 로깅 및 런타임 주입 (즉시 반영)
-    # 검색 체인 실행 전에 한 번만 수행하면 downstream에서 동일 목록을 사용합니다.
     try:
         allowed_domains = sorted(get_allowed_domains())
         if gatekeep_enabled():
@@ -841,7 +1029,6 @@ def web_search(
     except Exception as e:
         logger.warning("[GATEKEEP] runtime allowed-domains injection failed: %s", e)
 
-    # (1) backend 지시어
     forced_backend = None
     m = _re.match(r"backend\s*:\s*([a-zA-Z0-9_]+)\s*;\s*(.*)", raw_query)
     if m:
@@ -849,20 +1036,17 @@ def web_search(
         raw_query = m.group(2).strip()
         logger.info("[backend.forced] %s (via query directive)", forced_backend)
 
-    # (2) 정규화
     base_query = _sanitize_query(raw_query)
     base_query = _normalize_query(base_query)
     if base_query != raw_query:
         logger.debug("[web_search][sanitized] %s  ←  %s", base_query, raw_query)
 
-    # (3) 네거티브 기본값 부착(비-네이버용) — 현재는 변수만 만들어 두고 필요 시 사용
     _ = _append_default_negatives(base_query)
 
-    # 정책/상한/예산
     _policy = (getattr(CFG, "SEARCH_POLICY", "best_of_chain") or "best_of_chain").strip()
     _min_ok = int(getattr(CFG, "SEARCH_MIN_OK", __MIN_RESULTS_OK_FALLBACK) or __MIN_RESULTS_OK_FALLBACK)
     _topn   = int(getattr(CFG, "SEARCH_TOPN", __SEARCH_TOPN_FALLBACK) or __SEARCH_TOPN_FALLBACK)
-    # [ALLOWLIST BOOST] 게이트키핑이 켜져 있으면 다양성 확보를 위해 topn 상향
+
     try:
         if gatekeep_enabled():
             _topn_allow = int(os.getenv("SEARCH_TOPN_ALLOW", "15"))
@@ -879,7 +1063,6 @@ def web_search(
         _time_budget = 5.0
 
     try:
-        # 우선순위: CFG.SEARCH_TIMEOUT → ENV BACKEND_TIMEOUT_SEC → 모듈 상수
         _cfg_search_timeout = getattr(CFG, "SEARCH_TIMEOUT", None)
         if _cfg_search_timeout is not None:
             _backend_timeout = int(_cfg_search_timeout)
@@ -887,10 +1070,8 @@ def web_search(
             _backend_timeout = int(os.getenv("BACKEND_TIMEOUT_SEC", str(DEFAULT_TIMEOUT_SECONDS)))
     except Exception:
         _backend_timeout = DEFAULT_TIMEOUT_SECONDS
-    # 하한(너무 짧은 값 방지)
     if _backend_timeout < 3:
         _backend_timeout = 3
-    # 일괄 안전 상한(응답성 향상): DEFAULT_TIMEOUT_SECONDS
     if _backend_timeout > DEFAULT_TIMEOUT_SECONDS:
         logger.debug("[web_search] cap backend timeout: %ss → %ss",
                      _backend_timeout, DEFAULT_TIMEOUT_SECONDS)
@@ -900,13 +1081,10 @@ def web_search(
 
     t_start = time.monotonic()
 
-    # 체인 구성 (google-ish 힌트 반영)
     try:
         logger.debug("[web_search][diag] before chain resolve")
         googleish = _is_googleish(base_query)
         chain = _resolve_backend_chain(engine, num=num, googleish=googleish)
-
-        # [PATCH A2] ── 한국어/국내 도메인 신호가 있으면 naver_direct를 맨 앞으로 재정렬
         if _looks_korean(base_query) and "naver_direct" in chain:
             seen: set[str] = set()
             new_chain: List[str] = ["naver_direct"]
@@ -929,27 +1107,22 @@ def web_search(
 
     def _budget_left() -> float:
         return _time_budget - (time.monotonic() - t_start)
-    
-    # [PATCH A3] ── 한국어 쿼리일 때 naver 전용 최소 예산(초) 예약
+
     _kr_context = _looks_korean(base_query)
     _naver_in_chain = any(b in ("naver_direct", "serpapi_naver") for b in chain)
     _naver_called = False
-    _naver_reserved = 4.0 if (_kr_context and _naver_in_chain) else 0.0  # 필요 시 3~6초로 조정
+    _naver_reserved = 4.0 if (_kr_context and _naver_in_chain) else 0.0
     logger.debug("[web_search][A3] kr=%s | naver_in_chain=%s | reserved=%.2fs",
              _kr_context, _naver_in_chain, _naver_reserved)
 
-    # (A) 백엔드 실행 ----------------------------------------------------------
     tried = []
-    # [PATCH E1] 허용 도메인 통과 결과 누적 카운터(조기 종료용)
     allowlist_hits = 0
     early_stop_reason: Optional[str] = None
-    # [PATCH C1] ── 얼리 스톱을 위한 누적 카운트 (best_of_chain에서만 사용)
     _accum_count = 0
-    # [NEW] allowlist hit이어도 최소 N개 백엔드는 실행 보장
     _min_backends = max(2, int(os.getenv("SEARCH_MIN_BACKENDS", "2")))
     _backends_with_results: set[str] = set()
+
     for bk in chain:
-        # [PATCH A4] ── naver를 아직 안 돌렸고, 예약 예산을 남겨둬야 하면 타 백엔드 대기
         if _naver_reserved > 0 and not _naver_called and bk not in ("naver_direct", "serpapi_naver"):
             if _budget_left() <= _naver_reserved:
                 logger.info("[web_search] reserve budget for naver (left=%.2fs, reserve=%.2fs) → skip %s for now",
@@ -967,13 +1140,10 @@ def web_search(
             q_prec_a = _to_google_precision(base_q)
             q_prec_b = _to_google_precision_alt(base_q)
             q_prec_a_neg = _append_default_negatives(q_prec_a)
-
             if bk == "tavily":
-                # [PATCH D1] ── tavily는 1변형만 (지연 절감)
                 variants = [("precAneg", q_prec_a_neg)]
             else:
                 variants = [("precAneg", q_prec_a_neg), ("precA", q_prec_a), ("precB", q_prec_b)]
-
         elif bk in ("naver", "serpapi_naver", "naver_direct"):
             variants = [("recall", _to_naver_recall(base_query))]
         else:
@@ -986,7 +1156,6 @@ def web_search(
                 logger.info("[web_search] time budget exceeded during variants on %s", bk)
                 break
             try:
-                # 각 호출 직전에 남은 예산/타임아웃을 다시 보수적으로 적용
                 to = min(_backend_timeout, max(3, int(_budget_left())))
                 logger.info("[web_search] calling backend=%s variant=%s timeout=%ss", bk, label, to)
                 _res = _backend_call(bk, q_use, num=num, timeout=to) or []
@@ -1003,79 +1172,74 @@ def web_search(
         dur = time.monotonic() - start
         tried.append((f"{bk}:{used_label or 'none'}", len(best_res), best_res))
 
-        # [PATCH E2] 허용 도메인 통과분 누적 및 조기 종료 판단
         if best_res:
             try:
                 _allowed_cnt = 0
                 for _it in best_res:
                     _u = _it.get("url") or _it.get("source") or ""
-                    if _u and url_allowed(_u):
+                    # ✅ 정규화된 URL 기준으로 게이트키핑 (normalize_url 일관 사용)
+                    if _u and url_allowed(_canon_url(_u)):
                         _allowed_cnt += 1
                 if _allowed_cnt:
                     allowlist_hits += _allowed_cnt
             except Exception:
                 _allowed_cnt = 0
-            # 결과를 낸 백엔드 수를 추적 (중복 방지)
             _backends_with_results.add(bk)
 
-            # [RELAX EARLY-STOP] allowlist 충족이어도 최소 _min_backends개는 실행
             if (_policy in ("best_of_chain", "first_ok")) and (allowlist_hits >= _min_ok):
                 if len(_backends_with_results) >= _min_backends:
                     early_stop_reason = f"allowlist_min_ok(backends={len(_backends_with_results)})"
                     logger.debug("[backend.pick] early stop by allowlist after %d backends (hits=%d ≥ min_ok=%d, bk=%s)",
                                  len(_backends_with_results), allowlist_hits, _min_ok, bk)
-                    results = []   # '아직 최종 선택 없음' 신호 (후단 병합·게이트키프 공정)
+                    results = []
                     used = None
                     break
                 else:
                     logger.debug("[backend.pick] allowlist hit but continue (results_backends=%d < min_backends=%d)",
                                  len(_backends_with_results), _min_backends)
-        # [PATCH C2] ── best_of_chain: 누적 개수 빠르게 모이면 조기 종료
+
         if _policy == "best_of_chain" and best_res:
             _accum_count += len(best_res)
             if _accum_count >= _topn:
                 logger.debug("[backend.pick] early stop: accumulated=%d >= topn=%d", _accum_count, _topn)
-                # results, used = None, None  # ❌ 타입 오류 원인
-                results = []                  # ✅ 빈 리스트로 '아직 최종 선택 없음' 신호
-                used = None                   # Optional[str]라서 OK
+                results = []
+                used = None
                 break
 
         logger.debug("[web_search][backend tried] %-18s got=%2d in %.2fs",
                       f"{bk}:{used_label or 'none'}", len(best_res), dur)
-        
-        # [PATCH A4-followup] naver 호출 완료 플래그 및 예약 해제
+
         if bk in ("naver_direct", "serpapi_naver"):
             _naver_called = True
             _naver_reserved = 0.0
 
-        # [METRICS] 백엔드 총 소요 시간 (best-effort, 말단)
         _metrics_call(f"record_backend_latency:{bk}", lambda: record_backend_latency(bk, float(dur)))
 
         if _policy == "first_ok" and len(best_res) >= _min_ok:
             results, used = best_res, f"{bk}:{used_label}"
             break
 
-    # (A.5) 보정: 한국어 쿼리인데 naver를 전혀 못 돌렸다면 한 번은 강제 시도
     if not results and _kr_context and _naver_in_chain and not _naver_called and _budget_left() > 1.5:
         try:
             to = int(max(2.0, min(float(_backend_timeout), _budget_left())))
             logger.info("[web_search] forcing one naver_direct call (timeout=%ss, budget_left=%.2f)",
-            to, _budget_left())
+                        to, _budget_left())
             _res = _backend_call("naver_direct", _to_naver_recall(base_query), num=num, timeout=to) or []
             if _res:
                 tried.append(("naver_direct:forced", len(_res), _res))
         except Exception as e:
             logger.warning("[web_search] forced naver_direct failed: %s", e)
 
-    # (B) best_of_chain → 합산/정규화/디듀프/TopN
     if not results:
         if _policy == "best_of_chain":
             merged: List[Dict[str, Any]] = []
             for _, _, res in tried:
                 merged.extend(res or [])
+            # ✅ 1차: 강한 URL 정규화 + 디듀프
+            merged = _canon_and_dedupe(merged)
+            # ✅ 2차: 기존의 결과 정규화/정렬 유틸과 병행 적용(보강용)
             merged = _dedupe_keep_order_dicts(_normalize_results(merged))
 
-            # [PATCH B] ── 의도/다양성 기반 리랭크 추가
             _intent = _infer_intent_from_query(base_query)
             merged = _rerank_with_intent_and_diversity(merged, intent=_intent, kr_boost=_kr_context,
                                                        domain_penalty=0.15)
@@ -1090,11 +1254,9 @@ def web_search(
             results = best_res
             logger.debug("[backend.pick] first_ok/best_of_chain fallback → %s (count=%d)", used, best_count)
 
-    # (C) 리트라이(비어있고 시간 남아 있을 때만)
     if not results and _budget_left() > 2.0:
         time.sleep(0.6)
         retried: List[Tuple[str, int, List[dict]]] = []
-        # [PATCH E3] retry에서도 허용 도메인 조기 종료 재사용
         retry_allowlist_hits = 0
         _retry_backends_with_results: set[str] = set()
         for bk in chain:
@@ -1130,13 +1292,13 @@ def web_search(
                         break
             retried.append((f"{bk}:{used_label or 'none'}", len(best_res_r), best_res_r))
 
-            # retry 조기 종료 판단
             if best_res_r:
                 try:
                     _allowed_cnt_r = 0
                     for _it in best_res_r:
                         _u = _it.get("url") or _it.get("source") or ""
-                        if _u and url_allowed(_u):
+                        # ✅ 재시도 단계도 정규화된 URL 기준으로 게이트키핑
+                        if _u and url_allowed(_canon_url(_u)):
                             _allowed_cnt_r += 1
                     if _allowed_cnt_r:
                         retry_allowlist_hits += _allowed_cnt_r
@@ -1144,20 +1306,18 @@ def web_search(
                     _allowed_cnt_r = 0
                 _retry_backends_with_results.add(bk)
 
-                # [RELAX EARLY-STOP][retry] 재시도 경로도 최소 _min_backends 보장
                 if (_policy in ("best_of_chain", "first_ok")) and (retry_allowlist_hits >= _min_ok):
                     if len(_retry_backends_with_results) >= _min_backends:
                         early_stop_reason = f"allowlist_min_ok(retry,backends={len(_retry_backends_with_results)})"
                         logger.debug("[web_search][retry] early stop by allowlist after %d backends: hits=%d ≥ min_ok=%d (bk=%s)",
                                      len(_retry_backends_with_results), retry_allowlist_hits, _min_ok, bk)
-                        results = []  # 후단 병합 경로 진입
+                        results = []
                         used = None
                         break
                     else:
                         logger.debug("[web_search][retry] allowlist hit but continue (results_backends=%d < min_backends=%d)",
                                      len(_retry_backends_with_results), _min_backends)
 
-            # retry latency 기록(말단·비중요)
             _metrics_call(f"record_backend_latency:{bk}", lambda: record_backend_latency(bk, float(time.monotonic() - _retry_t0)))
 
             if _policy == "first_ok" and len(best_res_r) >= _min_ok:
@@ -1166,15 +1326,15 @@ def web_search(
             if _policy == "best_of_chain" and _accum_count >= _topn:
                 logger.debug("[web_search] early stop triggered before exhausting backends (best_of_chain)")
 
-
         if not results and retried:
             if _policy == "best_of_chain":
                 merged = []
                 for _, _, res in retried:
                     merged.extend(res or [])
+                # ✅ 재시도 병합에도 동일 규칙 적용
+                merged = _canon_and_dedupe(merged)
                 merged = _dedupe_keep_order_dicts(_normalize_results(merged))
 
-                # [PATCH B-retry] 리랭크 재적용
                 _intent = _infer_intent_from_query(base_query)
                 merged = _rerank_with_intent_and_diversity(merged, intent=_intent, kr_boost=_kr_context,
                                                            domain_penalty=0.15)
@@ -1185,7 +1345,6 @@ def web_search(
                 best = max(retried, key=lambda t: t[1])
                 used, _, results = f"{best[0]}(retry)", best[1], best[2]
 
-    # (D) 최종 로그/메트릭(파일 저장/후속 단계보다 후순위로 유지)
     if results:
         logger.info("[web_search][backend] %s  | got=%d (policy=%s, min_ok=%d, topn=%d, spent=%.2fs)",
                      used, len(results), _policy, _min_ok, _topn, (time.monotonic()-t_start))
@@ -1193,13 +1352,11 @@ def web_search(
         _metrics_call("record_zero_result", record_zero_result)
         _metrics_call("zero_result_query", lambda: event("zero_result_query", query=base_query))
 
-    # (E) 게이트키핑/원문 보강/저장  ← **핵심: 저장을 먼저!**
-    # URL 휴리스틱으로 content_type 힌트 선반영
+    # ✅ 최종 단계에서도 한 번 더 보강(앞선 단계의 결과라도 안전 재확인)
+    results = _canon_and_dedupe(results)
     _pretag_content_type(results)
     results = _apply_gatekeep_to_results(results)
     results = _pick_top(results, _topn)
-    # [PATCH: non-2xx 즉시 스킵] — 원문 보강 전에 2xx 이외 응답은 제거(재시도 없음)
-    #    - 과도한 네트워크 부하를 피하기 위해 상위 TopN만 상태 프로빙
     try:
         probe_timeout = float(os.getenv("WEB_FETCH_PROBE_TIMEOUT", "6"))
     except Exception:
@@ -1210,16 +1367,13 @@ def web_search(
         probe_limit = _topn
     results = _filter_non_2xx(results, timeout=probe_timeout, limit=probe_limit)
     _enrich_raw_content(results)
-    # 안전망: n.news.naver.com 중계 URL 최종 필터
     results = [it for it in results if not normalize_or_block_intermediate_news(it.get("url") or it.get("source") or "")[1]]
-    # 원문 보강 이후 메타(바이트/타입/타임스탬프) 주입
     _annotate_fetch_meta(results)
 
-    # 저장 경로는 최종적으로 문자열이어야 하지만, 예외 경로에서 None이 될 수 있으므로 Optional로 선언
     try:
         path = _save_results(results, query=raw_query, base_dir=str(research_base_dir()))
     except TypeError:
-        path = _save_results(results, query=raw_query)  # 구버전 시그니처 호환
+        path = _save_results(results, query=raw_query)
     except Exception as e:
         logger.warning("[web_search][final save] failed: %s", e)
         try:
@@ -1231,18 +1385,17 @@ def web_search(
             except Exception:
                 path = str(Path.cwd() / "web_search_fallback.json")
 
-    # 말단: 백엔드 선택 이벤트(파일 저장 이후 best-effort)
     if results:
         _metrics_call("backend_selected",
                       lambda: event("backend_selected", backend=str(used or "none"),
                                     result_count=len(results)))
 
-    # 간단 요약 로그
     lines = []
     for i, it in enumerate(results[:_LOG_TOPK], start=1):
         t = _ell(it.get("title") or it.get("name") or "(no title)")
         u = it.get("url") or it.get("source") or it.get("link") or ""
-        lines.append(f"  {i:>2}. {t}\n      └─ {_host_for_log(u)} :: {u}")
+        # 로그에도 정규화 URL을 그대로 사용
+        lines.append(f"  {i:>2}. {t}\n      └─ {_host_for_log(u)} :: {_canon_url(u)}")
     if lines:
         logger.info("[web_search][top%d]\n%s", min(_LOG_TOPK, len(results)), "\n".join(lines))
 

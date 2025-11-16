@@ -6,6 +6,10 @@ import importlib
 import logging
 logger = logging.getLogger(__name__)
 
+# 레거시 어댑터 재진입 가드(무한 순환 방지)
+_LEGACY_WS_CALLING = False
+
+
 # ─────────────────────────────────────────────────────────────
 # Dynamic config access (CFG → module attr → default)
 # ─────────────────────────────────────────────────────────────
@@ -314,8 +318,19 @@ def _load_new_or_legacy() -> tuple[Optional[_FnNewProto], Optional[_FnLegacyProt
         except Exception:
             legacy_fn = None
     return new_fn, legacy_fn
+# 지연 로딩: 초기 모듈 로드 시점에는 바인딩하지 않고, 실제 호출 시 보장
+_fn_new: Optional[_FnNewProto] = None
+_fn_legacy: Optional[_FnLegacyProto] = None
 
-_fn_new, _fn_legacy = _load_new_or_legacy()
+def _ensure_loaded() -> None:
+    """필요 시점에만 writer_scheduler 코어를 로드 (순환 임포트/초기화 경합 방지)."""
+    global _fn_new, _fn_legacy
+    if (_fn_new is None) and (_fn_legacy is None):
+        try:
+            new_fn, legacy_fn = _load_new_or_legacy()
+            _fn_new, _fn_legacy = new_fn, legacy_fn
+        except Exception:
+            _fn_new, _fn_legacy = None, None
 
 def schedule_writer_if_needed(
     state: MutableMapping[str, Any],
@@ -327,6 +342,21 @@ def schedule_writer_if_needed(
     - 신규/레거시 모듈이 있으면 위임
     - 없으면 로컬 폴백(부작용 최소) 적용
     """
+    _ensure_loaded()
+    # ── Direct QA 노이즈 억제 가드 (+ 예외 스위치 force_writer) ───────────
+    try:
+        _flags = dict(state.get("flags") or {})
+        if (bool(_flags.get("qa_direct_reply")) or bool(_flags.get("DIRECT_QA"))) and not bool(_flags.get("force_writer")):
+            # 디버깅 편의용 표식만 남기고 조용히 종료
+            _router = dict(_flags.get("router") or {})
+            if not _router.get("writer_skipped"):
+                _router["writer_skipped"] = "direct_qa"
+            _flags["router"] = _router
+            state["flags"] = _flags
+            return
+    except Exception:
+        # flags 구조가 비정상이더라도 실패 없이 통과
+        pass
     if _fn_new is not None:
         try:
             return _fn_new(state, reason=reason)
@@ -371,67 +401,76 @@ def schedule_writer_if_needed_legacy(state, tasks, *, outline_text, mode=None, *
         kwargs['requested_title'] → 최근 user 메시지 'write: ...' → state.flags.requested_write_title
     - 선택 인자(messages, allow_during_research, debug)도 있으면 그대로 전달 (없으면 설정 기본값)
     """
-    if _fn_new is None and _fn_legacy is None:
-        raise ImportError("utils.writer_scheduler.schedule_writer_if_needed not available")  # pragma: no cover
-    # messages 추출(없으면 state에서 폴백)
-    messages = kwargs.get("messages")
-    if messages is None:
-        try:
-            messages = state.get("messages", [])
-        except Exception:
-            messages = []
-
-    # requested_title 결정
-    requested_title = kwargs.get("requested_title")
-    if not requested_title:
-        # 최근 user 메시지/태스크에서 'write: <title>' 추출
-        try:
-            requested_title = get_last_write_target(messages or [], tasks or [])
-        except Exception:
-            requested_title = None
-        # flags 폴백
-        if not requested_title:
+    global _LEGACY_WS_CALLING
+    if _LEGACY_WS_CALLING:
+        logger.debug("[tasks.legacy] re-entry detected → skip")
+        return False
+    _LEGACY_WS_CALLING = True
+    try:
+        _ensure_loaded()
+        if _fn_new is None and _fn_legacy is None:
+            raise ImportError("utils.writer_scheduler.schedule_writer_if_needed not available")  # pragma: no cover
+        # messages 추출(없으면 state에서 폴백)
+        messages = kwargs.get("messages")
+        if messages is None:
             try:
-                flags: Dict[str, Any] = state.get("flags") or {}
-                requested_title = (flags.get("requested_write_title") or "").strip() or None
+                messages = state.get("messages", [])
+            except Exception:
+                messages = []
+
+        # requested_title 결정
+        requested_title = kwargs.get("requested_title")
+        if not requested_title:
+            # 최근 user 메시지/태스크에서 'write: <title>' 추출
+            try:
+                requested_title = get_last_write_target(messages or [], tasks or [])
             except Exception:
                 requested_title = None
+            # flags 폴백
+            if not requested_title:
+                try:
+                    flags: Dict[str, Any] = state.get("flags") or {}
+                    requested_title = (flags.get("requested_write_title") or "").strip() or None
+                except Exception:
+                    requested_title = None
 
-    call_kwargs = {
-        "tasks": tasks,
-        "outline_text": outline_text,
-        "messages": messages,
-        "requested_title": requested_title,
-    }
-    # 선택 인자 전달
-    if "allow_during_research" in kwargs:
-        call_kwargs["allow_during_research"] = kwargs["allow_during_research"]
-    else:
-        call_kwargs["allow_during_research"] = _allow_during_research_default()
-    if "debug" in kwargs:
-        call_kwargs["debug"] = kwargs["debug"]
+        call_kwargs = {
+            "tasks": tasks,
+            "outline_text": outline_text,
+            "messages": messages,
+            "requested_title": requested_title,
+        }
+        # 선택 인자 전달
+        if "allow_during_research" in kwargs:
+            call_kwargs["allow_during_research"] = kwargs["allow_during_research"]
+        else:
+            call_kwargs["allow_during_research"] = _allow_during_research_default()
+        if "debug" in kwargs:
+            call_kwargs["debug"] = kwargs["debug"]
 
-    try:
-        if _fn_legacy is not None:
-            res = _fn_legacy(
-                state, tasks,
-                outline_text=outline_text, mode=mode, **kwargs
-            )
-            return bool(res)
-        # 신규만 있는 경우: flags로 요청을 주입한 뒤 신규 호출
         try:
-            flags2 = dict(state.get("flags") or {})
-            if requested_title and not flags2.get("requested_write_title"):
-                flags2["requested_write_title"] = requested_title
-            state["flags"] = flags2 | {"router": (flags2.get("router") or {})}
-        except Exception:
-            pass
-        _fn_new(state, reason="legacy-adapter")  # type: ignore[misc]
-        return True
-    except TypeError as e:
-        # 예상치 못한 시그니처 불일치 시에도 힌트 로그 남기고 실패 처리
-        logger.debug("writer-schedule shim TypeError: %s; kwargs=%r", e, call_kwargs, exc_info=True)
-        return False
+            if _fn_legacy is not None:
+                res = _fn_legacy(
+                    state, tasks,
+                    outline_text=outline_text, mode=mode, **kwargs
+                )
+                return bool(res)
+            # 신규만 있는 경우: flags로 요청을 주입한 뒤 신규 호출
+            try:
+                flags2 = dict(state.get("flags") or {})
+                if requested_title and not flags2.get("requested_write_title"):
+                    flags2["requested_write_title"] = requested_title
+                state["flags"] = flags2 | {"router": (flags2.get("router") or {})}
+            except Exception:
+                pass
+            _fn_new(state, reason="legacy-adapter")  # type: ignore[misc]
+            return True
+        except TypeError as e:
+            # 예상치 못한 시그니처 불일치 시에도 힌트 로그 남기고 실패 처리
+            logger.debug("writer-schedule shim TypeError: %s; kwargs=%r", e, call_kwargs, exc_info=True)
+            return False
+    finally:
+        _LEGACY_WS_CALLING = False
 
 # __all__는 파일 끝에서 정리
 

@@ -19,10 +19,22 @@ from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode, urljoin
 import base64
 
 import requests
+from requests.adapters import HTTPAdapter
 import certifi
 import chardet
 import html
 from langchain_community.document_loaders import WebBaseLoader
+from requests.exceptions import SSLError
+
+from urllib3.util.retry import Retry
+import socket
+# urllib3 v2에는 NameResolutionError가 있으나, 구버전/환경에 따라 없을 수 있음.
+# 타입 오류를 피하기 위해 "예외 튜플"을 동적으로 구성해서 사용한다.
+try:
+    from urllib3.exceptions import NameResolutionError as _UR_NRE
+    EXC_NAME_RESOLUTION: tuple[type[BaseException], ...] = (socket.gaierror, _UR_NRE)
+except Exception:
+    EXC_NAME_RESOLUTION = (socket.gaierror,)
 
 # 게이트키핑
 from settings_gatekeep import (
@@ -85,6 +97,18 @@ session = requests.Session()
 session.headers.update({"User-Agent": (_cfg_str("USER_AGENT", default="BookWriterBot/1.0"))})
 session.verify = certifi.where()  # 신뢰 루트
 
+
+# [ADD] 저강도 Retry(재시도 폭주 방지: connect/read 1회)
+_retry = Retry(
+    total=1, connect=1, read=1, redirect=0,
+    backoff_factor=0,
+    status_forcelist=(),
+    allowed_methods=None,  # 모든 메서드 대상(urllib3 v2 호환)
+)
+_adapter = HTTPAdapter(max_retries=_retry, pool_maxsize=10, pool_block=False)
+session.mount("https://", _adapter)
+session.mount("http://", _adapter)
+
 # 런타임 설정 재적용 훅 (외부에서 CFG.reload 후 호출 권장)
 def refresh_runtime_config() -> None:
     """
@@ -100,6 +124,73 @@ def refresh_runtime_config() -> None:
     except Exception:
         pass
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PDF 단회 시도 & SSL 격리 (세션 단위)
+# ─────────────────────────────────────────────────────────────────────────────
+# 동일 URL에서 SSL 오류가 발생하면 세션 생존 동안 재시도하지 않도록 하는 격리 집합
+SSL_QUARANTINE: set[str] = set()
+
+# DNS 해석 실패(호스트 단위) 격리 집합
+DNS_QUARANTINE: set[str] = set()
+
+def _pdf_session() -> requests.Session:
+    """
+    PDF 전용 세션: 전역 세션과 동일한 헤더를 사용하고, CA 번들을 명시한다.
+    (전역 session을 직접 재사용하지 않고, 독립 세션로 격리)
+    """
+    s = requests.Session()
+    try:
+        s.verify = certifi.where()
+    except Exception:
+        pass
+    try:
+        # 전역 세션 헤더를 복사해 User-Agent 등 일관성 유지
+        s.headers.update(dict(session.headers))
+    except Exception:
+        pass
+    return s
+
+def tag_quarantine(url: str, *, reason: str = "ssl_error") -> None:
+    """격리 사유를 로깅(메트릭 등과 연동 가능)."""
+    try:
+        logger.info("[pdf][quarantine] %s (%s)", url, reason)
+    except Exception:
+        pass
+
+def try_fetch_pdf(url: str, *, timeout: int = 20) -> Optional[bytes]:
+    """
+    PDF URL 전용 단회 시도 헬퍼.
+    - SSLError 발생: 즉시 SSL_QUARANTINE에 추가하고 None 반환(재시도 금지)
+    - 그 외 예외: 호출측에서 HTML 폴백 여부를 결정
+    - 성공 시: bytes 반환 (content-type 확인은 호출측에서 수행 가능)
+    """
+    u = (url or "").strip()
+    if not u:
+        return None
+    if u in SSL_QUARANTINE:
+        return None
+    s = _pdf_session()
+    try:
+        r = s.get(u, timeout=timeout, stream=True)
+        r.raise_for_status()
+        return r.content or b""
+    except SSLError:
+        SSL_QUARANTINE.add(u)
+        tag_quarantine(u, reason="ssl_error")
+        return None
+    except EXC_NAME_RESOLUTION:
+        try:
+            from urllib.parse import urlparse as _up
+            host = (_up(u).netloc or "").split("/", 1)[0].lower()
+            if host:
+                DNS_QUARANTINE.add(host)
+                logger.info("[dns][quarantine] %s", host)
+        except Exception:
+            pass
+        return None
+    except Exception:
+        # SSLError 이외는 호출측 정책에 맡김(필요 시 HTML 폴백 1회)
+        return None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 문자 정규화(유니코드/제로폭 제거/전각→반각)
@@ -165,9 +256,19 @@ def safe_decode(b: bytes, fallback: str | None = None) -> str:
     return b.decode(fallback or "utf-8", errors="ignore")
 
 def http_get(url: str, **kw) -> requests.Response:
-    """requests.Session.get 래퍼 (기본 타임아웃 튜플)."""
+    """requests.Session.get 래퍼 (기본 타임아웃 튜플) + DNS/SSL 격리 가드."""
     kw.setdefault("timeout", (_cfg_int("WEB_FETCH_TIMEOUT_CONNECT", default=6),
                               _cfg_int("WEB_FETCH_TIMEOUT_READ", default=20)))
+    # [ADD] 격리된 호스트는 즉시 차단
+    try:
+        pu = urlparse(url)
+        host = (pu.netloc or "").split("/", 1)[0].lower()
+        if host in DNS_QUARANTINE:
+            raise requests.exceptions.ConnectionError(f"host in DNS_QUARANTINE: {host}")
+        if url in SSL_QUARANTINE:
+            raise SSLError(f"url in SSL_QUARANTINE: {url}")
+    except Exception:
+        pass
     return session.get(url, **kw)
 
 # =============================================================================
@@ -395,6 +496,55 @@ def _host_only(u: str) -> str:
 # URL 정규화/디듀프/TopN
 # =============================================================================
 
+def _canon_url(url: str) -> str:
+    """
+    보장사항:
+    - netloc에는 host[:port]만, path는 '/'로 시작하는 경로만 유지
+    - 잘못 결합된 '...or.krkps' 같은 호스트를 교정
+    - 중복 쿼리키는 최신값 우선으로 1회화
+    """
+    try:
+        u = urlparse((url or "").strip())
+        scheme = (u.scheme or "https").lower()
+        netloc = (u.netloc or "").strip()
+        path = (u.path or "").strip()
+
+        # netloc에 경로가 섞여 들어간 경우 분리 (예: 'khidi.or.kr/kps')
+        if "/" in netloc:
+            host_part, path_part = netloc.split("/", 1)
+            netloc = host_part
+            path = "/" + path_part + (path if path.startswith("/") else (("/" + path) if path else ""))
+
+        # KHIDI 특수 가드: 'www.khidi.or.krkps', '...or.krkps' 오염 교정
+        nlow = netloc.lower()
+        if nlow.startswith("www.khidi.or.krkps"):
+            netloc = "khidi.or.kr"
+            if not path.startswith("/kps"):
+                path = "/kps" + (path if path.startswith("/") else (("/" + path) if path else ""))
+        elif nlow.endswith("khidi.or.krkps") or nlow.endswith("or.krkps"):
+            netloc = "khidi.or.kr"
+            if not path.startswith("/kps"):
+                path = "/kps" + (path if path.startswith("/") else (("/" + path) if path else ""))
+
+        # 쿼리 파라미터 중복 제거(마지막 값 우선)
+        dedup: dict[str, str] = {}
+        for k, v in parse_qsl(u.query, keep_blank_values=True):
+            k2 = (k or "").strip()
+            v2 = (v or "").strip()
+            if not k2 or v2 == "":
+                continue
+            dedup[k2] = v2  # last-wins
+        query = urlencode(dedup, doseq=False)
+
+        # path는 반드시 '/'로 시작
+        if path and not path.startswith("/"):
+            path = "/" + path
+
+        return urlunparse((scheme, netloc, path or "/", "", query, ""))
+    except Exception:
+        return (url or "").strip()
+
+
 # ── 정규화 동작 스위치(환경변수/CFG로 제어) ─────────────────────────────────
 def _cfg_bool(name: str, *, default: bool) -> bool:
     v = getattr(CFG, name, None)
@@ -409,6 +559,21 @@ _URL_CANONICALIZE_TRAILING_SLASH = _cfg_bool("URL_CANONICALIZE_TRAILING_SLASH", 
 _URL_SORT_QUERY                  = _cfg_bool("URL_SORT_QUERY", default=True)
 _URL_CANONICALIZE_AMP            = _cfg_bool("URL_CANONICALIZE_AMP", default=True)
 _URL_TREAT_WWW_EQUIV             = _cfg_bool("URL_TREAT_WWW_EQUIV", default=False)  # 필요시 on
+
+
+# 전역 상수 대신, 머지/로드 순서 영향이 없는 즉시평가 헬퍼
+def _force_www_enabled() -> bool:
+    """
+    URL_FORCE_WWW 설정을 런타임에 안전하게 조회한다.
+    과거에 _URL_FORCE_WWW 전역이 있던 코드와 호환을 위해 globals()도 폴백 확인.
+    """
+    try:
+        g = globals().get("_URL_FORCE_WWW")
+        if isinstance(g, bool):
+            return g
+    except Exception:
+        pass
+    return _cfg_bool("URL_FORCE_WWW", default=False)
 
 # 추적/광고성 파라미터(확장)
 _TRACKING_PARAMS = {
@@ -465,9 +630,10 @@ def _strip_amp_variants(path: str, qs_pairs: list[tuple[str,str]]) -> tuple[str,
 # [ADD] 모바일/AMP 호스트 명시 매핑
 # ─────────────────────────────────────────────────────────────
 _MOBILE_HOSTS = {
-    "m.dailypharm.com": "www.dailypharm.com",
-    "m.newsmp.com": "www.newsmp.com",
-    "mobile.newsmp.com": "www.newsmp.com",
+    # 명시 매핑에서도 www. 강제 부착 금지
+    "m.dailypharm.com": "dailypharm.com",
+    "m.newsmp.com": "newsmp.com",
+    "mobile.newsmp.com": "newsmp.com",
 }
 
 # [ADD] 퍼블릭 서픽스 기준으로 host 꼬리 오염(예: '.krboard')을 잘라내는 보정
@@ -499,6 +665,12 @@ def _clip_host_after_public_suffix(host: str) -> str:
                 return h
     return h
 
+def _is_public_domain(h: str) -> bool:
+    """
+    공공 도메인 여부 판별: www. 금지 정책 적용 대상.
+    """
+    s = (h or "").lower().lstrip(".")
+    return s.endswith(".go.kr") or s.endswith(".or.kr")
 
 def _normalize_host_map(host: str) -> str:
     h = host.lower().strip(".")
@@ -547,17 +719,17 @@ def _sort_and_filter_query(qs_pairs: list[tuple[str,str]]) -> list[tuple[str,str
 
 def _mobile_to_www_enabled() -> bool:
     """
-    모바일 서브도메인(m./mobile.) → www. 치환 여부 스위치.
-    CFG.URL_NORMALIZE_MOBILE_TO_WWW (기본: 켬).
+    (정책 변경) 모바일 서브도메인 → www. 강제 치환은 기본 끔.
+    CFG.URL_NORMALIZE_MOBILE_TO_WWW (기본: 꺼짐).
     """
-    return _cfg_bool("URL_NORMALIZE_MOBILE_TO_WWW", default=True)
+    return _cfg_bool("URL_NORMALIZE_MOBILE_TO_WWW", default=False)
 
 def _normalize_mobileish_host(host: str) -> str:
     """
     모바일/AMP 서브도메인 정규화:
-      - 선두 레이블이 m|mobile|amp 인 경우 제거 후 www. 선호
+      - 선두 레이블이 m|mobile|amp 인 경우 '제거만' 수행 (www. 자동 부착 금지)
       - news.m.example.com → news.example.com (중간 'm' 레이블 제거)
-      - amp.example.com → www.example.com
+      - amp.example.com → example.com
     """
     # [ADD] 우선 명시 매핑 적용(예외/특정 매체 도메인 보정)
     try:
@@ -576,7 +748,18 @@ def _normalize_mobileish_host(host: str) -> str:
     try:
         h = (host or "").strip().lower()
         if not h or not _mobile_to_www_enabled():
-            return h
+            # www 치환 비활성 기본값에서는 m/mobile/amp 라벨만 제거
+            labels = [p for p in h.split(".") if p]
+            if not labels:
+                return h
+            def _drop_mobile_label(lbl: str) -> bool:
+                return lbl in ("m", "mobile", "amp")
+            changed = False
+            while labels and _drop_mobile_label(labels[0]):
+                labels.pop(0); changed = True
+            if len(labels) >= 3 and _drop_mobile_label(labels[1]):
+                labels.pop(1); changed = True
+            return ".".join(labels) if labels else h
         labels = [p for p in h.split(".") if p]
         if not labels:
             return h
@@ -594,12 +777,8 @@ def _normalize_mobileish_host(host: str) -> str:
             labels.pop(1); changed = True
 
         if not labels:
-            return "www"
-
-        # 선호: www. 프리픽스 (옵션)
-        if changed and (not labels[0].startswith("www")):
-            labels.insert(0, "www")
-
+            return h
+        # (정책) www. 자동 부착 금지 — 라벨을 그대로 결합
         return ".".join(labels)
     except Exception:
         return host
@@ -686,6 +865,22 @@ def _normalize_url(u: str) -> str:
         host = _normalize_mobileish_host(host.lower())
         # [ADD] 퍼블릭 서픽스 기준 꼬리 오염 최종 방어막
         host = _clip_host_after_public_suffix(host)
+        # [ADD] KHIDI 특수 가드: '...or.krkps' 오염 교정
+        if host.startswith("www.khidi.or.krkps"):
+            host = "khidi.or.kr"
+            pu = pu._replace(path=("/kps" + (pu.path or "" if (pu.path or "").startswith("/") else ("/" + (pu.path or "")))))
+        elif host.endswith("khidi.or.krkps") or host.endswith("or.krkps"):
+            host = "khidi.or.kr"
+            pu = pu._replace(path=("/kps" + (pu.path or "" if (pu.path or "").startswith("/") else ("/" + (pu.path or "")))))
+
+        # [NEW] 공공 도메인 www. 금지 + 선택적 www 강제 부착
+        # 1) 공공 도메인(.go.kr/.or.kr)은 www. 접두사 제거
+        if host.startswith("www.") and _is_public_domain(host[4:]):
+            host = host[4:]
+        # 2) 그 외 도메인에서만, 설정 시 www. 강제 부착
+        elif _force_www_enabled() and not host.startswith("www.") and not _is_public_domain(host):
+            host = "www." + host
+
         host = _strip_default_port(host, scheme)
 
         # 3) 경로: 인덱스/세그먼트/중복슬래시 처리
@@ -697,7 +892,8 @@ def _normalize_url(u: str) -> str:
         path = _percent_normalize_path(path)
 
         # 4) 쿼리: 추적 파라미터 제거 + AMP 접기 + 정렬
-        qs_pairs = parse_qsl(pu.query, keep_blank_values=False)
+        # 쿼리는 빈 값도 유지하여 손실 없는 정규화
+        qs_pairs = parse_qsl(pu.query, keep_blank_values=True)
         # AMP 접기(경로/쿼리 함께)
         path, qs_pairs = _strip_amp_variants(path, qs_pairs)
         qs_pairs = _sort_and_filter_query(qs_pairs)
@@ -706,7 +902,7 @@ def _normalize_url(u: str) -> str:
         # 5) fragment 제거, 파일 스킴 등 기타 처리
         frag = ""  # 항상 제거
 
-        # 6) 일부 호스트는 www 무시 동치 옵션
+        # 6) 일부 호스트는 www 동치 옵션 (www. 제거만, 부착은 절대 금지)
         if _URL_TREAT_WWW_EQUIV and host.startswith("www."):
             host = host[4:]
 
@@ -716,7 +912,24 @@ def _normalize_url(u: str) -> str:
     
 # [ADD] 퍼블릭 API alias (외부 모듈에서 import 용이)
 def normalize_url(u: str) -> str:
-    return _normalize_url(u)
+    """
+    외부 공개용: 우선 _canon_url로 빠른 교정(특수 케이스/중복쿼리 정리) 후
+    내부 정규화 파이프라인을 한번 더 적용하여 최종 표준화.
+    [D) KHIDI 소프트 규칙] 정규화 직후 khidi.or.kr에 한해
+      - 스킴을 https로 강제
+      - 경로의 중복 슬래시를 1개로 축약
+    """
+    canon = _normalize_url(_canon_url(u))
+    try:
+        pu = urlparse(canon)
+        host = (pu.netloc or "").lower()
+        if host.endswith("khidi.or.kr"):
+            fixed_path = re.sub(r"/{2,}", "/", pu.path or "/")
+            canon = urlunparse(("https", pu.netloc, fixed_path, "", pu.query or "", ""))
+    except Exception:
+        # 보정 중 오류 시 기존 canon을 그대로 반환
+        pass
+    return canon
 
 
 
@@ -1003,6 +1216,15 @@ def _load_web_page(url: str) -> str:
     max_bytes  = _cfg_int("WEB_FETCH_MAX_BYTES", default=1_000_000)  # 1MB
 
     try:
+        # [ADD] 사전 차단: DNS 격리 호스트는 바로 스킵
+        try:
+            pu = urlparse(url)
+            host = (pu.netloc or "").split("/", 1)[0].lower()
+            if host in DNS_QUARANTINE:
+                logger.debug("[load][skip:dns_quarantine] %s", url)
+                return ""
+        except Exception:
+            pass
         with session.get(url, timeout=(connect_to, read_to), stream=True) as r:
             r.raise_for_status()
             buf = io.BytesIO()
@@ -1038,8 +1260,22 @@ def _load_web_page(url: str) -> str:
             text = text.replace("\r\n", "\n").replace("\r", "\n")
             return text.strip()
         
+    except SSLError as e:
+        SSL_QUARANTINE.add(url)
+        tag_quarantine(url, reason="ssl_error")
+        logger.debug("requests session load failed for %s: %s", url, e)
+    except EXC_NAME_RESOLUTION as e:
+        try:
+            pu = urlparse(url); host = (pu.netloc or "").split("/", 1)[0].lower()
+            if host:
+                DNS_QUARANTINE.add(host)
+                logger.info("[dns][quarantine] %s", host)
+        except Exception:
+            pass
+        logger.debug("requests session load failed for %s: %s", url, e)
     except Exception as e:
         logger.debug("requests session load failed for %s: %s", url, e)
+
 
     # 폴백: LangChain WebBaseLoader
     try:
@@ -1228,7 +1464,7 @@ __all__ = [
     "_now", "_now_iso", "refresh_runtime_config",
     "_save_results",
     "_ell",
-    "_normalize_url", "normalize_url", "safe_urljoin",
+    "_normalize_url", "_canon_url", "normalize_url", "safe_urljoin",
     "_dedupe_keep_order_dicts", "_pick_top",
     "_simplify_for_naver", "_should_skip_naver", "_is_naver_safe",
     "_strip_minus_tokens", "_cap_minus_tokens",
@@ -1243,4 +1479,6 @@ __all__ = [
     "_RECENTLY_CLEARED", "_FRESH_KEYS","_host_only",
     # 신규 공개 헬퍼
     "normalize_or_block_intermediate_news",
+    # PDF 단회 시도/격리 공개 심볼
+    "SSL_QUARANTINE", "DNS_QUARANTINE", "try_fetch_pdf", "tag_quarantine",
 ]

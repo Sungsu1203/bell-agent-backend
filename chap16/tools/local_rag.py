@@ -7,7 +7,7 @@ import os, re, json, glob, hashlib
 from pathlib import Path
 import threading
 from datetime import datetime
-from typing import Any, List, Tuple, Optional
+from typing import Any, List, Tuple, Optional, Callable
 from urllib.parse import unquote
 from typing import Dict
 from fnmatch import fnmatch
@@ -35,12 +35,17 @@ from core.paths import (
 )
 
 # web_rag 유틸: 네임스페이스/디렉터리 규칙과 일치시킴
+# - Optional로 선선언 후, 실제 구현은 별도 alias를 통해 대입하여 재정의(no-redef) 회피
+_wr_resolve_persist_dir: Optional[Callable[[str, Optional[str]], str]] = None
+_wr_sanitize_ns: Optional[Callable[[str], str]] = None
 try:
-    from tools.web_rag.utils import _resolve_persist_dir as _wr_resolve_persist_dir  # noqa: F401
-    from tools.web_rag.utils import sanitize_ns as _wr_sanitize_ns  # 공개 API 사용
+    from tools.web_rag.utils import _resolve_persist_dir as _wr_resolve_persist_dir_impl
+    from tools.web_rag.utils import sanitize_ns as _wr_sanitize_ns_impl
+    _wr_resolve_persist_dir = _wr_resolve_persist_dir_impl
+    _wr_sanitize_ns = _wr_sanitize_ns_impl
 except Exception:
-    _wr_resolve_persist_dir = None
-    _wr_sanitize_ns = None
+    # 안전 폴백: 그대로 None 유지
+    pass
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Optional dependencies: 클래스/함수 핸들을 Any로 보관(없으면 None)
@@ -83,12 +88,19 @@ except Exception:
     logger.debug("unstructured.documents.elements.Table not available.")
 
 # (선택) openpyxl: XLSX → TSV 직렬화
+# - 모듈/None 겸용을 위해 Optional[Any]로 선언(모듈 타입 고정 금지)
+_OpenPyXL: Optional[Any]
 try:
     import openpyxl as _openpyxl  # noqa: F401
     _OpenPyXL = _openpyxl
 except Exception:
     _OpenPyXL = None
     logger.debug("openpyxl not available; XLSX TSV extraction will fallback to unstructured.")
+
+# mypy 경고 방지용: openpyxl stubs 미설치 시 무시
+# (타입 전용 import guard)
+if False:  # pragma: no cover
+    import types_openpyxl  # type: ignore[import-not-found]
 
 # (선택) python-pptx: 슬라이드 단위 샘플 추출용
 # python-pptx: 클래스 핸들을 Optional[Any]로 유지
@@ -369,10 +381,10 @@ def _min_gate_for_ext(ext: str) -> int:
 #   동일 우선순위에서는 (파일크기 내림차순, mtime 내림차순, 경로명 오름차순)
 # ──────────────────────────────────────────────────────────────
 _EXT_RANK: dict[str, int] = {
-    # 파일타입 가중치: PDF(보고서/허가) > XLSX(정량) > PPTX(리포트)
+    # 파일타입 가중치: PDF(보고서/허가) > PPTX(리포트) > XLSX(정량)
     ".pdf": 1,
-    ".xlsx": 2,
-    ".pptx": 3,
+    ".pptx": 2,
+    ".xlsx": 3,
 }
 
 def _is_findings_md(path: str) -> bool:
@@ -404,7 +416,7 @@ def _sort_key(path: str) -> tuple[int, int, int, int, str]:
     반환 튜플이 작을수록 선순위가 되도록 구성.
     1) 경로/키워드 우선(_path_priority)
     2) findings.md 최상단
-    3) 확장자 가중치 (.pdf < .xlsx < .pptx < 기타)
+    3) 확장자 가중치 (.pdf < .pptx < .xlsx < 기타)
     4) 최근성 우선(mtime desc)
     5) 크기 내림차순
     """
@@ -1224,11 +1236,11 @@ def build_webjson_from_local(
     # [유지] 전역 아이템 우선순위 정렬 후 max_docs 적용
     #       (파일 선별은 이미 위에서 완료했으며, 아이템 레벨에서도 타입/크기 기준을 유지)
     # ──────────────────────────────────────────────────────────
-    # 아이템 정렬 가중치: PDF > XLSX > PPTX
+    # 아이템 정렬 가중치: PDF > PPTX > XLSX  (※ 아래에서 -_rank 로 정렬하므로 값이 클수록 우선)
     _rank: dict[str, int] = {
         "application/pdf": 3,
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 2,
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation": 1,
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation": 2,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1,
     }
     try:
         items.sort(
@@ -1424,9 +1436,12 @@ def ingest_local_files(
         base = (ns_in or
                 getattr(CFG, "CHROMA_NAMESPACE_LOCAL", None) or
                 (f"{(slug or 'default').strip() or 'default'}-local"))
-        if _wr_sanitize_ns:
+        # Optional[Callable]이므로 None 체크 + callable 체크 모두 수행
+        if _wr_sanitize_ns is not None:
             try:
-                return _wr_sanitize_ns(base)
+                fn = _wr_sanitize_ns
+                if callable(fn):
+                    return fn(base)
             except Exception:
                 pass
         # 폴백(간단 정규화): 영숫자/.-_ 외 '_'로 치환
@@ -1444,9 +1459,10 @@ def ingest_local_files(
         없으면 CHROMA_DIR 또는 DATA_DIR/chroma_store/<ns>.
         """
         if pd_in is None:
-            if _wr_resolve_persist_dir:
+            fn2 = _wr_resolve_persist_dir
+            if fn2 is not None and callable(fn2):
                 try:
-                    return _wr_resolve_persist_dir(ns_eff, None)
+                    return fn2(ns_eff, None)
                 except Exception:
                     pass
             # 폴백: 간단 구현 (utils와 동일 로직 요약)

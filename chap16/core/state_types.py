@@ -64,6 +64,7 @@ class Flags(TypedDict, total=False):
 
     # 라우터 내부 재시도/상태 저장용 네임스페이스(동적 확장 허용)
     router: NotRequired[MutableMapping[str, Any]]
+    completed_sections: list[str]  # (optional) 완료된 섹션 제목 목록 (writer 루프 방지용)
 
 # ────────────────────────────────────────────────────────────────────────────
 # 상태 객체
@@ -138,5 +139,7 @@ class State(TypedDict, total=False):
     web_stage: NotRequired[Dict[str, Any]]
 
     router_error: NotRequired[str]
+
+    completed_sections: list[str]  # NotRequired
 
 __all__ = ["DocMode", "References", "ResearchPlan", "WriterFlags", "Flags", "State"]

@@ -163,6 +163,9 @@ class Config:
 
     # 문서/작동 모드
     DOC_MODE: DocMode
+    # 새 필드: AGENT_ROLE(우선 사용)
+    AGENT_ROLE: str
+    # 하위호환/원문 보존: BLOCKAGI_AGENT_ROLE
     BLOCKAGI_AGENT_ROLE: str
     ITERATION_COUNT: int
 
@@ -316,6 +319,21 @@ class Config:
         if not (self.RESEARCH_OUT_DIR or "").strip():
             self.RESEARCH_OUT_DIR = str(self.PROJECT_ROOT / "research")
 
+        # ── AGENT_ROLE ↔ BLOCKAGI_AGENT_ROLE 상호 폴백 ─────────
+        try:
+            ar = (self.AGENT_ROLE or "").strip()
+            br = (self.BLOCKAGI_AGENT_ROLE or "").strip()
+            if not ar and br:
+                self.AGENT_ROLE = br
+            elif ar and not br:
+                self.BLOCKAGI_AGENT_ROLE = ar
+        except Exception:
+            # 안전 폴백: 둘 다 비면 기본값
+            if not (getattr(self, "AGENT_ROLE", "") or "").strip():
+                self.AGENT_ROLE = "research analyst"
+            if not (getattr(self, "BLOCKAGI_AGENT_ROLE", "") or "").strip():
+                self.BLOCKAGI_AGENT_ROLE = self.AGENT_ROLE
+
 # ── 구성 빌더 ────────────────────────────────────────────────
 def _build_config() -> Config:
     # .env → os.environ 주입 (최초 1회)
@@ -328,6 +346,8 @@ def _build_config() -> Config:
 
         # 모드/역할
         DOC_MODE=doc_mode,
+        # 우선순위: AGENT_ROLE → BLOCKAGI_AGENT_ROLE → 기본
+        AGENT_ROLE=_env_str("AGENT_ROLE") or _env_str("BLOCKAGI_AGENT_ROLE", "research analyst"),
         BLOCKAGI_AGENT_ROLE=_env_str("BLOCKAGI_AGENT_ROLE", "research analyst"),
         ITERATION_COUNT=_env_int("ITERATION_COUNT", 1, min_=1, max_=50),
 
@@ -544,6 +564,7 @@ WRITER_AGENT: Final[AgentName] = CFG.WRITER_AGENT
 
 # ── 하위 호환 상수(점진적 교체용; 이후 정리 가능) ───────────
 DOC_MODE: Final[DocMode] = CFG.DOC_MODE
+AGENT_ROLE: Final[str] = CFG.AGENT_ROLE
 AUTO_WRITE_AFTER_RAG: Final[bool] = CFG.AUTO_WRITE_AFTER_RAG
 AUTO_WRITE_DURING_RESEARCH: Final[bool] = CFG.AUTO_WRITE_DURING_RESEARCH
 RESEARCH_OUT_DIR: Final[str] = CFG.RESEARCH_OUT_DIR

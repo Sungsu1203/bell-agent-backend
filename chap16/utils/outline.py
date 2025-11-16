@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Mapping, Any, List, Tuple, TYPE_CHECKING
+from typing import Optional, Mapping, Any, List, Tuple, TYPE_CHECKING, Iterable, Set
 import os
 
 # ─────────────────────────────────────────────────────────────
@@ -329,6 +329,7 @@ def next_unwritten_title(
     mode: DocMode,
     root_dir: str,
     topic_slug: Optional[str],
+    excluded_titles: Optional[Iterable[str]] = None, # <--- 이 라인을 추가
 ) -> Optional[str]:
     """
     목차(H2) 순서대로 살펴보면서 아직 초안 파일(.md)이 없는 첫 제목을 반환.
@@ -336,12 +337,17 @@ def next_unwritten_title(
       {root}/data/{topic_slug}/{sections|chapters}/{slug}.md
     """
     titles = list_outline_headings(outline_text)
+    # 완료된(혹은 제외할) 제목 집합
+    _excluded: Set[str] = {str(t).strip() for t in (excluded_titles or []) if str(t).strip()}
     if not titles:
         logger.debug("No titles parsed from outline; nothing to write next.")
         return None
 
     # ✅ core.paths 규칙을 100% 따르기 위해 is_written()만 사용
     for t in titles:
+        # 제외 목록에 있으면 스킵
+        if t.strip() in _excluded:
+            continue
         if not is_written(t, mode=mode, root_dir=root_dir, topic_slug=topic_slug):
             logger.debug("Next unwritten title selected: %s", t)
             return t
