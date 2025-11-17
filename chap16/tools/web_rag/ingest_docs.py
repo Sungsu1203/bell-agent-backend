@@ -321,8 +321,18 @@ def web_results_to_documents(results: Sequence[Dict[str, Any]]) -> List[Document
             # 3) PDF 의심 → PDF 파서 우선(내부: PyPDF2 → pdfminer 폴백) + 0자 방지 가드
             if _looks_like_pdf_url(url_no_frag) and _ingest_mod is not None:
                 try:
-                    pdf_bytes = _ingest_mod._fetch_binary(url_no_frag)
-                    pdf_text = _pdf_bytes_to_text(pdf_bytes)
+                    # ingest._fetch_binary 의 계약:
+                    #   (url: str, timeout: int = 10) -> bytes | None
+                    pdf_bytes: bytes | None = _ingest_mod._fetch_binary(url_no_frag)
+                    if not pdf_bytes:
+                        logger.warning(
+                            "[ingest][pdf] no bytes fetched (None/empty); dropping url=%s",
+                            url_no_frag,
+                        )
+                        # HTML 폴백은 하지 않고 조용히 드랍
+                        continue
+
+                    pdf_text = _pdf_bytes_to_text(pdf_bytes, url_no_frag)
                     if pdf_text and len(pdf_text.strip()) >= 30:
                         docs.append(
                             Document(
@@ -336,19 +346,32 @@ def web_results_to_documents(results: Sequence[Dict[str, Any]]) -> List[Document
                         )
                         continue
                     # 최종 가드: 0자 또는 과소 텍스트면 드랍(HTML 폴백하지 않음)
-                    logger.warning("[ingest][pdf] empty/too-short text after fallback; dropping url=%s", url_no_frag)
+                    logger.warning(
+                        "[ingest][pdf] empty/too-short text after parse; dropping url=%s",
+                        url_no_frag,
+                    )
                     continue
                 except _ingest_mod._PdfSslError:
                     # ingest 쪽 SSL 예외 → 재시도 후보 태깅
                     try:
                         _ingest_mod._record_retry_candidate(url_no_frag, reason="ssl_error")
                     except Exception:
-                        logger.debug("[ingest_docs] retry-candidate tagging failed: %s", url_no_frag)
-                    logger.warning("[INGEST][SSL] ssl_error tagged & skipped PDF parse → fallback to HTML: %s", url_no_frag)
+                        logger.debug(
+                            "[ingest_docs] retry-candidate tagging failed: %s",
+                            url_no_frag,
+                        )
+                    logger.warning(
+                        "[INGEST][SSL] ssl_error tagged & skipped PDF parse → fallback to HTML: %s",
+                        url_no_frag,
+                    )
                 except Exception as e:
                     msg = str(e)
                     # DNS 해석 실패 계열은 폴백/재시도 없이 즉시 스킵
-                    if ("NameResolutionError" in msg) or ("Failed to resolve" in msg) or ("Temporary failure in name resolution" in msg):
+                    if (
+                        "NameResolutionError" in msg
+                        or "Failed to resolve" in msg
+                        or "Temporary failure in name resolution" in msg
+                    ):
                         logger.warning("[web_rag] DNS failure; skip (no fallback): %s", e)
                         continue
                     logger.debug("[web_rag] PDF parse failed; fallback to HTML: %s", e)
@@ -507,6 +530,33 @@ def web_page_json_to_documents(json_file: str) -> List[Document]:
     logger.info("web_page_json_to_documents: %d docs from %s", len(docs), json_file)
     return docs
 
+def quick_ingest_findings(topic_slug: str) -> int:
+    """
+    연구 합성 결과(round-XX-findings.md)를 빠르게 RAG에 포함시키기 위한
+    경량 엔트리 포인트.
+
+    - 실제 구현은 tools.local_rag.add_local_findings_to_chroma에 위임한다.
+    - tools.local_rag이 없거나 함수가 없으면 0을 반환한다.
+    """
+    try:
+        # 지연 임포트로 순환 의존 최소화
+        from tools.local_rag import add_local_findings_to_chroma as _alf
+    except Exception:
+        logger.debug(
+            "[ingest_docs] quick_ingest_findings: tools.local_rag.add_local_findings_to_chroma not available"
+        )
+        return 0
+
+    try:
+        added = _alf(topic_slug)
+        try:
+            return int(added)  # int 또는 int로 변환 가능한 값 기대
+        except Exception:
+            logger.debug("[ingest_docs] quick_ingest_findings: non-int result=%r", added)
+            return 0
+    except Exception as e:  # pragma: no cover - 방어적
+        logger.debug("[ingest_docs] quick_ingest_findings failed: %s", e)
+        return 0
 
 __all__ = [
     # URL/정규화 유틸은 ingest.py 기준 사용 (여기서는 직접 export하지 않음)
@@ -517,4 +567,5 @@ __all__ = [
     "_build_xlsx_meta_documents",
     "web_results_to_documents",
     "web_page_json_to_documents",
+    "quick_ingest_findings",
 ]

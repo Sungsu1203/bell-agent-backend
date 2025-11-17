@@ -20,25 +20,21 @@ except Exception:
     pass
 
 # [ADD] ── Findings quick-ingest resolver (lazy import to avoid circular load)
-def _get_findings_ingest_func() -> Optional[Callable[..., Any]]:
+def _get_findings_ingest_func() -> Optional[Callable[[str], Any]]:
     """
     런타임에 안전하게 임포트해 callable을 반환한다.
-    우선순위: add_local_findings_to_chroma → quick_ingest_findings
+    - tools.web_rag.ingest_docs.quick_ingest_findings(topic_slug) 를 우선 사용한다.
+    - 모듈 자체를 함수처럼 호출하지 않고, 모듈 안의 헬퍼 함수만 호출한다.
     """
     try:
-        from tools.local_rag import add_local_findings_to_chroma as _alf
-        return cast(Callable[..., Any], _alf)
+        from tools.web_rag import ingest_docs as _ingest_docs
+        fn = getattr(_ingest_docs, "quick_ingest_findings", None)
+        if callable(fn):
+            # 시그니처: (topic_slug: str) -> Any
+            return cast(Callable[[str], Any], fn)
     except Exception:
-        pass
-    # 정적분석기(마이파이/파이랜스) 경고 회피: importlib + getattr 사용
-    try:
-        import importlib
-        mod = importlib.import_module("tools.local_rag")
-        _qif = getattr(mod, "quick_ingest_findings", None)
-        if callable(_qif):
-            return cast(Callable[..., Any], _qif)
-    except Exception:
-        pass
+        logger.debug("[router.after_synth] quick-ingest resolver: ingest_docs.quick_ingest_findings not available", exc_info=True)
+        return None
     return None
 
 
@@ -47,10 +43,7 @@ import core.config as config
 from core.state_types import State
 from utils.sanitize import as_int
 from utils.outline import get_topic_outline_text
-from utils.tasks import has_pending
-# 라우터에서 사용하는 호출 시그니처(state, tasks, *, outline_text=..., messages=..., allow_during_research=..., ...)
-# 에 정확히 맞는 레거시 어댑터를 사용한다.
-from utils.tasks import schedule_writer_if_needed_legacy as schedule_writer_if_needed
+from utils.tasks import has_pending, schedule_writer_if_needed
 from core.paths import research_resources_dir  # 중앙 경로 유틸 사용
 from utils.rag_utils import set_direct_qa_flag, is_qa_like, clear_qa
 
@@ -191,26 +184,48 @@ def _has_qa_intent(state: State) -> bool:
 
 def _has_writer_pending_strict(state: State) -> bool:
     """
-    write: prefix 대기, 커스텀 WRITER_AGENT, prefix 없이 열린 writer 태스크, pending_write_title까지 포착.
-    suppress_writer=True면 False를 반환해 우회.
+    STRICT 모드에서의 writer pending 여부 판단.
+
+    - write: prefix 가 붙은 writer 태스크
+    - 커스텀 WRITER_AGENT (있다면) 의 write: 태스크
+    - prefix 없이 열린 writer 태스크(미완료)
+
+    만 본다. suppress_writer=True면 항상 False.
+
+    ⚠️ 주의:
+    - flags.pending_write_title 은 supervisor/after_planner 에서
+      "writer 한 번 띄우기 위한 락" 용도로만 사용하고,
+      tail 라우터의 무한 재진입을 막기 위해 여기서는 보지 않는다.
     """
     if _suppress_writer(state):
         return False
+
     tasks = state.get("task_history", []) or []
     preferred = _preferred_writer()
     alt = _alt_writer()
+
+    # 1) 명시적인 write: prefix 태스크가 열려 있으면 → pending
     if has_pending(tasks, preferred, prefix="write:") or has_pending(tasks, alt, prefix="write:"):
         return True
+
+    # 2) 커스텀 writer agent (있다면)도 동일하게 체크
     wa = _custom_writer_agent()
     if wa and has_pending(tasks, wa, prefix="write:"):
         return True
-    # prefix 없이 열린 writer 태스크 안전망
+
+    # 3) prefix 없이 열린 writer 태스크 안전망
     for t in reversed(tasks):
-        if (not getattr(t, "done", True)) and getattr(t, "agent", "") in (preferred, alt, wa or ""):
+        if isinstance(t, dict):
+            agent = t.get("agent", "")
+            done = bool(t.get("done", True))
+        else:
+            agent = getattr(t, "agent", "")
+            done = getattr(t, "done", True)
+
+        if (not done) and agent in (preferred, alt, wa or ""):
             return True
-    # 제목 대기 락도 writer pending으로 취급
-    if bool((state.get("flags") or {}).get("pending_write_title")):
-        return True
+
+    # flags.pending_write_title 은 여기서는 보지 않는다.
     return False
 
 
@@ -467,7 +482,6 @@ def after_vector_router(state: State) -> str:
             # qa_direct_reply / DIRECT_QA 플래그 제거
             clear_qa(cast(MutableMapping[str, Any], state))
             # (선택) 디버깅 편의 표식: flags.router.writer_skipped="direct_qa"
-            from typing import Dict, Any
             flags_typed: Dict[str, Any] = dict(cast(Dict[str, Any], state.get("flags") or {}))
             router_flags: Dict[str, Any] = dict(cast(Dict[str, Any], flags_typed.get("router") or {}))
             if "writer_skipped" not in router_flags:
@@ -490,13 +504,17 @@ def after_vector_router(state: State) -> str:
 
     # 1) (옵션) 집필 예약 — 연구 중 허용 플래그로 제어
     if callable(schedule_writer_if_needed):
-        schedule_writer_if_needed(
-        cast(MutableMapping[str, Any], state),
-        tasks=tasks,
-        messages=state.get("messages"),
-        outline_text=get_topic_outline_text(state),
-        allow_during_research=bool(config.CFG.AUTO_WRITE_DURING_RESEARCH),
-    )
+        try:
+            # 정본 schedule_writer_if_needed(state, *, reason) 시그니처에 맞게 호출
+            schedule_writer_if_needed(
+                cast(MutableMapping[str, Any], state),
+                reason="after_vector_router",
+            )
+        except Exception as e:
+            logger.debug(
+                "[router.after_vector] schedule_writer_if_needed skipped: %s",
+                e,
+            )
 
     # refs 가드: refs 비어있으면 write: 펜딩이어도 우선 RAG(Web)
     preferred_writer = _preferred_writer()
@@ -658,13 +676,17 @@ def after_synthesizer_router(state: State) -> str:
     tasks = state.get("task_history", []) or []
 
     if callable(schedule_writer_if_needed):
-        schedule_writer_if_needed(
-        cast(MutableMapping[str, Any], state),
-        tasks=tasks,
-        messages=state.get("messages"),
-        outline_text=get_topic_outline_text(state),
-        allow_during_research=bool(config.CFG.AUTO_WRITE_DURING_RESEARCH),
-    )
+        try:
+            # 정본 schedule_writer_if_needed(state, *, reason) 시그니처에 맞게 호출
+            schedule_writer_if_needed(
+                cast(MutableMapping[str, Any], state),
+                reason="after_synthesizer_router",
+            )
+        except Exception as e:
+            logger.debug(
+                "[router.after_synth] schedule_writer_if_needed skipped: %s",
+                e,
+            )
 
     # write: 펜딩이 있으면 writer 우선 (STRICT + suppress 고려)
     preferred_writer = _preferred_writer()
@@ -726,10 +748,10 @@ def after_synthesizer_router(state: State) -> str:
     # 1) 방금 생성된 findings를 즉시 RAG에 포함시키기 위한 경량 재스캔
     #    (callable 체크: quick_ingest_findings가 없거나 함수가 아니면 스킵)
     try:
-        # findings quick-ingest
-        from tools.local_rag import quick_ingest_findings as _qif  # lazy import
+        # findings quick-ingest (순환 의존 방지를 위해 헬퍼 사용)
+        ingest_fn = _get_findings_ingest_func()
         topic_slug = (state.get("topic_slug") or getattr(config.CFG, "TOPIC_SLUG", "") or "default").strip()
-        added = _qif(topic_slug) if callable(_qif) else 0
+        added = ingest_fn(topic_slug) if callable(ingest_fn) else 0
         logger.info("[router.after_synth] findings quick-ingest added=%s (topic=%s)", added, topic_slug)
     except Exception as e:
         logger.debug("[router.after_synth] findings quick-ingest skipped: %s", e)

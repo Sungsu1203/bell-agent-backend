@@ -19,22 +19,7 @@ from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode, urljoin
 import base64
 
 import requests
-from requests.adapters import HTTPAdapter
-import certifi
-import chardet
 import html
-from langchain_community.document_loaders import WebBaseLoader
-from requests.exceptions import SSLError
-
-from urllib3.util.retry import Retry
-import socket
-# urllib3 v2에는 NameResolutionError가 있으나, 구버전/환경에 따라 없을 수 있음.
-# 타입 오류를 피하기 위해 "예외 튜플"을 동적으로 구성해서 사용한다.
-try:
-    from urllib3.exceptions import NameResolutionError as _UR_NRE
-    EXC_NAME_RESOLUTION: tuple[type[BaseException], ...] = (socket.gaierror, _UR_NRE)
-except Exception:
-    EXC_NAME_RESOLUTION = (socket.gaierror,)
 
 # 게이트키핑
 from settings_gatekeep import (
@@ -54,6 +39,16 @@ except Exception:
         return None
 
 from core.config import CFG, reload_config as _reload_config
+
+# ✅ 네트워크 단일 진입점: ingest_net의 세션/헬퍼 재사용
+from tools.web_rag.ingest_net import (
+    get_requests_session as _net_get_requests_session,
+    fetch_text as _net_fetch_text,
+    try_fetch_pdf,
+    SSL_QUARANTINE,
+    DNS_QUARANTINE,
+    tag_quarantine,
+)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -90,107 +85,30 @@ if "_cfg_float" not in globals():
 # NOTE: 이 파일에는 이미 _cfg_* 헬퍼가 존재합니다(다른 위치).
 #       재정의 충돌을 피하기 위해 새 정의는 두지 않고 기존 함수를 그대로 사용합니다.
 
-# ─────────────────────────────────────────────────────────────────────────────
-# HTTPS 세션 (검증 ON)
-# ─────────────────────────────────────────────────────────────────────────────
-session = requests.Session()
-session.headers.update({"User-Agent": (_cfg_str("USER_AGENT", default="BookWriterBot/1.0"))})
-session.verify = certifi.where()  # 신뢰 루트
+"""
+HTTPS 세션/Retry/CA 설정은 ingest_net 쪽에서 단일 관리한다.
+이 모듈에서는 ingest_net.get_requests_session()을 통해서만 세션을 사용한다.
+"""
+session = _net_get_requests_session()
 
-
-# [ADD] 저강도 Retry(재시도 폭주 방지: connect/read 1회)
-_retry = Retry(
-    total=1, connect=1, read=1, redirect=0,
-    backoff_factor=0,
-    status_forcelist=(),
-    allowed_methods=None,  # 모든 메서드 대상(urllib3 v2 호환)
-)
-_adapter = HTTPAdapter(max_retries=_retry, pool_maxsize=10, pool_block=False)
-session.mount("https://", _adapter)
-session.mount("http://", _adapter)
 
 # 런타임 설정 재적용 훅 (외부에서 CFG.reload 후 호출 권장)
 def refresh_runtime_config() -> None:
     """
-    CFG 값이 바뀐 뒤(예: reload_config()) 런타임 세션 헤더/옵션 재적용.
+    CFG 값이 바뀐 뒤(예: reload_config()) 런타임 설정 재적용.
+    - core.config.reload_config() 호출
+    - ingest_net 세션을 갱신하여 UA 등 변경사항을 반영
     """
+    global session
     try:
         _reload_config()  # in-place 갱신
     except Exception:
         pass
     try:
-        session.headers.update({"User-Agent": (_cfg_str("USER_AGENT", default="BookWriterBot/1.0"))})
-        # 필요 시 타임아웃/프록시 등도 여기서 재설정 가능
+        # ingest_net 내부에서 CFG를 참조해 세션 설정을 갱신하도록 유도
+        session = _net_get_requests_session()
     except Exception:
         pass
-
-# ─────────────────────────────────────────────────────────────────────────────
-# PDF 단회 시도 & SSL 격리 (세션 단위)
-# ─────────────────────────────────────────────────────────────────────────────
-# 동일 URL에서 SSL 오류가 발생하면 세션 생존 동안 재시도하지 않도록 하는 격리 집합
-SSL_QUARANTINE: set[str] = set()
-
-# DNS 해석 실패(호스트 단위) 격리 집합
-DNS_QUARANTINE: set[str] = set()
-
-def _pdf_session() -> requests.Session:
-    """
-    PDF 전용 세션: 전역 세션과 동일한 헤더를 사용하고, CA 번들을 명시한다.
-    (전역 session을 직접 재사용하지 않고, 독립 세션로 격리)
-    """
-    s = requests.Session()
-    try:
-        s.verify = certifi.where()
-    except Exception:
-        pass
-    try:
-        # 전역 세션 헤더를 복사해 User-Agent 등 일관성 유지
-        s.headers.update(dict(session.headers))
-    except Exception:
-        pass
-    return s
-
-def tag_quarantine(url: str, *, reason: str = "ssl_error") -> None:
-    """격리 사유를 로깅(메트릭 등과 연동 가능)."""
-    try:
-        logger.info("[pdf][quarantine] %s (%s)", url, reason)
-    except Exception:
-        pass
-
-def try_fetch_pdf(url: str, *, timeout: int = 20) -> Optional[bytes]:
-    """
-    PDF URL 전용 단회 시도 헬퍼.
-    - SSLError 발생: 즉시 SSL_QUARANTINE에 추가하고 None 반환(재시도 금지)
-    - 그 외 예외: 호출측에서 HTML 폴백 여부를 결정
-    - 성공 시: bytes 반환 (content-type 확인은 호출측에서 수행 가능)
-    """
-    u = (url or "").strip()
-    if not u:
-        return None
-    if u in SSL_QUARANTINE:
-        return None
-    s = _pdf_session()
-    try:
-        r = s.get(u, timeout=timeout, stream=True)
-        r.raise_for_status()
-        return r.content or b""
-    except SSLError:
-        SSL_QUARANTINE.add(u)
-        tag_quarantine(u, reason="ssl_error")
-        return None
-    except EXC_NAME_RESOLUTION:
-        try:
-            from urllib.parse import urlparse as _up
-            host = (_up(u).netloc or "").split("/", 1)[0].lower()
-            if host:
-                DNS_QUARANTINE.add(host)
-                logger.info("[dns][quarantine] %s", host)
-        except Exception:
-            pass
-        return None
-    except Exception:
-        # SSLError 이외는 호출측 정책에 맡김(필요 시 HTML 폴백 1회)
-        return None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 문자 정규화(유니코드/제로폭 제거/전각→반각)
@@ -256,20 +174,33 @@ def safe_decode(b: bytes, fallback: str | None = None) -> str:
     return b.decode(fallback or "utf-8", errors="ignore")
 
 def http_get(url: str, **kw) -> requests.Response:
-    """requests.Session.get 래퍼 (기본 타임아웃 튜플) + DNS/SSL 격리 가드."""
-    kw.setdefault("timeout", (_cfg_int("WEB_FETCH_TIMEOUT_CONNECT", default=6),
-                              _cfg_int("WEB_FETCH_TIMEOUT_READ", default=20)))
-    # [ADD] 격리된 호스트는 즉시 차단
+    """
+    requests.Session.get 래퍼 (기본 타임아웃 튜플) + DNS/SSL 격리 가드.
+    ✅ 항상 normalize_url()을 통해 정규화된 URL만 네트워크로 보낸다.
+    ✅ 실제 세션 설정/Retry/CA는 ingest_net.get_requests_session()에 위임.
+    """
+    norm_url = normalize_url(url)
+
+    kw.setdefault(
+        "timeout",
+        (
+            _cfg_int("WEB_FETCH_TIMEOUT_CONNECT", default=6),
+            _cfg_int("WEB_FETCH_TIMEOUT_READ", default=20),
+        ),
+    )
+    # 격리된 호스트/URL는 즉시 차단
     try:
-        pu = urlparse(url)
+        pu = urlparse(norm_url)
         host = (pu.netloc or "").split("/", 1)[0].lower()
         if host in DNS_QUARANTINE:
             raise requests.exceptions.ConnectionError(f"host in DNS_QUARANTINE: {host}")
-        if url in SSL_QUARANTINE:
-            raise SSLError(f"url in SSL_QUARANTINE: {url}")
+        if norm_url in SSL_QUARANTINE or url in SSL_QUARANTINE:
+            raise requests.exceptions.SSLError(f"url in SSL_QUARANTINE: {norm_url}")
     except Exception:
         pass
-    return session.get(url, **kw)
+
+    s = _net_get_requests_session()
+    return s.get(norm_url, **kw)
 
 # =============================================================================
 # Env & Paths
@@ -513,18 +444,14 @@ def _canon_url(url: str) -> str:
         if "/" in netloc:
             host_part, path_part = netloc.split("/", 1)
             netloc = host_part
-            path = "/" + path_part + (path if path.startswith("/") else (("/" + path) if path else ""))
-
-        # KHIDI 특수 가드: 'www.khidi.or.krkps', '...or.krkps' 오염 교정
-        nlow = netloc.lower()
-        if nlow.startswith("www.khidi.or.krkps"):
-            netloc = "khidi.or.kr"
-            if not path.startswith("/kps"):
-                path = "/kps" + (path if path.startswith("/") else (("/" + path) if path else ""))
-        elif nlow.endswith("khidi.or.krkps") or nlow.endswith("or.krkps"):
-            netloc = "khidi.or.kr"
-            if not path.startswith("/kps"):
-                path = "/kps" + (path if path.startswith("/") else (("/" + path) if path else ""))
+            # 기존 path와 합칠 때는 항상 '/' 기준으로만 결합
+            extra_path = "/" + path_part
+            if path:
+                if not path.startswith("/"):
+                    path = "/" + path
+                path = extra_path + path
+            else:
+                path = extra_path
 
         # 쿼리 파라미터 중복 제거(마지막 값 우선)
         dedup: dict[str, str] = {}
@@ -865,13 +792,6 @@ def _normalize_url(u: str) -> str:
         host = _normalize_mobileish_host(host.lower())
         # [ADD] 퍼블릭 서픽스 기준 꼬리 오염 최종 방어막
         host = _clip_host_after_public_suffix(host)
-        # [ADD] KHIDI 특수 가드: '...or.krkps' 오염 교정
-        if host.startswith("www.khidi.or.krkps"):
-            host = "khidi.or.kr"
-            pu = pu._replace(path=("/kps" + (pu.path or "" if (pu.path or "").startswith("/") else ("/" + (pu.path or "")))))
-        elif host.endswith("khidi.or.krkps") or host.endswith("or.krkps"):
-            host = "khidi.or.kr"
-            pu = pu._replace(path=("/kps" + (pu.path or "" if (pu.path or "").startswith("/") else ("/" + (pu.path or "")))))
 
         # [NEW] 공공 도메인 www. 금지 + 선택적 www 강제 부착
         # 1) 공공 도메인(.go.kr/.or.kr)은 www. 접두사 제거
@@ -1210,101 +1130,41 @@ def _apply_gatekeep_to_results(results: list[dict]) -> list[dict]:
 # 원문 로딩: PDF/HTML
 # ─────────────────────────────────────────────────────────────────────────────
 def _load_web_page(url: str) -> str:
-    """원문 HTML을 받아 텍스트로 정리 (스트리밍 + 최대 바이트 예산 + 인코딩 추정)."""
+    """
+    원문 HTML을 받아 텍스트로 정리.
+    ✅ 실제 네트워크 호출은 ingest_net.fetch_text()를 통해서만 수행한다.
+    """
     connect_to = _cfg_int("WEB_FETCH_TIMEOUT_CONNECT", default=6)
     read_to    = _cfg_int("WEB_FETCH_TIMEOUT_READ", default=20)
-    max_bytes  = _cfg_int("WEB_FETCH_MAX_BYTES", default=1_000_000)  # 1MB
+
+    raw_url = url
+    url = normalize_url(url)
+
+    # 사전 차단: DNS 격리 호스트는 바로 스킵
+    try:
+        pu = urlparse(url)
+        host = (pu.netloc or "").split("/", 1)[0].lower()
+        if host in DNS_QUARANTINE:
+            logger.debug("[load][skip:dns_quarantine] %s", url)
+            return ""
+    except Exception:
+        pass
 
     try:
-        # [ADD] 사전 차단: DNS 격리 호스트는 바로 스킵
-        try:
-            pu = urlparse(url)
-            host = (pu.netloc or "").split("/", 1)[0].lower()
-            if host in DNS_QUARANTINE:
-                logger.debug("[load][skip:dns_quarantine] %s", url)
-                return ""
-        except Exception:
-            pass
-        with session.get(url, timeout=(connect_to, read_to), stream=True) as r:
-            r.raise_for_status()
-            buf = io.BytesIO()
-            for chunk in r.iter_content(chunk_size=8192):
-                if not chunk:
-                    continue
-                buf.write(chunk)
-                if buf.tell() >= max_bytes:
-                    break
-            raw = buf.getvalue()
-
-            # 인코딩 추정 비용 최소화 전략: r.encoding → BOM/UTF-8 → chardet(샘플 64KB)
-            enc = (r.encoding or "").strip() or None
-            if not enc:
-                if raw.startswith(b"\xef\xbb\xbf"):
-                    enc = "utf-8"
-                else:
-                    try:
-                        sample = raw[:65536]
-                        enc = chardet.detect(sample).get("encoding") or "utf-8"
-                    except Exception:
-                        enc = "utf-8"
-
-            # [CHANGE] 안전 디코더 사용 (UTF-8 우선, 한글(cp949/euc-kr) 폴백)
-            text = safe_decode(raw, fallback=enc)
-
-            # 1) 유니코드/BOM/전각→반각/제로폭 제거
-            text = _normalize_unicode(text, form="NFKC", strip_ws=False)
-            # 2) 과다 공백 축약
-            while "\n\n\n" in text or "\t\t\t" in text:
-                text = text.replace("\n\n\n", "\n\n").replace("\t\t\t", "\t\t")
-            # 3) 표준 개행으로 통일
-            text = text.replace("\r\n", "\n").replace("\r", "\n")
-            return text.strip()
-        
-    except SSLError as e:
-        SSL_QUARANTINE.add(url)
-        tag_quarantine(url, reason="ssl_error")
-        logger.debug("requests session load failed for %s: %s", url, e)
-    except EXC_NAME_RESOLUTION as e:
-        try:
-            pu = urlparse(url); host = (pu.netloc or "").split("/", 1)[0].lower()
-            if host:
-                DNS_QUARANTINE.add(host)
-                logger.info("[dns][quarantine] %s", host)
-        except Exception:
-            pass
-        logger.debug("requests session load failed for %s: %s", url, e)
+        # ingest_net.fetch_text를 통해 HTML 문자열을 가져온다.
+        html_text = _net_fetch_text(url, timeout=read_to)
+        if not html_text:
+            return ""
     except Exception as e:
-        logger.debug("requests session load failed for %s: %s", url, e)
-
-
-    # 폴백: LangChain WebBaseLoader
-    try:
-        try:
-            loader = WebBaseLoader(
-                url,
-                requests_kwargs={
-                    "timeout": (connect_to, read_to),
-                    "verify": session.verify,
-                    "headers": dict(session.headers),
-                },
-                verify_ssl=True,
-            )
-        except TypeError:
-            loader = WebBaseLoader(url, requests_kwargs={
-                "timeout": (connect_to, read_to),
-                "verify": session.verify,
-                "headers": dict(session.headers),
-            })
-        docs = loader.load()
-        txt = (docs[0].page_content if docs else "")
-        txt = _normalize_unicode(txt, form="NFKC", strip_ws=False)
-        while "\n\n\n" in txt or "\t\t\t" in txt:
-            txt = txt.replace("\n\n\n", "\n\n").replace("\t\t\t", "\t\t")
-        txt = txt.replace("\r\n", "\n").replace("\r", "\n")
-        return txt.strip()
-    except Exception as e:
-        logger.debug("WebBaseLoader fallback failed for %s: %s", url, e)
+        logger.debug("fetch_text failed for %s (raw=%s): %s", url, raw_url, e)
         return ""
+
+    # 이후 텍스트 정규화/공백 정리만 담당
+    text = _normalize_unicode(html_text, form="NFKC", strip_ws=False)
+    while "\n\n\n" in text or "\t\t\t" in text:
+        text = text.replace("\n\n\n", "\n\n").replace("\t\t\t", "\t\t")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return text.strip()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 결과 원문 보강 (+ 메트릭)

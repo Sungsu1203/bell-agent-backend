@@ -172,6 +172,40 @@ def section_writer(state: State):
         return {"messages": messages, "task_history": tasks}
 
     target_title, came_from_lock = _resolve_title(state, outline_text)
+
+    # ── SAFETY GUARD: 이미 완료된 섹션이면 다시 쓰지 않기 ─────────────────────
+    try:
+        flags_now: Dict[str, Any] = dict(cast(Dict[str, Any], state.get("flags") or {}))
+        completed_now = {
+            str(t).strip()
+            for t in (flags_now.get("completed_sections") or [])
+            if str(t).strip()
+        }
+        if target_title and target_title.strip() in completed_now:
+            logger.info(
+                "[SECTION WRITER] target already in completed_sections, skip rewrite: %s",
+                target_title,
+            )
+            if pending:
+                pending.done = True
+                pending.done_at = _now_str()
+                pending.description = pending.description or f"write: (already-completed) {target_title}"
+            if not has_pending(tasks, "communicator"):
+                tasks.append(
+                    Task(
+                        agent="communicator",
+                        done=False,
+                        description=f"'{target_title}' 섹션은 이미 완료됨: 진행상황 보고 및 다음 섹션 확인",
+                        done_at="",
+                    )
+                )
+            return {
+                "messages": messages,
+                "task_history": tasks,
+            }
+    except Exception as _e:
+        logger.debug("[SECTION WRITER] completed_sections safety guard skipped: %s", _e)
+
     if not target_title:
         messages.append(AIMessage(content="[Section Writer] 모든 섹션 초안이 이미 작성되었습니다."))
         if pending:
@@ -355,4 +389,12 @@ def section_writer(state: State):
             )
         )
 
-    return {"messages": messages, "task_history": tasks, "last_saved_path": out_path}
+    # flags/진행률/완료 목록이 실제 state에 반영되도록 함께 반환
+    flags_out: Flags = cast(Flags, state.get("flags") or {})
+
+    return {
+        "messages": messages,
+        "task_history": tasks,
+        "last_saved_path": out_path,
+        "flags": flags_out,
+    }

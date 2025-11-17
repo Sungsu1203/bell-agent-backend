@@ -780,13 +780,14 @@ def _probe_http_status(u: str, timeout: float = 6.0) -> Optional[int]:
         return None
     try:
         s = get_requests_session()
-        verify = getattr(s, "verify", True)
         try:
-            r = requests.head(u, allow_redirects=True, timeout=timeout, verify=verify)
+            # 공용 세션을 통한 HEAD 요청 (세션에 설정된 verify/CA 번들 사용)
+            r = s.head(u, allow_redirects=True, timeout=timeout)
             return int(r.status_code)
         except requests.exceptions.RequestException:
             try:
-                r2 = requests.get(u, allow_redirects=True, timeout=timeout, verify=verify, stream=True)
+                # HEAD 실패 시 동일 세션으로 GET 한 번만 시도
+                r2 = s.get(u, allow_redirects=True, timeout=timeout, stream=True)
                 return int(r2.status_code)
             except requests.exceptions.RequestException:
                 return None

@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 from core.paths import current_path, now_str as _now_str, research_resources_dir
 from core.models import Task
 from utils.sanitize import sanitize_state
-from utils.tasks import schedule_writer_if_needed_legacy as schedule_writer_if_needed
+from utils.tasks import schedule_writer_if_needed
 from utils.rag_utils import merge_refs, vector_count
 from prompts import get_web_search_prompt
 from utils.tasks import has_pending, iter_tool_calls, HumanMessage, AIMessage
@@ -165,7 +165,7 @@ def _item_rank(it: dict, idx: int) -> tuple[int, int, int]:
     y = _extract_year_from_url(u) or 0
     return (w, y, -idx)
 
-def web_search_agent(state: MutableMapping[str, Any]):
+def web_search_agent(state: State):
     # QA 모드면 웹검색 자체를 스킵 (Direct QA 단락)
     try:
         if bool((state.get("flags") or {}).get("qa_direct_reply")):
@@ -187,7 +187,7 @@ def web_search_agent(state: MutableMapping[str, Any]):
 
     llm = get_llm()
     # 상태를 가변 매핑으로 정규화 (object 인덱싱/속성 오류 방지)
-    state = cast(MutableMapping[str, Any], sanitize_state(state))
+    state = cast(State, sanitize_state(state))
     # 이후 인덱싱/쓰기 연산은 _s(가변 매핑)만 사용
     _s = cast(MutableMapping[str, Any], state)
 
@@ -1242,10 +1242,10 @@ def web_search_agent(state: MutableMapping[str, Any]):
 
     # AUTO_WRITE_AFTER_RAG
     try:
-        # vector_search.py와 동일 시그니처 사용
+        # 정본 schedule_writer_if_needed 시그니처(state, *, reason)에 맞게 호출
         schedule_writer_if_needed(
-            _s, tasks=tasks, messages=messages,
-            outline_text=outline_text, debug=True
+            _s,
+            reason="after_web_search",
         )
     except Exception as _e:
         logger.debug("schedule_writer_if_needed skipped: %s", _e)

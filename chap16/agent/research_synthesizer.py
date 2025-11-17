@@ -7,7 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from langchain_core.output_parsers.string import StrOutputParser
-from utils.tasks import AIMessage, has_pending
+from utils.tasks import AIMessage, has_pending, schedule_writer_if_needed
 from utils.sanitize import sanitize_state, as_int
 from utils.text_utils import clean_snip as _clean_snip
 from utils.outline import get_topic_outline_text
@@ -15,8 +15,6 @@ from prompts import get_research_synthesizer_prompt
 from core.state_types import State
 import core.config as config
 from core.paths import current_path, now_str as _now_str, research_topic_dir, research_resources_dir
-# 레거시 시그니처 지원 어댑터 사용 (기존 호출부 유지)
-from utils.tasks import schedule_writer_if_needed_legacy as schedule_writer_if_needed
 from utils.rag_utils import score_doc as _score_doc
 
 from core.llm import get_llm
@@ -259,11 +257,7 @@ LLM 호출 실패로 간략 요약을 제공합니다.
         outline_text = get_topic_outline_text(state)
         schedule_writer_if_needed(
             cast(MutableMapping[str, Any], state),
-            tasks=tasks,
-            messages=msgs,
-            outline_text=outline_text or "",
-            allow_during_research=True,
-            debug=True,
+            reason="auto_write_during_research",
         )
 
     # ---- 다음 단계 결정 ----
@@ -307,14 +301,10 @@ LLM 호출 실패로 간략 요약을 제공합니다.
         msgs.append(AIMessage(content=f"[Research Synthesizer] HALT: no_new_url_streak={streak_now} (≥ {max_no_new})"))
 
         # writer 예약은 1회만
-        outline_text = get_topic_outline_text(state)
+
         schedule_writer_if_needed(
             cast(MutableMapping[str, Any], state),
-            tasks=tasks,
-            messages=msgs,
-            outline_text=outline_text or "",
-            allow_during_research=True,
-            debug=True,
+            reason="research_halt",
         )
         msgs.append(AIMessage(content="[Research Synthesizer] 연구 종료 → Writer 예약 및 집필 단계로 전환"))
     else:
@@ -335,11 +325,7 @@ LLM 호출 실패로 간략 요약을 제공합니다.
             outline_text = get_topic_outline_text(state)
             schedule_writer_if_needed(
                 cast(MutableMapping[str, Any], state),
-                tasks=tasks,
-                messages=msgs,
-                outline_text=outline_text or "",
-                allow_during_research=True,
-                debug=True,
+                reason="research_max_rounds",
             )
             msgs.append(AIMessage(content="[Research Synthesizer] 최대 라운드 소진 → Writer 전환"))
 

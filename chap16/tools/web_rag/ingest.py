@@ -12,16 +12,14 @@ from types import ModuleType
 import requests
 from requests.exceptions import SSLError as _SSLError
 import codecs  # for BOM checks in _decode_bytes
-import certifi
 from requests.auth import AuthBase
 from requests.models import Response
 
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 from urllib3.exceptions import NameResolutionError
 from urllib.parse import urlparse  # host 추출용
 
 # 네트워크 헬퍼/설정은 ingest_net에서 공통 사용
+#  ✅ 실제 HTTP 요청/응답은 ingest_net 모듈을 단일 진입점으로 사용한다.
 from .ingest_net import (
     get_requests_session as _net_get_requests_session,
     try_fetch_pdf as _net_try_fetch_pdf,
@@ -29,6 +27,9 @@ from .ingest_net import (
     REQ_CONN_TIMEOUT as _REQ_CONN_TIMEOUT,
     REQ_READ_TIMEOUT as _REQ_READ_TIMEOUT,
     USER_AGENT as _UA,
+    # 실제 바이너리/텍스트 fetch 단일 진입점
+    fetch_binary as _net_fetch_binary,
+    fetch_text as _net_fetch_text,
 )
 
 # 공통 설정/헬퍼는 ingest_config에서 가져온다
@@ -539,66 +540,37 @@ def _normalize_before_request(u: str) -> str:
             logger.debug("[NORM][%d] %s → %s", _NORM_I, raw, nu)
     return nu
 
-def _fetch_binary(url: str, timeout: int = 10) -> bytes:
+def _fetch_binary(url: str, timeout: int = 10) -> bytes | None:
     """
-    PDF/바이너리 안전 가져오기:
-      - 항상 certifi 번들로 검증(verify=certifi.where()).
-      - SSLError 시 verify=False 폴백은 하지 않음.
-      - 대신 상위 로직이 재시도 후보로 태깅할 수 있도록 _PdfSslError를 발생.
+    PDF/바이너리 가져오기 - ✅ 네트워크 단일 진입점 래퍼
+
+    계약(contract):
+      - ingest_docs.web_results_to_documents 등에서 기대하는 시그니처는
+        (url: str, timeout: int) -> bytes | None 입니다.
+      - 실제 HTTP 요청은 ingest_net.fetch_binary / ingest_net.try_fetch_pdf 에서만 수행합니다.
+      - 이 함수는 예외를 밖으로 퍼뜨리지 않고, 실패 시 None을 반환하도록 설계합니다.
     """
+    if not url:
+        return None
+
+    # 요청 전에 항상 정규화
+    u = _normalize_before_request(url)
+
+    # 1) PDF로 보이면 우선 PDF 전용 경로 한 번 시도
     try:
-        # ✅ PDF면 ingest_net.try_fetch_pdf 단회 시도 후 종료(가능할 때만)
-        #    - 내부 구현(예: utils.try_fetch_pdf)을 ingest_net 쪽에 위임.
-        if _looks_like_pdf_url(url):
-            u_pdf = _normalize_before_request(url)
-            try:
-                data = _net_try_fetch_pdf(u_pdf, timeout=timeout)
-            except _SSLError as e:
-                # 상부에서 재시도 후보 태깅 로직(_record_retry_candidate)과 HTML 폴백을 진행
-                raise _PdfSslError(str(e))
-            except Exception:
-                data = None
-            # Optional[bytes]일 수 있으므로 None이면 폴백 경로로 진행
+        if _looks_like_pdf_url(u):
+            data = _net_try_fetch_pdf(u, timeout)
             if data is not None:
                 return data
-        # ✅ 요청 전 정규화(안전망)
-        url = _normalize_before_request(url)
-        cap = _cfg_int("WEB_PDF_FETCH_MAX_BYTES", _cfg_int("WEB_PDF_MAX_BYTES", 20_000_000))
-        # connect/read 타임아웃은 환경값을 기본으로 사용
-        _to = ( _REQ_CONN_TIMEOUT, _REQ_READ_TIMEOUT )
-        s = get_requests_session()
-        r = _session_get(s, url, {
-            "headers": _PDF_HEADERS,
-            "timeout": _to,   # (connect, read)
-            "stream": True,
-            "verify": s.verify,
-        })
-        r.raise_for_status()
+    except Exception as e:  # pragma: no cover
+        logger.warning("[_fetch_binary] try_fetch_pdf failed url=%s err=%s", u, e)
 
-        # Content-Length 사전 체크(있을 때만)
-        try:
-            clen = int((r.headers.get("Content-Length") or "0").strip() or "0")
-        except Exception:
-            clen = 0
-        if cap > 0 and clen > cap:
-            logger.warning("[INGEST][PDF] content-length exceeds cap: %s (%d > %d)", url, clen, cap)
-            raise ValueError(f"PDF too large by header: {clen} > {cap}")
-
-        # 스트리밍 수신 + 누적 바이트 캡
-        buf = io.BytesIO()
-        for chunk in r.iter_content(chunk_size=8192):
-            if not chunk:
-                continue
-            buf.write(chunk)
-            if cap > 0 and buf.tell() > cap:
-                logger.warning("[INGEST][PDF] stream exceeded cap at ~%d bytes: %s", buf.tell(), url)
-                raise ValueError(f"PDF too large by stream: {buf.tell()} > {cap}")
-        return buf.getvalue()
-    except _SSLError as e:
-        # 상부에서 태깅 후 HTML 폴백 시도/스킵 결정을 하도록 신호
-        raise _PdfSslError(str(e))
-    except Exception:
-        raise
+    # 2) 일반 바이너리 fetch (ingest_net.fetch_binary)
+    try:
+        return _net_fetch_binary(u, timeout)
+    except Exception as e:  # pragma: no cover
+        logger.warning("[_fetch_binary] fetch_binary failed url=%s err=%s", u, e)
+        return None
 
 def _decode_bytes(data: bytes) -> str:
     """바이트 → 텍스트 (requests/chardet 유사 전략, BOM/헤더 미존재 시에도 방어)"""
@@ -747,57 +719,30 @@ def _pdf_bytes_to_text(data: bytes) -> str:
 
 def _load_html_as_text(url: str, timeout: int = 10) -> str:
     """
-    HTML 페이지 로딩 (yakup 헤더 문제/포트/압축/SSL 예외 및 dailypharm 404 경로 차이 보정 포함)
-    """
-    # 1) 일반 경로: 완화된 fetch로 바이트 수신 → 디코드 → 텍스트 추출
-    try:
-        content, final_url = _fetch_with_fallbacks(url, timeout=timeout)
-        html = _decode_bytes(content)
-    except _SSLError:
-        if _allow_insecure_ssl():
-            logger.warning("[SSL] SSLError on %s — retrying once with verify=False (ALLOW_INSECURE_SSL=1)", url)
-            s = get_requests_session()
-            r = _session_get(s, _normalize_before_request(url), {
-                "timeout": ( _REQ_CONN_TIMEOUT, _REQ_READ_TIMEOUT ),
-                "headers": {"User-Agent": _UA},
-                "verify": False,
-            })
-            r.raise_for_status()
-            html = r.text
-            final_url = str(r.url)
-        else:
-            raise
-    except requests.HTTPError as he:
-        # 2) 404 등일 때 도메인/경로 보정 후 재시도
-        p_orig = urlparse(url)
-        p_norm = urlparse(_normalize_before_request(url))
-        # Dailypharm 구경로는 404면 즉시 스킵 + 재탐색 후보로 태깅
-        if p_norm.netloc.endswith("dailypharm.com"):
-            _path_l = (p_norm.path or "").lower()
-            _is_legacy = _path_l in ("/newsview.html", "/users/news/newsview.html")
-            _status = getattr(getattr(he, "response", None), "status_code", None)
-            if _is_legacy and _status == 404:
-                _record_retry_candidate(url, reason="dailypharm_relocate")
-                logger.warning("[dailypharm] 404 legacy path → skip & tag relocate: %s", url)
-                # 호스트 실패 누적
-                try: _mark_host_fail(p_norm.netloc)
-                except Exception: pass
-                return ""
-        # 정규화로 호스트/스킴이 달라졌다면 원본으로 재시도
-        elif (p_orig.netloc != p_norm.netloc) or (p_orig.scheme != p_norm.scheme):
-            content, final_url = _fetch_with_fallbacks(url, timeout=timeout)
-            html = _decode_bytes(content)
-        else:
-            # 상태코드 오류 → 호스트 실패 누적
-            try: _mark_host_fail(p_norm.netloc)
-            except Exception: pass
-            raise
-    except Exception:
-        # 마지막 방어선: 원본으로 재시도
-        content, final_url = _fetch_with_fallbacks(url, timeout=timeout)
-        html = _decode_bytes(content)
+    HTML 페이지 로딩 → 텍스트로 변환
 
-    # 3) HTML → 텍스트 추출 (기존 로직 유지)
+    계약(contract):
+      - ingest_docs.web_results_to_documents에서 기대하는 시그니처는
+        (url: str, timeout: int) -> str 입니다.
+      - 실제 HTTP 요청은 ingest_net.fetch_text 를 통해서만 수행합니다.
+      - 네트워크 에러/디코딩 실패 시에는 빈 문자열("")을 반환합니다.
+    """
+    if not url:
+        return ""
+
+    u = _normalize_before_request(url)
+
+    # 1) ingest_net.fetch_text 를 통한 단일 네트워크 진입점
+    try:
+        html = _net_fetch_text(u, timeout)
+    except Exception as e:  # pragma: no cover
+        logger.warning("[_load_html_as_text] fetch_text failed url=%s err=%s", u, e)
+        html = None
+
+    if not html:
+        return ""
+
+    # 2) HTML → 텍스트 추출 (기존 정제 로직 유지)
     try:
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(html, "lxml")

@@ -8,6 +8,13 @@ from typing import Callable, Any, Optional
 import threading
 
 import requests
+import socket
+from requests.exceptions import SSLError
+try:
+    from urllib3.exceptions import NameResolutionError as _UR_NRE
+    _EXC_NAME_RESOLUTION: tuple[type[BaseException], ...] = (socket.gaierror, _UR_NRE)
+except Exception:  # pragma: no cover
+    _EXC_NAME_RESOLUTION = (socket.gaierror,)
 
 # ingest_config 쪽 런타임 설정/헬퍼를 가져와서
 # 이 모듈에서 실제로 사용할 네트워크 관련 상수로 재정의한다.
@@ -19,6 +26,11 @@ from .ingest_config import (
     _cfg_int,
     _cfg_bool,
  )
+# ─────────────────────────────────────────────
+# 이 모듈은 "네트워크 단일 진입점"입니다.
+#  - HTTP 요청은 반드시 여기 정의된 함수들을 통해 수행합니다.
+#  - 다른 모듈에서 직접 requests/try_fetch_pdf(utils) 등을 호출하지 않도록 합니다.
+# ─────────────────────────────────────────────
 
 # ─────────────────────────────────────────────
 # ingest_config 내부 심볼 → net 레이어용 심볼 재노출
@@ -46,16 +58,17 @@ VERIFY_SSL: bool = _cfg_bool("REQUESTS_VERIFY_SSL", True)
 # 공개 시그니처: “(url, timeout) → bytes | None” 형태
 TryFetchPdf = Callable[[str, int], bytes | None]
 
-# 내부 구현은 시그니처가 약간 달 수 있으므로, Callable[..., bytes | None]로 완화
-PdfFetcher = Callable[..., bytes | None]
+# PDF/네임 해석 에러 격리를 위한 전역 세트
+SSL_QUARANTINE: set[str] = set()
+DNS_QUARANTINE: set[str] = set()
 
-# PDF 전용 헬퍼는 utils에 이미 있을 수 있으니, Optional로 안전하게 감싼다.
-_try_fetch_pdf_impl: Optional[PdfFetcher]
-try:
-    # utils.try_fetch_pdf의 실제 시그니처와 상관없이 PdfFetcher로 본다.
-    from tools.web_rag.utils import try_fetch_pdf as _try_fetch_pdf_impl
-except Exception:  # pragma: no cover
-    _try_fetch_pdf_impl = None
+
+def tag_quarantine(url: str, *, reason: str = "ssl_error") -> None:
+    """격리 사유를 로깅(메트릭 등과 연동 가능)."""
+    try:
+        logger.info("[net][quarantine] %s (%s)", url, reason)
+    except Exception:
+        pass
 
 # ─────────────────────────────────────────────
 # 공용 requests.Session
@@ -146,14 +159,67 @@ def fetch_json(url: str, timeout: int | None = None) -> Any | None:
 
 def try_fetch_pdf(url: str, timeout: int | None = None) -> bytes | None:
     """
-    PDF 전용 fetch 래퍼.
-    내부적으로 _try_fetch_pdf_impl(=utils.try_fetch_pdf)를 감싼다.
+    PDF 전용 fetch 헬퍼.
+    - 성공 시: PDF 바이트(bytes) 반환
+    - SSLError 발생 시: SSL_QUARANTINE에 추가 후 None
+    - DNS 해석 오류 발생 시: DNS_QUARANTINE에 호스트 추가 후 None
+    - 그 외 예외: 경고만 로그 후 None
+
+    외부 계약(contract):
+      (url: str, timeout: int) → bytes | None
     """
-    if _try_fetch_pdf_impl is None:
+    u = (url or "").strip()
+    if not u:
         return None
+
+    # 이미 SSL 격리된 URL은 재시도하지 않음
+    if u in SSL_QUARANTINE:
+        return None
+
+    sess = get_requests_session()
     t = timeout or int(REQ_READ_TIMEOUT)
     try:
-        return _try_fetch_pdf_impl(url, t)
-    except Exception as e:  # pragma: no cover
-        logger.warning("[try_fetch_pdf] url=%s error=%s", url, e)
+        r = sess.get(u, timeout=(REQ_CONN_TIMEOUT, t), stream=True)
+        r.raise_for_status()
+        return r.content or b""
+    except SSLError:
+        SSL_QUARANTINE.add(u)
+        tag_quarantine(u, reason="ssl_error")
         return None
+    except _EXC_NAME_RESOLUTION:
+        # DNS 해석 실패 → 호스트 단위 격리
+        try:
+            from urllib.parse import urlparse as _up
+            host = (_up(u).netloc or "").split("/", 1)[0].lower()
+            if host:
+                DNS_QUARANTINE.add(host)
+                logger.info("[dns][quarantine] %s", host)
+        except Exception:
+            pass
+        return None
+    except Exception as e:  # pragma: no cover
+        logger.warning("[try_fetch_pdf] url=%s error=%s", u, e)
+        return None
+
+
+__all__ = [
+    # 타입
+    "TryFetchPdf",
+    # 설정/세션
+    "REQ_CONN_TIMEOUT",
+    "REQ_READ_TIMEOUT",
+    "USER_AGENT",
+    "MAX_REDIRECTS",
+    "CA_BUNDLE",
+    "VERIFY_SSL",
+    "get_requests_session",
+    # 네트워크 헬퍼
+    "fetch_binary",
+    "fetch_text",
+    "fetch_json",
+    "try_fetch_pdf",
+    # 격리/태깅 심볼
+    "SSL_QUARANTINE",
+    "DNS_QUARANTINE",
+    "tag_quarantine",
+]

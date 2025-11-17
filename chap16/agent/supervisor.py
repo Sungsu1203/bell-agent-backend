@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 import os
 import re
 from typing import Any, Mapping, MutableMapping, cast, Dict, List, Iterable, Optional, Protocol, Callable
-from utils.tasks import HumanMessage, AIMessage, schedule_writer_if_needed_legacy as schedule_writer_if_needed
+from utils.tasks import HumanMessage, AIMessage, schedule_writer_if_needed
 from core.models import Task, AgentName
 from utils.sanitize import sanitize_state, coerce_int
 from rag_expression import (
@@ -338,11 +338,33 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
     plan = state.get("research_plan") or {}
     has_plan = bool((plan.get("queries") or []))
     rag_meta = state.get("rag_stats") or {}
-    has_on_disk = bool(int(rag_meta.get("doc_count") or 0) > 0)
+
+    # rag_on_disk 판정:
+    #   기존: base ns(doc_count)만 보고 판단 → base=0, web/local>0 인 상황에서 False로 남는 문제
+    #   변경: base/web/local 셋 중 어느 하나라도 청크가 있으면 True 로 인식
+    ns_base_count = int(rag_meta.get("ns_base_count") or 0)
+    ns_web_count = int(rag_meta.get("ns_web_count") or 0)
+    ns_local_count = int(rag_meta.get("ns_local_count") or 0)
+    doc_total = int(rag_meta.get("doc_count") or 0)
+    has_on_disk = (
+        ns_base_count > 0
+        or ns_web_count > 0
+        or ns_local_count > 0
+        or doc_total > 0
+    )
 
     logger.warning(
-        "DEBUG: research_round=%d, has_refs=%s, has_plan=%s, rag_on_disk=%s, docs_in_state=%d",
-        rnd, has_refs, has_plan, has_on_disk, len(refs.get("docs") or [])
+        "DEBUG: research_round=%d, has_refs=%s, has_plan=%s, rag_on_disk=%s, "
+        "docs_in_state=%d, ns_base=%d, ns_web=%d, ns_local=%d, doc_total=%d",
+        rnd,
+        has_refs,
+        has_plan,
+        has_on_disk,
+        len(refs.get("docs") or []),
+        ns_base_count,
+        ns_web_count,
+        ns_local_count,
+        doc_total,
     )
 
     if rnd == 0 and (has_refs or has_plan or has_on_disk) and int(state.get("iteration_count", 0)) > 0:
@@ -605,6 +627,39 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
             target_from_line = _title_by_index(get_topic_outline_text(state), idx)
 
     if target_from_line:
+        # ── SAFETY GUARD: 이미 완료된 섹션이면 writer 예약/락을 다시 걸지 않는다 ──
+        try:
+            flags_now: Dict[str, Any] = dict(cast(Dict[str, Any], state.get("flags") or {}))
+            completed_now = {
+                str(t).strip()
+                for t in (flags_now.get("completed_sections") or [])
+                if str(t).strip()
+            }
+        except Exception:
+            completed_now = set()
+
+        if target_from_line.strip() in completed_now:
+            logger.info(
+                "[Supervisor fast-path] write: requested title already completed → communicator (title=%s)",
+                target_from_line,
+            )
+            # 이미 작성된 섹션이므로, 진행상황 안내만 communicator에게 맡긴다.
+            if not _safe_has_pending(tasks, "communicator"):
+                tasks.append(
+                    Task(
+                        agent="communicator",
+                        done=False,
+                        description=f"'{target_from_line}' 섹션은 이미 작성됨: 진행상황 보고 및 다음 섹션 안내",
+                        done_at="",
+                    )
+                )
+            _dash_emit(state, where="supervisor", picked="communicator", reason="write_already_completed")
+            return {
+                "messages": messages,
+                "task_history": tasks,
+                "flags": state.get("flags", {}),
+            }
+
         now = _now_str()
         for t in tasks:
             if (not t.done) and t.agent == "communicator":
@@ -627,13 +682,11 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
             if not _safe_has_pending(tasks, "web_search_agent"):
                 tasks.append(Task(agent="web_search_agent", done=False, description=desc, done_at=""))
             try:
+                # 새 코어 스케줄러는 state 기반으로만 동작하므로,
+                # 플래그 세팅 후 reason만 전달한다.
                 schedule_writer_if_needed(
                     mstate,
-                    tasks=tasks, messages=messages,
-                    outline_text=get_topic_outline_text(state),
-                    requested_title=target_from_line,
-                    allow_during_research=True,  # pre-schedule
-                    debug=True,
+                    reason="pre_schedule_write_with_empty_or_pending_refs",
                 )
             except Exception:
                 logger.exception("[Supervisor fast-path] pre-schedule writer failed (non-fatal)")
@@ -656,14 +709,20 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
         mstate["flags"] = ff
         logger.debug("[Supervisor] writer lock set (with refs) → requested='%s'", target_from_line)
 
-        did = schedule_writer_if_needed(
+        # 호출 전/후 router.writer_pending 플래그를 비교하여 did 여부 추론
+        flags_before: Dict[str, Any] = dict(cast(Dict[str, Any], mstate.get("flags") or {}))
+        router_before: Dict[str, Any] = dict(flags_before.get("router") or {})
+        was_pending = bool(router_before.get("writer_pending"))
+
+        schedule_writer_if_needed(
             mstate,
-            tasks=tasks, messages=messages,
-            outline_text=get_topic_outline_text(state),
-            requested_title=target_from_line,
-            allow_during_research=_cfg_bool("AUTO_WRITE_DURING_RESEARCH", False),
-            debug=True,
+            reason="write_with_refs",
         )
+
+        flags_after: Dict[str, Any] = dict(cast(Dict[str, Any], mstate.get("flags") or {}))
+        router_after: Dict[str, Any] = dict(flags_after.get("router") or {})
+        now_pending = bool(router_after.get("writer_pending"))
+        did = (not was_pending) and now_pending
         if did:
             _writer = _writer_agent()
             _mode = _doc_mode()
@@ -707,14 +766,20 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
 
     if task.agent in ("chapter_writer", "section_writer"):
         requested = extract_write_title(task.description or "") or None
-        did = schedule_writer_if_needed(
+        # 호출 전/후 router.writer_pending 플래그 비교로 did 여부 추론
+        flags_before2: Dict[str, Any] = dict(cast(Dict[str, Any], mstate.get("flags") or {}))
+        router_before2: Dict[str, Any] = dict(flags_before2.get("router") or {})
+        was_pending2 = bool(router_before2.get("writer_pending"))
+
+        schedule_writer_if_needed(
             mstate,
-            tasks=tasks, messages=messages,
-            outline_text=get_topic_outline_text(state),
-            requested_title=requested,
-            allow_during_research=_cfg_bool("AUTO_WRITE_DURING_RESEARCH", False),
-            debug=True,
+            reason="supervisor_llm_writer",
         )
+
+        flags_after2: Dict[str, Any] = dict(cast(Dict[str, Any], mstate.get("flags") or {}))
+        router_after2: Dict[str, Any] = dict(flags_after2.get("router") or {})
+        now_pending2 = bool(router_after2.get("writer_pending"))
+        did = (not was_pending2) and now_pending2
         if did:
             _mode = _doc_mode()
             messages.append(AIMessage(content=f"[Supervisor reconcile] writer 예약 완료 (mode={_mode}, requested={requested or '(auto)'})"))

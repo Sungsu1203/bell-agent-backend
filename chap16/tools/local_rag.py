@@ -1548,10 +1548,15 @@ def add_local_findings_to_chroma(
         pass
 
     # ingest_local_files 재사용
-    # ingest 시에도 동일한 ns/persist 규칙을 적용하도록 그대로 전달
+    #  - ingest_local_files(namespace: str)이기 때문에 None일 수 있는 값을
+    #    직접 넘기지 않고, 빈 문자열로 정규화 후 전달한다.
+    #  - 빈 문자열("")은 ingest_local_files 내부 _compute_effective_ns()
+    #    에서 falsy로 처리되어 CHROMA_NAMESPACE_LOCAL / "<slug>-local"
+    #    규칙으로 다시 보정된다.
+    ns_for_ingest: str = namespace or ""
     json_paths, _preview, chunk_total = ingest_local_files(
         globs=patterns,
-        namespace=(namespace or slug),
+        namespace=ns_for_ingest,
         persist_directory=persist_directory,
         topic_slug=slug,
         root_dir=str(current_path()),

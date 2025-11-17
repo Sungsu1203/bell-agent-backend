@@ -283,54 +283,16 @@ def iter_tool_calls(msg, name: str):
             continue
 
 # ─────────────────────────────────────────────────────────────
-# schedule_writer_if_needed: 단일 진입점 해석기
-# 1) utils.writer_scheduler (신규 래퍼) 우선
-# 2) utils.writer_scheduler_old (레거시) 폴백
-# 3) 로컬 폴백 구현
+# schedule_writer_if_needed: 단일 진입점 (정본 구현)
 #
-# ※ 정적 import → importlib 런타임 로딩으로 전환(존재 안 해도 mypy 경고 없음)
+# - 이 모듈(utils.tasks)의 schedule_writer_if_needed가 유일한 "new" 버전입니다.
+# - utils.writer_scheduler 는 이를 감싸는 deprecated shim일 뿐입니다.
+# - 매우 오래된 코드만 utils.writer_scheduler_old 를 사용할 수 있으며,
+#   이는 schedule_writer_if_needed_legacy 에서만 선택적으로 참조합니다.
 # ─────────────────────────────────────────────────────────────
-class _FnNewProto(Protocol):
-    def __call__(self, state: MutableMapping[str, Any], *, reason: Optional[str] = ...) -> None: ...
 
 class _FnLegacyProto(Protocol):
     def __call__(self, state: Any, tasks: Any, *, outline_text: Any, mode: Any = ..., **kwargs: Any) -> Any: ...
-
-def _load_new_or_legacy() -> tuple[Optional[_FnNewProto], Optional[_FnLegacyProto]]:
-    new_fn: Optional[_FnNewProto] = None
-    legacy_fn: Optional[_FnLegacyProto] = None
-    # 1) 신규 래퍼 시도
-    try:
-        m = importlib.import_module("utils.writer_scheduler")
-        fn = getattr(m, "schedule_writer_if_needed", None)
-        if callable(fn):
-            # 런타임에서 callable 확인 후 정적 타입 고정
-            new_fn = cast(_FnNewProto, fn) 
-    except Exception:
-        new_fn = None
-    # 2) 레거시 시도
-    if new_fn is None:
-        try:
-            m2 = importlib.import_module("utils.writer_scheduler_old")
-            fn2 = getattr(m2, "schedule_writer_if_needed", None)
-            if callable(fn2):
-                legacy_fn = cast(_FnLegacyProto, fn2)
-        except Exception:
-            legacy_fn = None
-    return new_fn, legacy_fn
-# 지연 로딩: 초기 모듈 로드 시점에는 바인딩하지 않고, 실제 호출 시 보장
-_fn_new: Optional[_FnNewProto] = None
-_fn_legacy: Optional[_FnLegacyProto] = None
-
-def _ensure_loaded() -> None:
-    """필요 시점에만 writer_scheduler 코어를 로드 (순환 임포트/초기화 경합 방지)."""
-    global _fn_new, _fn_legacy
-    if (_fn_new is None) and (_fn_legacy is None):
-        try:
-            new_fn, legacy_fn = _load_new_or_legacy()
-            _fn_new, _fn_legacy = new_fn, legacy_fn
-        except Exception:
-            _fn_new, _fn_legacy = None, None
 
 def schedule_writer_if_needed(
     state: MutableMapping[str, Any],
@@ -338,11 +300,10 @@ def schedule_writer_if_needed(
     reason: str | None = None,
 ) -> None:
     """
-    RAG 파이프라인의 writer 예약 단일 진입점.
-    - 신규/레거시 모듈이 있으면 위임
-    - 없으면 로컬 폴백(부작용 최소) 적용
+    RAG 파이프라인의 writer 예약 단일 진입점(정본).
+    - Direct QA일 때는 기본적으로 writer 예약을 건너뛴다(force_writer 플래그로 무시 가능)
+    - writer_scheduler.py 등의 shim은 모두 이 함수를 호출해야 한다.
     """
-    _ensure_loaded()
     # ── Direct QA 노이즈 억제 가드 (+ 예외 스위치 force_writer) ───────────
     try:
         _flags = dict(state.get("flags") or {})
@@ -357,21 +318,7 @@ def schedule_writer_if_needed(
     except Exception:
         # flags 구조가 비정상이더라도 실패 없이 통과
         pass
-    if _fn_new is not None:
-        try:
-            return _fn_new(state, reason=reason)
-        except TypeError:
-            return _fn_new(state)  
-    if _fn_legacy is not None:
-        # 레거시에게 넘겨야 하는데 단일 인자라면 상태 플래그만 세팅하고 종료
-        # (레거시 전체 시그니처는 별도 legacy wrapper에서 소화)
-        flags = dict(state.get("flags") or {})
-        if reason and not flags.get("schedule_reason"):
-            flags["schedule_reason"] = reason
-        state["flags"] = flags | {"router": (flags.get("router") or {})}
-        return
-
-    # ── 로컬 폴백 ─────────────────────────────────────────────
+    # ── 본 구현 ─────────────────────────────────────────────
     # 원칙: "이미 예약됨/잠금 상태면 조용히 종료", "제목 없이 예약 금지"
     flags = dict(state.get("flags") or {})
     router_flags = dict(flags.get("router") or {})
@@ -407,9 +354,6 @@ def schedule_writer_if_needed_legacy(state, tasks, *, outline_text, mode=None, *
         return False
     _LEGACY_WS_CALLING = True
     try:
-        _ensure_loaded()
-        if _fn_new is None and _fn_legacy is None:
-            raise ImportError("utils.writer_scheduler.schedule_writer_if_needed not available")  # pragma: no cover
         # messages 추출(없으면 state에서 폴백)
         messages = kwargs.get("messages")
         if messages is None:
@@ -449,13 +393,24 @@ def schedule_writer_if_needed_legacy(state, tasks, *, outline_text, mode=None, *
             call_kwargs["debug"] = kwargs["debug"]
 
         try:
-            if _fn_legacy is not None:
-                res = _fn_legacy(
+            # 1) 매우 오래된 구현(utils.writer_scheduler_old)이 있으면 우선 시도
+            legacy_fn = None
+            try:
+                m2 = importlib.import_module("utils.writer_scheduler_old")
+                fn2 = getattr(m2, "schedule_writer_if_needed", None)
+                if callable(fn2):
+                    legacy_fn = cast(_FnLegacyProto, fn2)
+            except Exception:
+                legacy_fn = None
+
+            if legacy_fn is not None:
+                res = legacy_fn(
                     state, tasks,
                     outline_text=outline_text, mode=mode, **kwargs
                 )
                 return bool(res)
-            # 신규만 있는 경우: flags로 요청을 주입한 뒤 신규 호출
+
+            # 2) 기본 경로: 현재 모듈의 단일 진입점으로 위임
             try:
                 flags2 = dict(state.get("flags") or {})
                 if requested_title and not flags2.get("requested_write_title"):
@@ -463,7 +418,7 @@ def schedule_writer_if_needed_legacy(state, tasks, *, outline_text, mode=None, *
                 state["flags"] = flags2 | {"router": (flags2.get("router") or {})}
             except Exception:
                 pass
-            _fn_new(state, reason="legacy-adapter")  # type: ignore[misc]
+            schedule_writer_if_needed(state, reason="legacy-adapter")
             return True
         except TypeError as e:
             # 예상치 못한 시그니처 불일치 시에도 힌트 로그 남기고 실패 처리

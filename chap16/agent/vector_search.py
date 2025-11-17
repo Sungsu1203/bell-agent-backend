@@ -5,7 +5,9 @@ import logging, os, re, json as _json
 from typing import TypedDict, List, Any, Mapping, cast, MutableMapping, Tuple, Dict
 logger = logging.getLogger(__name__)
 
-from utils.tasks import HumanMessage, AIMessage
+from utils.tasks import (
+    HumanMessage, AIMessage, has_pending, iter_tool_calls, schedule_writer_if_needed
+)
 from core.llm import get_llm
 import core.config as config
 from core.paths import current_path, now_str as _now_str
@@ -27,7 +29,7 @@ from utils.query_filters import (
     ok_query as _ok_query,
 )
 from prompts import get_vector_search_prompt
-from utils.tasks import has_pending, iter_tool_calls, schedule_writer_if_needed_legacy as schedule_writer_if_needed
+from utils.tasks import has_pending, iter_tool_calls, schedule_writer_if_needed
 from utils.outline import get_topic_outline_text
 from tools.web_rag import (
     retrieve,
@@ -974,15 +976,16 @@ def vector_search_agent(state: State):
 
             ALLOW_SUMMARY = _cfg_bool("ALLOW_LOCAL_SUMMARY", False)
 
-            from utils.tasks import has_pending as _has_p
             def _has_writer_pending(_tasks):
                 try:
-                    return _has_p(_tasks, "section_writer", prefix="write:") or _has_p(_tasks, "chapter_writer", prefix="write:")
+                    return has_pending(_tasks, "section_writer", prefix="write:") or has_pending(_tasks, "chapter_writer", prefix="write:")
                 except Exception:
-                    return any((not getattr(t, "done", False))
-                               and getattr(t, "agent", "") in ("section_writer","chapter_writer")
-                               and str(getattr(t, "description", "")).startswith("write:")
-                               for t in (_tasks or []))
+                    return any(
+                        (not getattr(t, "done", False))
+                        and getattr(t, "agent", "") in ("section_writer", "chapter_writer")
+                        and str(getattr(t, "description", "")).startswith("write:")
+                        for t in (_tasks or [])
+                    )
 
             # Flags(TypedDict) | dict → 항상 dict[str, Any]로 정규화
             from typing import Mapping  # (파일 상단에 이미 있으면 이 줄은 생략)
@@ -1075,9 +1078,10 @@ def vector_search_agent(state: State):
                             }
 
             if not ALLOW_SUMMARY and _cfg_bool("AUTO_WRITE_DURING_RESEARCH", False):
+                # 새 정본 schedule_writer_if_needed는 state와 reason만 받는다.
                 schedule_writer_if_needed(
                     cast(MutableMapping[str, Any], state),
-                    tasks=tasks, messages=messages, outline_text=outline_text, debug=True
+                    reason="auto_write_during_research_no_summary",
                 )
             # 🔁 ALLOW_SUMMARY=0 이고 Direct QA 의도인데 답변을 못 만든 경우 → 최소 응답 보장
             try:
@@ -1182,8 +1186,10 @@ def vector_search_agent(state: State):
     references = _to_refs(merged_dict)
 
     if _cfg_bool("AUTO_WRITE_DURING_RESEARCH", False):
-        schedule_writer_if_needed(cast(MutableMapping[str, Any], state),
-                                  tasks=tasks, messages=messages, outline_text=outline_text, debug=True)
+        schedule_writer_if_needed(
+            cast(MutableMapping[str, Any], state),
+            reason="auto_write_during_research_mid",
+        )
 
     # facts_ctx (optional)
     try:
@@ -1263,14 +1269,18 @@ def vector_search_agent(state: State):
 
     writer_task_scheduled = False
     if (not research_loop_active) or AUTO_WRITE_DURING_RESEARCH:
-        did = schedule_writer_if_needed(
+        # 새 schedule_writer_if_needed는 반환값이 없고
+        # state.flags.router.writer_pending 플래그만 세팅한다.
+        schedule_writer_if_needed(
             cast(MutableMapping[str, Any], state),
-            tasks=tasks, messages=messages, outline_text=outline_text, debug=True
+            reason="vector_search_final",
         )
-        if did:
-            writer_task_scheduled = True
 
         flags_mm2 = cast(MutableMapping[str, Any], state.setdefault("flags", {}))
+        router_flags2 = dict(flags_mm2.get("router") or {})
+        writer_task_scheduled = bool(router_flags2.get("writer_pending"))
+        flags_mm2["router"] = router_flags2
+
         has_writer_p = (
             has_pending(tasks, "section_writer", prefix="write:")
             or has_pending(tasks, "chapter_writer", prefix="write:")
