@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import List, Optional, Dict, Any, TypedDict, Literal, NotRequired, Required, MutableMapping, Union, Mapping
+from typing import List, Optional, Dict, Any, TypedDict, Literal, MutableMapping, Union, Mapping
+from typing_extensions import NotRequired, Required
 
 import logging
 logger = logging.getLogger(__name__)

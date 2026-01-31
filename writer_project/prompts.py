@@ -122,19 +122,16 @@ def get_content_strategist_prompt(mode: DocMode | str | None = None) -> PromptTe
             f"""
             현재 주제(절대 준수): {{topic_title}}
 
-            너는 **보고서 기획자**다. 이전 대화와 참고자료를 바탕으로
-            **실무 보고서 개요**를 작성하라.
+            너는 **마케팅 전략 컨설턴트 및 커머스 기획자**다. 이전 대화와 참고자료를 바탕으로
+            **DB Gathering 효율화 및 신규 커머스 전략 보고서 개요**를 작성하라.
 
-            권장 구조(필요 시 조정):
-            1. Executive Summary
-            2. Background & Objectives
-            3. Scope & Methodology
-            4. Key Findings (데이터/사례 중심)
-            5. Analysis & Insights
-            6. Recommendations (Action Items)
-            7. Risks & Mitigations
-            8. Implementation Plan & Timeline
-            9. Appendix (Data, Glossary, References)
+            [필수 포함 구조]:
+            1. Executive Summary (전략 핵심 요약)
+            2. 경쟁 브랜드 DB 마케팅 분석 (아이커, 아이클타임 등 수집 프로세스 벤치마킹)
+            3. 소비자 행동 및 타겟 심층 분석 (학부모 pain 포인트 및 상담 전환 유도 요소)
+            4. 고효율 DB Gathering 채널 믹스 전략 (퍼포먼스 매체별 최적화 방안)
+            5. D2C 커머스 전환 및 옴니채널 모델 제안 (구독 경제 및 상담 결합 모델)
+            6. 실행 로드맵 및 예상 KPI (단계별 추진 계획)
 
             {_H2_ONLY_RULES}
 
@@ -337,12 +334,13 @@ def get_section_writer_prompt() -> PromptTemplate:
         - 금지: 전체 목차 재출력, 결론만 출력, 근거 없는 주장, 표제만 나열
 
         [작성 규칙]
-        - 대상: 의사결정자/실무자
-        - 구성: 배경/핵심 요점/근거(데이터·사례)/시사점
+        - 대상: 의사결정자/실무 마케터
+        - 구성: 배경/핵심 요점/데이터 기반 근거/실행방안
         - 표/목록: Markdown
         - 길이: 800~1,500 단어(요약은 400~800)
         - 마지막: **Actionable Recommendations** 3~5개
-                   제안은 **'벤포벨' 브랜드의 경쟁 우위 확보**나 **활성 비타민 시장 공략**에 **직접적으로** 관련되어야 하며, **일반적인 경영/생산 조언은 피한다.**
+                   제안은 **고순도 DB 수집 효율화**, **TM 전환율 향상**, 또는 **키성장 건기식 D2C 전략**에 **직접적으로** 관련되어야 한다. 
+                   일반적인 경영 이론은 배제하고 실제 집행 가능한 마케팅 전술을 제안할 것.
         - 인용은 재서술, 출처명은 대괄호(예: [DailyPharm])
                  
         [특수 규칙: Q&A 모드]
