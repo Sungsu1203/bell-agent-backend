@@ -1,0 +1,11 @@
+[tool.mypy]
+packages = ["chap14_8"]
+explicit_package_bases = true
+mypy_path = "."
+
+python_version = "3.12"
+warn_unused_ignores = true
+no_implicit_optional = true
+strict_optional = true
+show_error_context = false
+error_summary = false
