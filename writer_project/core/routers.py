@@ -74,6 +74,89 @@ def _safe_int(x: Any, default: int = 0) -> int:
     except Exception:
         return default
 
+def _merge_docs_unique(a: list[Any], b: list[Any]) -> list[Any]:
+    """
+    refs/references docs를 합치되, '대충' 중복 제거.
+    - doc 객체/딕트 모두 들어올 수 있어 안전하게 str() 기준도 사용
+    """
+    out: list[Any] = []
+    seen: set[str] = set()
+    for x in (a or []) + (b or []):
+        key = ""
+        try:
+            if isinstance(x, dict):
+                key = str(x.get("id") or x.get("source") or x.get("url") or x.get("title") or "")
+            else:
+                key = str(getattr(x, "id", "") or getattr(x, "source", "") or getattr(x, "url", "") or getattr(x, "title", "") or "")
+        except Exception:
+            key = ""
+        if not key:
+            try:
+                key = str(x)
+            except Exception:
+                key = ""
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        out.append(x)
+    return out
+
+def _get_refs_merged(state: State) -> Dict[str, Any]:
+    """
+    state["references"] / state["refs"] 혼용을 흡수.
+    - 둘 중 하나만 있으면 그걸 사용
+    - 둘 다 있으면 docs를 합쳐서 refs_empty 판단을 안정화
+    - 가능하면 state["references"]로 정규화(호환용)
+    """
+    refs_a = state.get("references")
+    refs_b = state.get("refs")
+    a = refs_a if isinstance(refs_a, dict) else {}
+    b = refs_b if isinstance(refs_b, dict) else {}
+    if not a and b:
+        # references가 없고 refs만 있으면 references로 미러(혼용 방지)
+        try:
+            cast(MutableMapping[str, Any], state)["references"] = b
+        except Exception:
+            pass
+        return dict(b)
+    if a and not b:
+        return dict(a)
+    if not a and not b:
+        return {}
+    # 둘 다 있으면 병합(특히 docs)
+    merged = dict(a)
+    docs_a = a.get("docs") or []
+    docs_b = b.get("docs") or []
+    if isinstance(docs_a, list) and isinstance(docs_b, list):
+        merged["docs"] = _merge_docs_unique(docs_a, docs_b)
+    elif isinstance(docs_a, list):
+        merged["docs"] = list(docs_a)
+    elif isinstance(docs_b, list):
+        merged["docs"] = list(docs_b)
+    try:
+        cast(MutableMapping[str, Any], state)["references"] = merged
+    except Exception:
+        pass
+    return merged
+
+def _refs_empty(state: State) -> bool:
+    refs = _get_refs_merged(state)
+    try:
+        return not bool((refs.get("docs") or []))
+    except Exception:
+        return True
+
+def _rag_ready_hint(state: State) -> bool:
+    """
+    refs가 비어 보여도 실제로는 로컬/베이스 RAG가 준비된 경우가 있어
+    공격적 web_search 재진입을 막는 힌트로 사용.
+    """
+    if bool(state.get("rag_on_disk")):
+        return True
+    if _safe_int(state.get("doc_count"), 0) > 0:
+        return True
+    return False
 
 def _preferred_writer() -> str:
     return "section_writer" if _doc_mode() == "report" else "chapter_writer"
@@ -234,9 +317,9 @@ def tail_task_router(state: State) -> str:
     # ── STRICT WRITER GUARD: writer가 펜딩이면 최우선 라우팅
     if _has_writer_pending_strict(state):
         preferred_writer = _preferred_writer()
-        refs = state.get("references") or {}
-        refs_empty = not (refs.get("docs") or [])
-        if refs_empty and not _skip_web_search(state):
+        refs_empty = _refs_empty(state)
+        # refs_empty여도 RAG 준비 흔적이 있으면 writer로 진행(무한루프 방지)
+        if refs_empty and (not _rag_ready_hint(state)) and not _skip_web_search(state):
             logger.debug("[router.tail] writer pending but refs empty → web_search_agent")
             return "web_search_agent"
         logger.debug("[router.tail] writer pending(strict) → %s", preferred_writer)
@@ -343,7 +426,8 @@ def after_web_search_agent(state: State) -> str:
     """
     tasks = state.get("task_history", []) or []
     flags = state.get("flags") or {}
-    refs = state.get("references") or {}
+    # refs/references 혼용 흡수(merged refs는 references로 정규화도 수행)
+    refs = _get_refs_merged(state)
     refs_light = state.get("refs") or {}
 
     # Direct QA는 웹검색 경로를 사용하지 않음(이미 답이 준비된 경우)
@@ -448,7 +532,16 @@ def after_web_search_agent(state: State) -> str:
     #    ※ setdefault 타입오류 회피: dict 복사/병합 후 되돌려쓰기
     router_flags: Dict[str, Any] = dict((state.get("flags") or {}).get("router") or {})
     retries = _safe_int(router_flags.get("after_web_ws_retries", 0), 0)
-    if retries < 1:
+    # 🔒 더 보수적 재시도 가드:
+    # 완전히 아무 결과도 없을 때만 web_search 1회 재시도 허용
+    truly_empty = (
+        (not rag_on_disk)
+        and (new_url_count == 0)
+        and (not has_docs_in_refs)
+        and (not has_urls_in_refs)
+    )
+
+    if retries < 1 and truly_empty:
         router_flags["after_web_ws_retries"] = retries + 1
         # TypedDict(Flags) 안전 갱신: 가능하면 in-place, 없으면 최소 폴백
         _flags = state.get("flags")
@@ -465,7 +558,10 @@ def after_web_search_agent(state: State) -> str:
 
     # 5) 재시도까지 했는데도 비어있다면 tail 라우터에 위임
     nxt = tail_task_router(state)
-    logger.info("[router.after_web] refs empty (retry exhausted) → %s", nxt)
+    logger.info(
+        "[router.after_web] skip retry (not truly empty or retry exhausted) → %s",
+        nxt,
+    )
     return nxt
 
 
@@ -530,10 +626,11 @@ def after_vector_router(state: State) -> str:
             or bool((state.get("flags") or {}).get("pending_write_title"))
         )
     if has_write_pending:
-        refs = state.get("references") or {}
-        refs_empty = not (refs.get("docs") or [])
-        if refs_empty:
-            logger.info("[router.after_vector] write: pending but refs empty → web_search_agent")
+        refs_empty = _refs_empty(state)
+        # ✅ 공격적 재진입 완화:
+        # refs_empty여도 로컬/베이스 RAG 준비 흔적이 있으면 writer로 진행
+        if refs_empty and (not _rag_ready_hint(state)) and (not _skip_web_search(state)):
+            logger.info("[router.after_vector] write: pending but refs empty & no rag hint → web_search_agent")
             return "web_search_agent"
         logger.info("[router.after_vector] writer pending(write:) → %s", preferred_writer)
         return preferred_writer
@@ -541,13 +638,13 @@ def after_vector_router(state: State) -> str:
     # 2) (Direct QA는 상단에서 이미 처리됨)
 
     # 3) refs 비면 웹검색 1회 재시도(공통 가드) — refs/references 혼용 모두 대응
-    # refs / references 둘 다 지원 (견고성 보강)
-    refs_all = (state.get("refs") or {}) or (state.get("references") or {})
-    try:
-        refs_empty = not bool((refs_all.get("docs") or []))
-    except Exception:
-        refs_empty = True
+    refs_empty = _refs_empty(state)
     if refs_empty:
+        # ✅ RAG 준비 흔적이 있으면(로컬 인덱스 존재 등) web_search로 도망가지 말고 tail로 위임
+        if _rag_ready_hint(state):
+            nxt = tail_task_router(state)
+            logger.info("[router.after_vector] refs empty but rag hint exists → %s", nxt)
+            return nxt
         # after_vector 단계의 재시도 카운터를 분리 관리 (가독성/추적성 향상)
         if _retry_under(state, "after_vector_ws_retries", max_times=1):
             # ❗ 실제로 web_search_agent 태스크를 추가하여 pending 누락 방지
@@ -567,8 +664,10 @@ def after_vector_router(state: State) -> str:
                 cast(MutableMapping[str, Any], state)["task_history"] = _tasks
             logger.info("[router.after_vector] refs empty → web_search_agent (retry 1/1, key=after_vector_ws_retries)")
             return "web_search_agent"
-        logger.info("[router.after_vector] refs empty (retry exhausted) → research_synthesizer")
-        return "research_synthesizer"
+        # retry 소진 시: 무조건 synthesizer로 던지지 말고 tail로 위임(불필요 루프 감소)
+        nxt = tail_task_router(state)
+        logger.info("[router.after_vector] refs empty (retry exhausted) → %s", nxt)
+        return nxt
 
     # 4) 연구 루프 조건 충족 시 → synthesizer
     role = (state.get("agent_role") or "").strip().lower()

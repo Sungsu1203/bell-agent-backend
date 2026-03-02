@@ -368,7 +368,7 @@ def _build_config() -> Config:
         MERGE_REFS_MAX_QUERIES=_env_int("MERGE_REFS_MAX_QUERIES", 0, min_=0),
         MERGE_REFS_MAX_DOCS=_env_int("MERGE_REFS_MAX_DOCS", 0, min_=0),
         RAG_TOP_K=_env_int("RAG_TOP_K", 6, min_=1, max_=50),
-        ALLOW_LOCAL_SUMMARY=_env_flag("ALLOW_LOCAL_SUMMARY", False),
+        ALLOW_LOCAL_SUMMARY=_env_flag("ALLOW_LOCAL_SUMMARY", _env_flag("ALLOW_SUMMARY", False)),
 
         # Writer
         WRITER_AGENT=writer_agent,
@@ -421,9 +421,7 @@ def _build_config() -> Config:
 
         # RAG/검색 백엔드 & 한도 (web_search.py 하위호환용)
         SEARCH_BACKENDS=_env_str("SEARCH_BACKENDS", ""),              # 예: "google,serpapi,tavily"
-        HAS_GOOGLE_KEYS=bool(_env_str("GOOGLE_API_KEY") or
-                             _env_str("GOOGLE_CSE_API_KEY") or
-                             _env_str("GOOGLE_CSE_ID")),
+        HAS_GOOGLE_KEYS=bool((_env_str("GOOGLE_API_KEY") or _env_str("GOOGLE_CSE_API_KEY")) and (_env_str("GOOGLE_CSE_ID") or _env_str("GOOGLE_CSE_CX"))),
         HAS_SERPAPI=bool(_env_str("SERPAPI_API_KEY")),
         HAS_TAVILY=bool(_env_str("TAVILY_API_KEY")),
         MAX_INDEXED_PER_ROUND=_env_int("MAX_INDEXED_PER_ROUND", 0, min_=0),

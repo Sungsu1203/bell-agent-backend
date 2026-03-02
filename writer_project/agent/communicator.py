@@ -1,10 +1,9 @@
 from __future__ import annotations
 import re, os, sys, time
-from typing import Any
+from typing import Any, cast, Optional
 from utils.tasks import HumanMessage, AIMessage, has_pending
 import core.config as config
 from core.paths import now_str as _now_str, current_path, sections_dir
-from typing import cast
 from core.state_types import State
 from core.models import Task
 from utils.sanitize import sanitize_state, coerce_int
@@ -172,44 +171,217 @@ def communicator(state: State):
     DASH_ON = bool(getattr(config.CFG, "LOG_DASHBOARD", False))
     DASH_RATE = float(getattr(config.CFG, "DASH_RATE_SEC", 0.0) or 0.0)
 
+    # ─────────────────────────────────────────────────────────────
+    # [HARD GUARANTEE] Direct QA는 항상 마지막 AI 메시지 본문을 저장/출력한다.
+    # - 다른 분기(writer pending, outline, dashboard rate-limit 등)로 덮이지 않도록 최상단에서 처리
+    # - 원천 데이터는 "messages의 마지막 AIMessage.content"를 사용(Direct QA Summary의 실제 본문)
+    # - 성공 시: messages 끝을 QA 본문으로 보장 + 파일 저장 + (옵션) 콘솔 출력 + 플래그 정리 + 종료
+    # ─────────────────────────────────────────────────────────────
+    def _set_flag_qa_done(st: State) -> None:
+        ff = dict(st.get("flags") or {})
+        ff["qa_direct_reply"] = False
+        ff["suppress_writer"] = False
+        st["flags"] = ff
+        # 레거시/혼용 방지: 루트키도 보조로 정리(사용하지 않는 게 원칙이어도 방어적으로)
+        st["qa_direct_reply"] = False
+
+    def _get_last_ai_text(msgs: list[Any]) -> str:
+        last_ai = next((m for m in reversed(msgs) if isinstance(m, AIMessage)), None)
+        if last_ai is None or not hasattr(last_ai, "content"):
+            return ""
+        return (_to_text(getattr(last_ai, "content", "")) or "").strip()
+
+    def _ensure_last_ai_is(msgs: list[Any], text: str) -> list[Any]:
+        if not text:
+            return msgs
+        if msgs:
+            last = msgs[-1]
+            if isinstance(last, AIMessage):
+                last_txt = (_to_text(getattr(last, "content", "")) or "").strip()
+                if last_txt == text:
+                    return msgs
+        msgs.append(AIMessage(content=text))
+        return msgs
+
+    flags0 = dict(state.get("flags") or {})
+    qa_mode = bool(flags0.get("qa_direct_reply") or state.get("qa_direct_reply"))
+    # 🔹 새 Direct QA 경로(additional_kwargs["qa_direct_reply"]=True)는
+    # 아래 _deliver_direct_qa_and_exit()에서 처리한다.
+    # 여기 블록은 "레거시 플래그 기반 QA"만 처리하도록,
+    # tagged QA 메시지가 없을 때만 동작시키자.
+    has_tagged_qa = False
+    try:
+        for m in reversed(state.get("messages") or []):
+            if not isinstance(m, AIMessage):
+                continue
+            extra = getattr(m, "additional_kwargs", {}) or {}
+            if isinstance(extra, dict) and extra.get("qa_direct_reply") is True:
+                has_tagged_qa = True
+                break
+    except Exception:
+        has_tagged_qa = False
+        
+    # 🔴 레거시 플래그 기반 Direct QA만 처리
+    # tagged QA(additional_kwargs["qa_direct_reply"]=True)가 있으면
+    # 이 블록은 건너뛰고, 아래 _deliver_direct_qa_and_exit()에 맡긴다.
+    if qa_mode and not has_tagged_qa:
+        messages0 = state.get("messages") or []
+        reply_text = _get_last_ai_text(messages0)
+
+        if not reply_text:
+            # Direct QA 플래그는 있는데 본문이 없으면: 빈 저장/빈 출력 금지 → fallback 스케줄링
+            logger.warning("[COMMUNICATOR] qa_direct_reply=True but last AI message is empty. Scheduling fallback.")
+            tasks0 = state.get("task_history", []) or []
+            allow_web = not bool(getattr(config.CFG, "SKIP_WEB_SEARCH", False))
+            have_refs = bool(((state.get("references") or {}).get("docs") or []))
+
+            if have_refs:
+                if not has_pending(tasks0, "vector_search_agent"):
+                    tasks0.append(Task(agent="vector_search_agent", done=False, description="fallback: direct_qa_missing → retry", done_at=""))
+                    logger.info("[COMMUNICATOR][fallback] refs present → scheduled vector_search_agent")
+            else:
+                if allow_web and not has_pending(tasks0, "web_search_agent"):
+                    tasks0.append(Task(agent="web_search_agent", done=False, description="fallback: direct_qa_missing → rag_update:auto", done_at=""))
+                    logger.info("[COMMUNICATOR][fallback] refs empty → scheduled web_search_agent")
+                elif not has_pending(tasks0, "vector_search_agent"):
+                    tasks0.append(Task(agent="vector_search_agent", done=False, description="fallback: direct_qa_missing → retry", done_at=""))
+                    logger.info("[COMMUNICATOR][fallback] scheduled vector_search_agent")
+
+            # communicator task 닫기
+            pending0 = next((t for t in reversed(tasks0) if (not getattr(t, "done", True)) and getattr(t, "agent", "") == "communicator"), None)
+            if pending0:
+                pending0.done = True
+                pending0.done_at = _now_str()
+            state["task_history"] = tasks0
+            _set_flag_qa_done(state)
+            return {"messages": messages0, "task_history": tasks0, "qa_direct_reply": False}
+
+        # ✅ 보장: messages 마지막 AI가 reply_text가 되도록 강제
+        messages0 = _ensure_last_ai_is(list(messages0), reply_text)
+        state["messages"] = messages0
+
+        # ✅ 보장: Direct QA 본문은 항상 저장
+        try:
+            _safe_save_report(state, content_hint=reply_text)
+        except Exception as e:
+            logger.warning("[SAVE][DirectQA] save failed: %s", e)
+
+        # ✅ 보장: 출력(옵션) 또는 최소 로그
+        try:
+            COMM_LOG_QA_BODY = bool(getattr(config.CFG, "COMM_LOG_QA_BODY", False))
+            COMM_LOG_QA_MAXLEN = int(getattr(config.CFG, "COMM_LOG_QA_MAXLEN", 0) or 0)
+            HUMAN_LOGS_STRICT = bool(getattr(config.CFG, "HUMAN_LOGS", False) and (not getattr(config.CFG, "HUMAN_LOGS_VERBOSE", False)))
+            log_text = reply_text
+            if COMM_LOG_QA_BODY and COMM_LOG_QA_MAXLEN > 0 and len(log_text) > COMM_LOG_QA_MAXLEN:
+                log_text = log_text[:COMM_LOG_QA_MAXLEN] + "…"
+            if COMM_LOG_QA_BODY:
+                logger.info("[COMMUNICATOR][DirectQA] text=%s", log_text)
+            if COMMUNICATOR_ECHO and not HUMAN_LOGS_STRICT:
+                sys.stdout.write((log_text if COMM_LOG_QA_BODY else reply_text).rstrip() + "\n")
+                sys.stdout.write("---------------------\n")
+                sys.stdout.flush()
+            else:
+                logger.debug("[COMMUNICATOR] QA reply prepared (len=%d)", len(reply_text))
+        except Exception:
+            pass
+
+        # task 닫기 + 플래그 정리 + 종료
+        tasks0 = state.get("task_history", []) or []
+        pending0 = next((t for t in reversed(tasks0) if (not getattr(t, "done", True)) and getattr(t, "agent", "") == "communicator"), None)
+        if pending0:
+            pending0.done = True
+            pending0.done_at = _now_str()
+        state["task_history"] = tasks0
+        _set_flag_qa_done(state)
+        logger.info("[COMMUNICATOR] Delivered Direct QA Summary.")
+        return {"messages": messages0, "task_history": tasks0, "qa_direct_reply": False}
+
     llm = get_llm()
     # Mapping → dict(materialize) for mutation safety & type-check compatibility
     state = cast(State, sanitize_state(state))
 
     # ─────────────────────────────────────────────────────────────
-    # [FAST PASS — QA 즉시응답 우선 전달]
-    # vector_search가 이미 AIMessage(additional_kwargs["qa_direct_reply"]=True)를
-    # 넣어둔 경우, 커뮤니케이터는 재가공/추가생성 없이 그대로 전달하고 종료.
-    # 프론트가 messages의 마지막 AI를 그대로 표시한다는 전제에서 UX를 단순화.
+    # [HARD STOP — Direct QA 즉시 종료 + 저장 + flags 정리]
+    # - qa_direct_reply가 설정된 경우, 항상 "마지막 AI 메시지"가
+    #   QA 본문이 되도록 보장하고, 바로 저장 후 반환한다.
+    # - Synthesizer 등의 로그 메시지가 뒤에 오더라도
+    #   사용자에게는 QA 답변이 마지막으로 보이도록 강제한다.
     # ─────────────────────────────────────────────────────────────
-    try:
-        _msgs_fast = state.get("messages") or []
-        last_ai = next((m for m in reversed(_msgs_fast) if isinstance(m, AIMessage)), None)
-        if isinstance(last_ai, AIMessage):
-            extra = getattr(last_ai, "additional_kwargs", {}) or {}
-            if isinstance(extra, dict) and (extra.get("qa_direct_reply") is True):
-                logger.info("[communicator] fast passthrough (AIMessage.qa_direct_reply=True)")
-                return {
-                    "messages": _msgs_fast,
-                    "task_history": state.get("task_history") or [],
-                }
-    except Exception as e:
-        logger.debug("[communicator] fast passthrough guard skipped: %s", e)
+    def _deliver_direct_qa_and_exit() -> dict[str, Any] | None:
+        msgs = state.get("messages") or []
+        tasks = state.get("task_history") or []
+        flags = dict(state.get("flags") or {})
 
-    # ─────────────────────────────────────────────────────────────
-    # [PASS-THROUGH for Direct QA]
-    # vector_search가 이미 AIMessage를 추가했고 qa_direct_reply=True인 경우
-    # communicator는 추가 생성을 하지 않고 그대로 종료(중복 생성/저장 방지).
-    # ※ 플래그는 변경하지 않음(라우터/후속단 의존 가능성 고려).
-    # ─────────────────────────────────────────────────────────────
-    _flags_pt = dict(state.get("flags") or {})
-    if _flags_pt.get("qa_direct_reply") is True:
-        logger.info("[communicator] passthrough (qa_direct_reply=True)")
+        # (1) additional_kwargs.qa_direct_reply=True 인 AIMessage 탐색
+        qa_msg = None
+        for m in reversed(msgs):
+            if not isinstance(m, AIMessage):
+                continue
+            extra = getattr(m, "additional_kwargs", {}) or {}
+            if isinstance(extra, dict) and extra.get("qa_direct_reply") is True:
+                if _to_text(getattr(m, "content", "")).strip():
+                    qa_msg = m
+                    break
+
+        # (2) flags["qa_direct_reply"]만 켜져 있는 경우: 마지막 AI를 QA로 간주
+        if qa_msg is None and flags.get("qa_direct_reply") is True:
+            last_ai = next((m for m in reversed(msgs) if isinstance(m, AIMessage)), None)
+            if last_ai is not None and _to_text(getattr(last_ai, "content", "")).strip():
+                qa_msg = last_ai
+
+        if qa_msg is None:
+            return None
+
+        reply_text = _to_text(getattr(qa_msg, "content", "")).strip()
+        if not reply_text:
+            return None
+
+        # (3) QA 플래그 제거: 재진입 시 다시 Direct QA로 처리되지 않도록
+        try:
+            extra = getattr(qa_msg, "additional_kwargs", None)
+            if isinstance(extra, dict) and "qa_direct_reply" in extra:
+                extra["qa_direct_reply"] = False
+        except Exception:
+            pass
+
+        # (4) 마지막 AI 메시지로 보장 (필요 시 append)
+        last_msg = msgs[-1] if msgs else None
+        last_txt = _to_text(getattr(last_msg, "content", "")).strip() if last_msg is not None else ""
+        if last_txt != reply_text:
+            msgs.append(AIMessage(content=reply_text))
+            state["messages"] = msgs
+
+        # (5) Direct QA 본문을 즉시 저장
+        _safe_save_report(state, content_hint=reply_text)
+
+        # (6) communicator pending task 종료
+        pending = next(
+            (t for t in reversed(tasks)
+             if (not getattr(t, "done", True)) and getattr(t, "agent", "") == "communicator"),
+            None,
+        )
+        if pending:
+            pending.done = True
+            pending.done_at = _now_str()
+        state["task_history"] = tasks
+
+        # (7) flags 정리 (루트키도 함께 정리해 후속 라우터 혼란 방지)
+        flags["qa_direct_reply"] = False
+        flags["suppress_writer"] = False
+        state["flags"] = flags
+        state["qa_direct_reply"] = False
+
+        logger.info("[COMMUNICATOR] Direct QA delivered (hard-stop, len=%d)", len(reply_text))
         return {
-            "messages": state.get("messages") or [],
-            "task_history": state.get("task_history") or [],
+            "messages": msgs,
+            "task_history": tasks,
+            "qa_direct_reply": False,
+            "suppress_writer": False,
         }
 
+    _dq_out = _deliver_direct_qa_and_exit()
+    if _dq_out is not None:
+        return _dq_out
 
     # ─────────────────────────────────────────────────────────────
     # [STRICT WRITER GUARD — 최상단]
@@ -273,6 +445,7 @@ def communicator(state: State):
     else:
         # dict가 아닐 비정상 상황 가드
         _qa_mode = bool(state.get("qa_direct_reply", False))
+    # NOTE: Direct QA 보장은 상단 HARD GUARANTEE에서 처리한다.
     # 안전 정규화: 답변 실체가 없으면 qa_direct_reply 강제 해제(루프/경고 방지)
     if _qa_mode:
         _has_reply = bool(state.get("qa_reply")) or bool(_to_text(
@@ -299,20 +472,20 @@ def communicator(state: State):
         # ▾ 답변이 비어 있으면 직답 경로 중단 → 폴백 라우팅(웹서치/벡터 재시도)
         if not ans:
             tasks = state.get("task_history", []) or []
-            # 폴백 선택: refs가 없거나 SKIP_WEB_SEARCH가 꺼져 있으면 웹서치, 아니면 벡터 재시도
-        have_refs = bool(((state.get("references") or {}).get("docs") or []))
-        allow_web = not bool(getattr(config.CFG, "SKIP_WEB_SEARCH", False))
-        if have_refs:
-            if not has_pending(tasks, "vector_search_agent"):
-                tasks.append(Task(agent="vector_search_agent", done=False, description="fallback: direct_qa_missing → retry", done_at=""))
-                logger.info("[COMMUNICATOR][fallback] refs present → scheduled vector_search_agent")
-        else:
-            if allow_web and not has_pending(tasks, "web_search_agent"):
-                tasks.append(Task(agent="web_search_agent", done=False, description="fallback: direct_qa_missing → rag_update:auto", done_at=""))
-                logger.info("[COMMUNICATOR][fallback] refs empty → scheduled web_search_agent")
-            elif not has_pending(tasks, "vector_search_agent"):
-                tasks.append(Task(agent="vector_search_agent", done=False, description="fallback: direct_qa_missing → retry", done_at=""))
-                logger.info("[COMMUNICATOR][fallback] direct QA missing → scheduled vector_search_agent")
+            # 폴백 선택: refs가 있으면 벡터 재시도, 없으면(가능 시) 웹서치, 아니면 벡터 재시도
+            have_refs = bool(((state.get("references") or {}).get("docs") or []))
+            allow_web = not bool(getattr(config.CFG, "SKIP_WEB_SEARCH", False))
+            if have_refs:
+                if not has_pending(tasks, "vector_search_agent"):
+                    tasks.append(Task(agent="vector_search_agent", done=False, description="fallback: direct_qa_missing → retry", done_at=""))
+                    logger.info("[COMMUNICATOR][fallback] refs present → scheduled vector_search_agent")
+            else:
+                if allow_web and not has_pending(tasks, "web_search_agent"):
+                    tasks.append(Task(agent="web_search_agent", done=False, description="fallback: direct_qa_missing → rag_update:auto", done_at=""))
+                    logger.info("[COMMUNICATOR][fallback] refs empty → scheduled web_search_agent")
+                elif not has_pending(tasks, "vector_search_agent"):
+                    tasks.append(Task(agent="vector_search_agent", done=False, description="fallback: direct_qa_missing → retry", done_at=""))
+                    logger.info("[COMMUNICATOR][fallback] direct QA missing → scheduled vector_search_agent")
             # 현 communicator 태스크 종료
             pending = next((t for t in reversed(tasks) if (not t.done) and t.agent == "communicator"), None)
             if pending:
@@ -535,6 +708,11 @@ def communicator(state: State):
 
     # ── Direct QA 출력 안전판 ──────────────────────────────────────────────────
     fallback_outline = get_topic_outline_text(state)
+    # Direct QA일 때도 아래 공통 SAVE HOOK(628+)까지 흘려보내기 위해
+    # text_buf를 여기서도 채울 수 있게 플래그/버퍼를 준비한다.
+    direct_qa_mode = False
+    text_buf: str = ""
+
     if state.get("qa_direct_reply"):
         last_ai_msg = next((m for m in reversed(messages) if isinstance(m, AIMessage)), None)
         if last_ai_msg is not None and hasattr(last_ai_msg, "content") and _to_text(last_ai_msg.content):
@@ -560,10 +738,27 @@ def communicator(state: State):
 
             if pending:
                 pending.done = True; pending.done_at = _now_str()
-            state["qa_direct_reply"] = False
+            # qa_direct_reply는 flags 기준으로 정리 (state 루트키는 사용하지 않거나 보조로만)
+            _ff = dict(state.get("flags") or {})
+            _ff["qa_direct_reply"] = False
+            state["flags"] = _ff
             logger.info("[COMMUNICATOR] Delivered Direct QA Summary.")
-            _save_last_ai_if_any(state, messages)   # 🔸 누락 보완
-            return {"messages": messages, "task_history": tasks, "qa_direct_reply": False}
+
+            # ✅ 여기서 return 하지 말고, 아래 공통 SAVE HOOK 경로를 타도록 버퍼 세팅
+            direct_qa_mode = True
+            text_buf = (reply_text or "").strip()
+
+            # 안전 가드: messages 끝이 QA 답변이 아니면 추가
+            try:
+                last_msg = messages[-1] if messages else None
+                last_txt = _to_text(getattr(last_msg, "content", "")) if last_msg is not None else ""
+                if not last_txt or (last_txt.strip() != text_buf):
+                    messages.append(AIMessage(content=text_buf))
+            except Exception:
+                # 최악의 경우라도 text_buf는 유지
+                pass
+
+            # 저장은 아래 공통 SAVE HOOK에서 1회만 수행 (중복 저장 방지)
         else:
             # 🔧 변경: 메시지가 없으면 합성하지 말고 즉시 폴백 라우팅(웹서치/벡터 재시도)
             logger.warning("[COMMUNICATOR] qa_direct_reply=True but no AI message. Routing to fallback instead of synthesizing.")
@@ -597,34 +792,39 @@ def communicator(state: State):
         _save_last_ai_if_any(state, messages)
         return {"messages": messages, "task_history": tasks}
 
-    # 일반 커뮤니케이션
-    communicator_prompt = get_communicator_prompt()
-    system_chain = communicator_prompt | llm
+    # ✅ 일반 communicator 생성
+    # Direct QA 모드면 이미 text_buf/messages를 준비했으니 LLM 생성은 건너뛴다.
+    if direct_qa_mode:
+        # 아래 SAVE HOOK(628+)로 그대로 내려감
+        pass
+    else:
+        communicator_prompt = get_communicator_prompt()
+        system_chain = communicator_prompt | llm
 
-    parts: list[str] = []
-    for chunk in system_chain.stream({
-        "messages": messages,
-        "outline": fallback_outline,
-        "doc_label": "보고서" if config.CFG.DOC_MODE == "report" else "책",
-        "topic_title": state.get("topic_title") or "",
-    }):
-        # chunk.content가 비문자/None일 수 있어 _to_text로 안전 변환
-        c = getattr(chunk, "content", None)
-        parts.append(_to_text(c))
+        parts: list[str] = []
+        for chunk in system_chain.stream({
+            "messages": messages,
+            "outline": fallback_outline,
+            "doc_label": "보고서" if config.CFG.DOC_MODE == "report" else "책",
+            "topic_title": state.get("topic_title") or "",
+        }):
+            # chunk.content가 비문자/None일 수 있어 _to_text로 안전 변환
+            c = getattr(chunk, "content", None)
+            parts.append(_to_text(c))
 
-    # 개선안: 바로 앞줄 중복만 제거
-    merged = "".join(parts)
-    lines = merged.splitlines()
-    # 연속으로 같은 줄이 두 번 이상 나오는 경우만 제거
-    deduped_lines = []
-    prev = None
-    for ln in lines:
-        if ln != prev:
-            deduped_lines.append(ln)
-        prev = ln
-    text_buf = "\n".join(deduped_lines)
-    messages.append(AIMessage(content=text_buf))
-    logger.debug("[Communicator] generated reply (%s chars)", len(text_buf))
+        # 개선안: 바로 앞줄 중복만 제거
+        merged = "".join(parts)
+        lines = merged.splitlines()
+        # 연속으로 같은 줄이 두 번 이상 나오는 경우만 제거
+        deduped_lines = []
+        prev = None
+        for ln in lines:
+            if ln != prev:
+                deduped_lines.append(ln)
+            prev = ln
+        text_buf = "\n".join(deduped_lines)
+        messages.append(AIMessage(content=text_buf))
+        logger.debug("[Communicator] generated reply (%s chars)", len(text_buf))
     # === [SAVE HOOK] 산출물 저장 보장 ===
     # Writer가 방금 저장한 직후에는 안내문 자동 저장을 생략
     try:
@@ -639,7 +839,7 @@ def communicator(state: State):
                     or "[CONTENT WRITER]" in mc.upper()):
                     just_wrote = True
                     break
-        if not just_wrote:
+        if not just_wrote and (text_buf or "").strip():
             _safe_save_report(state, content_hint=text_buf)
         else:
             logger.debug("[Communicator] skip autosave (writer just saved).")

@@ -186,11 +186,29 @@ def _expand_year_range_once(q: str) -> str:
 
     return _YEAR_RANGE_RE.sub(_repl, q)
 
+def _strip_scheme_path_trailer(host: str) -> str:
+    """
+    site 표현식에서 들어오는 호스트 정규화:
+    - http(s):// 제거
+    - 경로/쿼리/프래그먼트 제거
+    - 뒤쪽 구두점(, ; :) 제거
+    - www. 제거
+    """
+    s = (host or "").strip()
+    s = re.sub(r"^https?://", "", s, flags=re.I)
+    s = re.split(r"[/?#]", s, maxsplit=1)[0]
+    s = s.strip().rstrip(",;:")  # 흔한 트레일러 제거
+    s = s.strip().lower()
+    if s.startswith("www."):
+        s = s[4:]
+    return s
+
+
 def _normalize_host_from_site_expr(s: str) -> str:
     # site: 앞부분 제거 후 괄호·공백·트레일러 정리
-    h = re.sub(r"^site:\s*", "", s.strip(), flags=re.I)
-    # 불필요 문자 제거
-    return re.sub(r"[)\]]+$", "", h).strip().lower()
+    h = re.sub(r"^site:\s*", "", (s or "").strip(), flags=re.I)
+    h = re.sub(r"[)\]]+$", "", h).strip()
+    return _strip_scheme_path_trailer(h)
 
 def _filter_sites_by_gatekeep(sites: List[str]) -> List[str]:
     """
@@ -207,38 +225,88 @@ def _filter_sites_by_gatekeep(sites: List[str]) -> List[str]:
                         sorted(dropped), sorted(kept))
     return kept
 
+def _looks_like_site_and_semantics(q: str) -> bool:
+    """
+    여러 site:가 AND 의미로 결합된(실제로는 거의 불가능/무의미) 조합을 감지.
+    예)
+      - site:a.com AND site:b.com
+      - site:a.com site:b.com   (중간에 OR/괄호 없이 나열)
+      - (site:a.com) (site:b.com)
+    이런 경우 "분해"는 의도와 다를 수 있으므로 split을 스킵하고 경고만 남긴다.
+    """
+    if not q or "site:" not in q:
+        return False
+    s = re.sub(r"\s+", " ", q.strip())
+    # 1) 명시 AND / + (구글식 AND) 패턴
+    if re.search(r"(?i)\bsite:\S+\s*(?:AND|\+)\s*site:\S+\b", s):
+        return True
+    # 2) OR/괄호그룹 없이 site:가 2회 이상 "나열"된 형태
+    #    (site:(a OR b)) 같은 정상 케이스는 제외
+    if re.search(r"(?i)\bsite:\S+\b(?:(?!\bOR\b|\(|\)).)*\bsite:\S+\b", s):
+        return True
+    return False
+
+
 def _split_multi_site_query(q: str) -> Optional[List[str]]:
     """
     '... site:a OR site:b' → ['... site:a', '... site:b']
     '... site:(a OR b OR c)' → ['... site:a', '... site:b', '... site:c']
+    '... site:a ... site:b ...' (여러 site: 섞임) → 모든 site 후보를 수집해 분해
     게이트키핑이 켜져 있으면 허용 도메인만 유지.
     """
     if not COMPAT.FORCED_QUERY_ENABLE_SITE_SPLIT:
         return None
     if "site:" not in q:
         return None
-
-    m = _SITE_GROUP_RE.search(q)
-    if not m:
+    # [GUARD] 여러 site:가 AND 의미로 들어온 경우는 split 금지(의도 왜곡 방지)
+    if _looks_like_site_and_semantics(q):
+        try:
+            logger.warning("[FORCED_QUERY] multiple site: looks like AND semantics; skip split: %r", q)
+        except Exception:
+            pass
         return None
 
-    sites: List[str] = []
-    if m.group("single"):
-        sites = [m.group("single").strip()]
-    else:
-        grp = m.group("grp") or ""
-        # OR/쉼표/공백 분리 허용
-        raw_sites = re.split(r"\s*(?:OR|,|\s)\s*", grp, flags=re.I)
-        sites = [s for s in (x.strip() for x in raw_sites) if s]
 
-    sites = [_normalize_host_from_site_expr(s) for s in sites if s]
+    matches = list(_SITE_GROUP_RE.finditer(q))
+    if not matches:
+        return None
+
+    all_sites: List[str] = []
+    for m in matches:
+        if m.group("single"):
+            cand = [m.group("single").strip()]
+        else:
+            grp = m.group("grp") or ""
+            # OR/쉼표/공백 분리 허용
+            raw_sites = re.split(r"\s*(?:OR|,|\s)\s*", grp, flags=re.I)
+            cand = [s for s in (x.strip() for x in raw_sites) if s]
+        all_sites.extend(cand)
+
+    # 정규화 + 게이트키핑
+    sites = [_normalize_host_from_site_expr(s) for s in all_sites if s]
     sites = _filter_sites_by_gatekeep(sites)
 
-    # base에서 모든 site:... 제거 (괄호 그룹/단일 모두)
-    base = re.sub(_SITE_GROUP_RE, " ", q).strip()
+    # base에서 "모든" site:... 제거 (괄호 그룹/단일 모두)
+    base = re.sub(_SITE_GROUP_RE, " ", q, count=0).strip()
     base = re.sub(r"\s{2,}", " ", base).strip()
 
-    return [f"{base} site:{s}" for s in sites] if sites else [base]
+    # site가 모두 드랍되면 base만 반환(원문 보존)
+    if not sites:
+        return [base] if base else [re.sub(r"\s{2,}", " ", q).strip()]
+
+    # 다중 site 후보를 각각 독립 쿼리로 분해 (중복 제거 + 순서 보존)
+    out: List[str] = []
+    seen = set()
+    for s in sites:
+        key = s
+        if key in seen:
+            continue
+        seen.add(key)
+        if base:
+            out.append(f"{base} site:{s}".strip())
+        else:
+            out.append(f"site:{s}".strip())
+    return out
 
 def _parse_force_queries_block(text: str) -> List[str]:
     out: List[str] = []
@@ -275,10 +343,13 @@ def _parse_force_queries_block(text: str) -> List[str]:
                 out.append(_strip_bullet(line))
 
     # 5) 독립 불릿 라인
-    for line in text.splitlines():
-        s = line.strip()
-        if re.match(BULLET, s):
-            out.append(_strip_bullet(s))
+    # ⚠️ 오탐 방지: 전체 대화의 모든 불릿을 강제쿼리로 흡수하면 "중복 경로"가 늘어납니다.
+    # force/queries 맥락이 있을 때만 독립 불릿 라인을 후보로 취급합니다.
+    if re.search(r"(?i)\b(force_query|force_queries|정확히\s*다음\s*쿼리로\s*검색|queries\s*:)\b", text):
+        for line in text.splitlines():
+            s = line.strip()
+            if re.match(BULLET, s):
+                out.append(_strip_bullet(s))
 
     return _dedupe(out)
 

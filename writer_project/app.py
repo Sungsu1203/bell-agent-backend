@@ -63,7 +63,19 @@ from dotenv import load_dotenv, find_dotenv
 dotenv_path = find_dotenv(filename=".env", usecwd=True)
 # 1) .env 로드만 수행(주입/강제 덮어쓰기 제거) → 단일 진입점은 CFG에서 처리
 load_dotenv(dotenv_path=dotenv_path, override=False)
+
+print("ENV ALLOW_SUMMARY =", os.getenv("ALLOW_SUMMARY"))
 early_debug(f"[EARLY] dotenv loaded: {dotenv_path}")
+
+# ── ENV DIAGNOSTIC (safe: only length) ─────────────────────────
+def _mask_len(v: str | None) -> int:
+    return len(v.strip()) if v else 0
+
+print(
+    "[ENV DIAG]",
+    "CSE_KEY_LEN=", _mask_len(os.getenv("GOOGLE_CSE_API_KEY")),
+    "CSE_ID_LEN=", _mask_len(os.getenv("GOOGLE_CSE_ID")),
+)
 
 # ── 표준 라이브러리 ────────────────────────────────────────────────────────────
 import sys
@@ -73,6 +85,22 @@ import logging
 from typing import Optional, TextIO, Any, Dict, Tuple, cast
 from logging.handlers import RotatingFileHandler
 import json
+
+import certifi
+
+os.environ["SSL_CERT_FILE"] = certifi.where()
+os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
+
+# ── Web server (FastAPI) ──────────────────────────────────────────────────────
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+import asyncio
+
+from collections import deque
+from fastapi.responses import FileResponse
+from pathlib import Path
+import threading
 
 # ── 프로젝트 의존 ───────────────────────────────────────────────────────────────
 from content.api import find_section_path  # re-export 사용(섹션 파일 탐색)
@@ -287,6 +315,105 @@ def setup_logging(stream: Optional[TextIO] = None) -> None:
 
 logger = logging.getLogger(__name__)
 
+# ── Web server globals ────────────────────────────────────────────────────────
+web_app = FastAPI(title="RAG Writer API", version="0.1")
+
+# Next.js(기본 3000)에서 호출 가능하도록 CORS 허용
+web_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 한 번에 한 요청만 그래프를 실행(상태 공유 + 안전)
+_RUN_LOCK = asyncio.Lock()
+
+# 웹 모드에서 사용할 런타임 상태(프로세스 메모리)
+_WEB_STATE: Optional[State] = None
+_WEB_ARGS: Any = None  # argparse args
+
+# ── Web logs buffer (minimal polling) ─────────────────────────────────────────
+_LOG_MAX = int(os.getenv("WEB_LOG_MAX", "2000"))  # 메모리 로그 최대 줄 수
+_LOG_BUF = deque(maxlen=_LOG_MAX)                 # (seq:int, line:str)
+_LOG_SEQ = 0
+_LOG_LOCK = threading.Lock()
+
+class _WebLogHandler(logging.Handler):
+    """서버 로그를 메모리 버퍼에 쌓아 /api/logs로 제공."""
+    def emit(self, record: logging.LogRecord) -> None:
+        global _LOG_SEQ
+        try:
+            msg = self.format(record)
+        except Exception:
+            msg = str(getattr(record, "msg", "") or "")
+        with _LOG_LOCK:
+            _LOG_SEQ += 1
+            _LOG_BUF.append((_LOG_SEQ, msg))
+
+_web_log_handler: logging.Handler | None = None
+
+def attach_web_log_handler() -> None:
+    """setup_logging() 이후 1회 호출 권장."""
+    global _web_log_handler
+    if _web_log_handler is not None:
+        return
+    h = _WebLogHandler()
+    # 파일 로그/콘솔과 별개로 “메시지 자체”만 저장하면 되므로 단순 포맷
+    h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s"))
+    logging.getLogger().addHandler(h)
+    _web_log_handler = h
+
+# ── Path helpers (fit to your folder structure) ──────────────────────────────
+def _topic_slug_from_state(st: State) -> str:
+    return str(st.get("topic_slug") or "default").strip() or "default"
+
+def _outline_fname_from_state(st: State) -> str:
+    # report 모드면 outline_report.md가 기본
+    return str(st.get("outline_fname") or ("outline_report.md" if config.DOC_MODE == "report" else "outline.md"))
+
+def _outline_paths(st: State) -> tuple[str, str]:
+    """
+    선생님 구조:
+      outlines/<slug>/<outline_fname> (우선)
+      outlines/default/<outline_fname> (폴백)
+    """
+    slug = _topic_slug_from_state(st)
+    fname = _outline_fname_from_state(st)
+    p1 = os.path.join(str(current_path), "outlines", slug, fname)
+    p2 = os.path.join(str(current_path), "outlines", "default", fname)
+    return p1, p2
+
+def _doc_mode_from_cfg() -> str:
+    # CFG가 우선. 혹시 None이면 report로.
+    return str(getattr(config.CFG, "DOC_MODE", "report") or "report").strip().lower()
+
+def _artifact_root_for_mode(mode: str) -> str:
+    # 중요한 산출물 루트 폴더
+    return "chapters" if mode == "book" else "sections"
+
+def _artifact_dir(mode: str, slug: str) -> str:
+    return os.path.join(str(current_path), _artifact_root_for_mode(mode), slug)
+
+def _safe_under_artifacts(path: str) -> bool:
+    """
+    sections/ 또는 chapters/ 아래만 다운로드 허용 (경로 탈출 방지)
+    """
+    try:
+        base_sections = Path(os.path.join(str(current_path), "sections")).resolve()
+        base_chapters  = Path(os.path.join(str(current_path), "chapters")).resolve()
+        target = Path(path).resolve()
+        s = str(target)
+        return s.startswith(str(base_sections)) or s.startswith(str(base_chapters))
+    except Exception:
+        return False
+
+
+
 # ── 도움말 ──────────────────────────────────────────────────────────────────────
 def print_help():
     logger.info(
@@ -409,6 +536,318 @@ def _get_graph_cached():
         logger.debug("[GRAPH] (re)built; signature=%s", sig)
     return _graph_obj
 
+def _last_ai_text(state: State) -> str:
+    """state.messages에서 마지막 AIMessage의 content만 뽑아 텍스트로 반환."""
+    try:
+        from langchain_core.messages import AIMessage
+        msgs = list(state.get("messages", []))
+        last_ai = next((m for m in reversed(msgs) if isinstance(m, AIMessage)), None)
+        return str(getattr(last_ai, "content", "") or "").strip() if last_ai else ""
+    except Exception:
+        return ""
+
+
+def run_once(state: State, user_input: str, recursion_limit: int) -> State:
+    """
+    콘솔 루프에서 하던 '입력 1회 처리'를 함수화.
+    - state에 HumanMessage 추가
+    - 그래프 invoke
+    - 결과 merge
+    - save_state
+    """
+    if not str(user_input).strip():
+        return state
+
+    # build report 커맨드(콘솔에서만 쓰던 특수 명령도 웹에서 그대로 동작시키고 싶으면 여기에 둡니다)
+    _u = user_input.strip().lower()
+    if _u in ("build: report", "report build", "보고서 빌드", "최종 보고서 생성"):
+        slug = str(state.get("topic_slug") or "default")
+        outline_fname = state.get("outline_fname") or ("outline_report.md" if config.DOC_MODE == "report" else "outline.md")
+        out_path, missing = build_final_report(
+            topic_slug=slug,
+            outline_fname=outline_fname,
+            mode=config.DOC_MODE,
+            root_dir=str(current_path)
+        )
+        update_flags(state)
+        state["last_saved_path"] = out_path
+        # 누락 섹션은 state에 남겨두고, 텍스트는 응답에서 사용
+        return state
+
+    state.setdefault("messages", []).append(HumanMessage(content=user_input))
+
+    # 그래프 획득(필요 시 재빌드)
+    graph_obj = _get_graph_cached()
+
+    def _invoke_graph(g: Any, st: Any, cfg: dict | None = None) -> Any:
+        if hasattr(g, "invoke"):
+            return g.invoke(st, config=cfg)
+        if hasattr(g, "run"):
+            return g.run(st, config=cfg)
+        raise TypeError("Graph object exposes neither 'invoke' nor 'run'.")
+
+    result = _invoke_graph(graph_obj, state, {"recursion_limit": recursion_limit})
+
+    if not isinstance(result, dict):
+        raise TypeError(f"graph.invoke returned unexpected type: {type(result).__name__}")
+
+    merged = dict(state)
+    merged.update(result)
+    state = cast(State, merged)
+
+    # 저장
+    try:
+        save_state(current_path, state)
+    except Exception as e:
+        logger.exception("save_state failed: %s", e)
+
+    return state
+
+@web_app.get("/api/health")
+def health():
+    return {"ok": True}
+
+
+@web_app.get("/api/state")
+def api_state():
+    global _WEB_STATE
+    st = _WEB_STATE
+    if st is None:
+        return {"ok": False, "error": "state_not_initialized"}
+    
+    # phase: 최소 구현(현재 실행중인지 표시)
+    # - asyncio.Lock는 locked() 제공
+    phase = "running" if _RUN_LOCK.locked() else "idle"
+
+    # iteration_count: flags 값이 아니라 루트 state 값을 신뢰
+    iter_count = int(st.get("iteration_count") or 0)
+
+    # flags에 미러링(프런트가 flags.*로 읽더라도 정확히)
+    # 허용 키만 반영되도록 update_flags 사용
+    try:
+        update_flags(st, iteration_count=iter_count)
+    except Exception:
+        pass
+
+
+    # Next.js에 필요한 핵심만 요약
+    return {
+        "ok": True,
+        "doc_mode": getattr(config.CFG, "DOC_MODE", None),
+        "namespace": (st.get("flags") or {}).get("chroma_namespace") or None,
+        "pending": len(st.get("task_history", []) or []),
+        "refs": len(((st.get("references") or {}).get("docs") or [])),
+        "last_saved_path": st.get("last_saved_path"),
+        "outline": None,  # /api/outline에서 제공
+        "flags": st.get("flags") or {},
+        "phase": phase,
+        "iteration_count": iter_count,
+        "updated_at": _now_str(),
+    }
+
+
+@web_app.get("/api/outline")
+def api_outline():
+    """
+    return:
+      {"ok": True, "items": [...], "path": "...", "source": "topic|default|empty"}
+    """
+    global _WEB_STATE
+    st = _WEB_STATE
+    if st is None:
+        return {"ok": False, "error": "state_not_initialized"}
+
+    p_topic, p_default = _outline_paths(st)
+
+    if os.path.exists(p_topic):
+        path = p_topic
+        source = "topic"
+    elif os.path.exists(p_default):
+        path = p_default
+        source = "default"
+    else:
+        return {"ok": True, "items": [], "path": p_topic, "source": "empty"}
+
+    with open(path, "r", encoding="utf-8") as f:
+        lines = [ln.rstrip("\n") for ln in f.readlines() if ln.strip()]
+
+    return {"ok": True, "items": lines, "path": path, "source": source}
+
+
+@web_app.put("/api/outline")
+def api_outline_save(payload: Dict[str, Any]):
+    """
+    payload:
+      {"items": ["1. 서론", "2. ...", ...]}
+    저장:
+      outlines/<slug>/<outline_fname>
+    """
+    global _WEB_STATE
+    st = _WEB_STATE
+    if st is None:
+        return {"ok": False, "error": "state_not_initialized"}
+
+    items = payload.get("items")
+    if not isinstance(items, list):
+        return {"ok": False, "error": "items_must_be_list"}
+
+    p_topic, _p_default = _outline_paths(st)
+    os.makedirs(os.path.dirname(p_topic), exist_ok=True)
+
+    cleaned: list[str] = []
+    for it in items:
+        s = str(it).strip()
+        if s:
+            cleaned.append(s)
+
+    with open(p_topic, "w", encoding="utf-8") as f:
+        for s in cleaned:
+            f.write(s + "\n")
+
+    return {"ok": True, "path": p_topic, "count": len(cleaned)}
+
+
+
+@web_app.post("/api/run")
+async def api_run(payload: Dict[str, Any]):
+    """
+    Next.js에서 보내는 형태(권장):
+      {"input":"목차 보여줘", "options": {...}}
+    """
+    global _WEB_STATE, _WEB_ARGS
+
+    if _WEB_STATE is None:
+        return {"ok": False, "error": "state_not_initialized"}
+
+    user_input = str(payload.get("input") or "").strip()
+    if not user_input:
+        return {"ok": False, "error": "empty_input"}
+
+    # 옵션은 우선 받아두기만 하고(최소 수정),
+    # 실제로 CFG/ENV 반영까지 하려면 2단계에서 확장하면 됩니다.
+    # options = payload.get("options") or {}
+
+    recursion_limit = int(getattr(_WEB_ARGS, "recursion_limit", 200) or 200)
+
+    async with _RUN_LOCK:
+        try:
+            # CPU/IO가 섞인 무거운 작업이므로 executor에서 돌리는 게 안전
+            loop = asyncio.get_running_loop()
+            _WEB_STATE = await loop.run_in_executor(None, run_once, _WEB_STATE, user_input, recursion_limit)
+            state_now = _WEB_STATE
+            assert state_now is not None  # ✅ Pylance에게 "None 아님" 확정
+
+            return {
+                "ok": True,
+                "message": _last_ai_text(state_now) or "OK",
+                "last_saved_path": state_now.get("last_saved_path"),
+            }
+        except Exception as e:
+            logger.exception("api_run failed: %s", e)
+            return {"ok": False, "error": str(e)}
+
+@web_app.get("/api/files")
+def api_files(kind: str | None = None, limit: int = 200):
+    """
+    중요한 산출물 목록 제공.
+
+    기본 동작:
+      - doc_mode=report => sections/<slug>/*.md
+      - doc_mode=book   => chapters/<slug>/*.md
+
+    query:
+      - kind: "artifact"(기본) | "reportlog"(추후 확장용)
+      - limit: 최대 반환(기본 200, 최대 500)
+
+    return:
+      {"ok": True, "mode": "...", "slug":"...", "root":"sections|chapters",
+       "files":[{"id":"...", "name":"...", "path":"...", "mtime":..., "size":...}]}
+    """
+    global _WEB_STATE
+    st = _WEB_STATE
+    if st is None:
+        return {"ok": False, "error": "state_not_initialized"}
+
+    slug = _topic_slug_from_state(st)
+    mode = _doc_mode_from_cfg()
+    root = _artifact_root_for_mode(mode)
+
+    limit = max(1, min(int(limit or 200), 500))
+
+    # 산출물 디렉토리
+    adir = _artifact_dir(mode, slug)
+    if not os.path.isdir(adir):
+        return {"ok": True, "mode": mode, "slug": slug, "root": root, "files": []}
+
+    files = []
+    for name in os.listdir(adir):
+        if not name.lower().endswith(".md"):
+            continue
+        full = os.path.join(adir, name)
+        if not os.path.isfile(full):
+            continue
+
+        try:
+            st_m = os.stat(full)
+            mtime = int(st_m.st_mtime)
+            size = int(st_m.st_size)
+        except Exception:
+            mtime = 0
+            size = 0
+
+        # id 형식: sections/<slug>/<name> 또는 chapters/<slug>/<name>
+        file_id = f"{root}/{slug}/{name}"
+        files.append({"id": file_id, "name": name, "path": full, "mtime": mtime, "size": size})
+
+    files.sort(key=lambda x: x.get("mtime", 0), reverse=True)
+    return {"ok": True, "mode": mode, "slug": slug, "root": root, "files": files[:limit]}
+
+
+@web_app.get("/api/files/{file_id:path}")
+def api_file_download(file_id: str):
+    """
+    file_id 예:
+      sections/<slug>/<file>.md
+      chapters/<slug>/<file>.md
+
+    sections/ 또는 chapters/ 아래만 허용.
+    """
+    target = os.path.join(str(current_path), file_id)
+
+    if not _safe_under_artifacts(target):
+        return {"ok": False, "error": "forbidden_path"}
+
+    if not os.path.exists(target) or not os.path.isfile(target):
+        return {"ok": False, "error": "not_found"}
+
+    return FileResponse(
+        target,
+        media_type="text/markdown; charset=utf-8",
+        filename=os.path.basename(target),
+    )
+
+
+@web_app.get("/api/logs")
+def api_logs(cursor: int = 0, limit: int = 200):
+    """
+    폴링 방식 로그.
+    - cursor: 마지막으로 받은 seq (없으면 0)
+    - limit: 최대 반환 줄 수
+    return:
+      {"ok": True, "next_cursor": <int>, "lines": [{"seq":..., "line":"..."}]}
+    """
+    limit = max(1, min(int(limit or 200), 500))
+
+    with _LOG_LOCK:
+        # cursor보다 큰 것만
+        out = [{"seq": seq, "line": line} for (seq, line) in _LOG_BUF if seq > int(cursor)]
+        if len(out) > limit:
+            out = out[-limit:]
+        next_cursor = out[-1]["seq"] if out else int(cursor)
+
+    return {"ok": True, "next_cursor": next_cursor, "lines": out}
+
+
 # ── 엔트리포인트 ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     # 0) 반드시 가장 먼저: ENV → CFG 반영 (초기 바인딩 깨끗하게)
@@ -442,6 +881,10 @@ if __name__ == "__main__":
     parser.add_argument("--gatekeep", action="store_true", dest="gatekeep")
     parser.add_argument("--no-gatekeep", action="store_false", dest="gatekeep")
     parser.set_defaults(gatekeep=None)
+
+    parser.add_argument("--serve", action="store_true", help="Run as web server (FastAPI)")
+    parser.add_argument("--host", type=str, default=os.getenv("HOST", "127.0.0.1"))
+    parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "8000")))
 
     parser.add_argument("--allow-domains", type=str, default=os.getenv("ALLOWED_DOMAINS", ""))
     parser.add_argument("--allow-subdomains", action="store_true", dest="allow_subdomains")
@@ -498,6 +941,7 @@ if __name__ == "__main__":
     # 로깅 설정 (CFG 기반) — 여기서 파일 경로 확정 → faulthandler 파일 예약
     try:
         setup_logging()
+        attach_web_log_handler()
     except Exception as e:
         # 로깅 설정 실패해도 덤프 타이머는 정리
         _cancel_fault_timers_and_close()
@@ -549,6 +993,11 @@ if __name__ == "__main__":
         os.environ["TOPIC_TITLE"] = args.topic_slug.replace("-", " ")
 
     state: State = initial_state(iteration_count=iter_count, agent_role=effective_role)
+
+    # 웹 서버 모드에서 사용할 전역 상태 연결
+    _WEB_STATE = state
+    _WEB_ARGS = args
+
 
     # ── 초기 상태 시드: agent_role / research_objectives ──────────────────────
     try:
@@ -605,6 +1054,9 @@ if __name__ == "__main__":
         getattr(config.CFG, "ITERATION_COUNT", None),
         getattr(config.CFG, "AGENT_ROLE", None),
     )
+    
+    logger.info("ENV CHECK: DIRECT_QA=%r ALLOW_SUMMARY=%r", os.getenv("DIRECT_QA"), os.getenv("ALLOW_SUMMARY"))
+
     logger.debug(
         "[CFG] AUTO_WRITE_AFTER_RAG=%s AUTO_WRITE_DURING_RESEARCH=%s DIRECT_QA=%s",
         getattr(config.CFG, "AUTO_WRITE_AFTER_RAG", None),
@@ -619,6 +1071,14 @@ if __name__ == "__main__":
         f"LOG_TOPK={getattr(config.CFG,'LOG_TOPK',3)} LOG_WRAP={getattr(config.CFG,'LOG_WRAP',88)} "
         f"LOG_DASHBOARD={int(bool(getattr(config.CFG,'LOG_DASHBOARD',True)))}"
     )
+
+    if bool(getattr(args, "serve", False)):
+        logger.info("Starting WEB server on http://%s:%s", args.host, args.port)
+        # 콘솔 루프 대신 웹 서버로 실행
+        uvicorn.run(web_app, host=args.host, port=args.port, log_level=str(args.log_level or "info").lower())
+        # uvicorn가 종료되면 여기로 돌아옵니다.
+        _cancel_fault_timers_and_close()
+        sys.exit(0)
 
     try:
         while True:

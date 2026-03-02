@@ -194,12 +194,22 @@ def _build_xlsx_meta_documents(xlsx_path: Path, url: str) -> list[Document]:
     return [Document(page_content=text, metadata=meta)]
 
 # PDF/HTML 로더 유틸
-_PDF_URL_RE = _re.compile(r"\.pdf($|\?)|filedownload|filedown(type)?=|/fileDown|/download", _re.I)
+from .utils import looks_like_pdf_url as _looks_like_pdf_url
 
-def _looks_like_pdf_url(url: str) -> bool:
-    return bool(_PDF_URL_RE.search(url or ""))
-
-
+def _call_maybe_tool(obj: Any, *args: Any, **kwargs: Any) -> Any:
+    """
+    LangChain Tool/Proxy/일반 함수 호출을 모두 흡수.
+    우선순위: invoke() -> run() -> (callable이면 직접 호출)
+    """
+    inv = getattr(obj, "invoke", None)
+    if callable(inv):
+        return inv(*args, **kwargs)
+    run = getattr(obj, "run", None)
+    if callable(run):
+        return run(*args, **kwargs)
+    if callable(obj):
+        return obj(*args, **kwargs)
+    raise TypeError(f"Object is not callable and has no invoke/run: {type(obj)!r}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -253,6 +263,29 @@ def web_results_to_documents(results: Sequence[Dict[str, Any]]) -> List[Document
             # ✅ 처리 전 정규화 및 fragment 제거
             if _ingest_mod is not None:
                 url = _ingest_mod._normalize_before_request(url)
+                # 🔧 KHIDI /fileDownload 예외 처리:
+                #   - 정규화 과정에서 'www.'가 제거되면
+                #     KHIDI 서버가 잘못된 Location 헤더를 돌려줘
+                #     'www.khidi.or.krfiledownload' 같은 호스트로 깨질 수 있음.
+                #   - /fileDownload 요청에 대해서는 항상 www 호스트를 유지/복원한다.
+                try:
+                    pu = urlparse(url)
+                    host = (pu.netloc or "").lower()
+                    path_l = (pu.path or "").lower()
+                    if ("khidi.or.kr" in host) and ("filedownload" in path_l):
+                        new_netloc = "www.khidi.or.kr"
+                        url = urlunparse((
+                            pu.scheme or "https",
+                            new_netloc,
+                            pu.path,
+                            pu.params,
+                            pu.query,
+                            pu.fragment,
+                        ))
+                except Exception:
+                    # KHIDI 보정 중 오류가 나더라도 전체 흐름을 막지 않음
+                    pass
+
                 # [C] 잡음 URL은 조기 드랍
                 if url and _ingest_mod._is_noise_url(url):
                     logger.debug("[ingest][drop-noise] %s", url)
@@ -554,40 +587,75 @@ def _is_safe_callable(obj: Any) -> bool:
 
 def quick_ingest_findings(topic_slug: str) -> int:
     """
-    연구 합성 결과(round-XX-findings.md)를 빠르게 RAG에 포함시키기 위한
+    연구 합성 결과(round-XX-findings.md)를 빠르게 web.json으로 변환하기 위한
     경량 엔트리 포인트.
 
-    - 실제 구현은 tools.local_rag.add_local_findings_to_chroma에 위임한다.
-    - tools.local_rag이 없거나 함수가 없으면 0을 반환한다.
+    - research/<topic_slug>/round-*-findings.md 패턴을 스캔한다.
+    - tools.local_rag.build_webjson_from_local을 통해
+      resources/<topic_slug>/ 아래에 web.json을 생성한다.
+    - Chroma 인덱싱까지는 하지 않고, “findings를 web.json 경로로 태우는 것”까지만 담당한다.
+    - tools.local_rag 또는 build_webjson_from_local이 없으면 0을 반환한다.
     """
+    from pathlib import Path
+
     try:
         # 지연 임포트로 순환 의존 최소화
-        from tools.local_rag import add_local_findings_to_chroma as _alf
+        from tools.local_rag import build_webjson_from_local
     except Exception:
         logger.debug(
-            "[ingest_docs] quick_ingest_findings: tools.local_rag.add_local_findings_to_chroma not available"
-        )
-        return 0
-
-    # 일부 실행 환경에서는 add_local_findings_to_chroma가
-    # multiprocessing.Manager 기반 _RootProxy 인스턴스로 노출될 수 있다.
-    # 이 경우 직접 호출하면 "'_RootProxy' object is not callable" 예외가 발생하므로
-    # 타입/모듈까지 확인하는 안전 가드를 거친다.
-    if not _is_safe_callable(_alf):
-        logger.debug(
-            "[ingest_docs] quick_ingest_findings: add_local_findings_to_chroma not safely callable: obj=%r type=%r",
-            _alf,
-            type(_alf),
+            "[ingest_docs] quick_ingest_findings: tools.local_rag.build_webjson_from_local not available"
         )
         return 0
 
     try:
-        added = _alf(topic_slug)
-        try:
-            return int(added)  # int 또는 int로 변환 가능한 값 기대
-        except Exception:
-            logger.debug("[ingest_docs] quick_ingest_findings: non-int result=%r", added)
+        root = Path.cwd()
+        research_dir = root / "research" / topic_slug
+        if not research_dir.exists():
+            logger.debug(
+                "[ingest_docs] quick_ingest_findings: research dir not found (%s)",
+                research_dir,
+            )
             return 0
+
+        pattern = "round-*-findings.md"
+        findings_files = sorted(research_dir.glob(pattern))
+        if not findings_files:
+            logger.debug(
+                "[ingest_docs] quick_ingest_findings: no findings matched (%s / %s)",
+                research_dir,
+                pattern,
+            )
+            return 0
+
+        # web.json 저장 디렉터리: resources/<topic_slug>
+        resources_dir = root / "resources" / topic_slug
+        resources_dir.mkdir(parents=True, exist_ok=True)
+
+        glob_pattern = str(research_dir / pattern)
+        logger.info(
+            "[ingest_docs] quick_ingest_findings: building web.json from %s → %s",
+            glob_pattern,
+            resources_dir,
+        )
+
+        # build_webjson_from_local(globs: list[str], out_dir: str) -> str (web.json 경로)
+        out_json = build_webjson_from_local([glob_pattern], str(resources_dir))
+
+        # 반환값이 경로이면 존재 여부 정도만 체크 (실패해도 플로우는 유지)
+        try:
+            out_path = Path(out_json)
+            if out_path.exists():
+                logger.info(
+                    "[ingest_docs] quick_ingest_findings: web.json saved → %s",
+                    out_path,
+                )
+        except Exception:
+            # 반환 형식이 달라도 전체 연구 루프는 깨지지 않도록 방어
+            pass
+
+        # 몇 개의 findings 파일을 태웠는지 기준으로 count 반환
+        return len(findings_files)
+
     except Exception as e:  # pragma: no cover - 방어적
         logger.debug("[ingest_docs] quick_ingest_findings failed: %s", e)
         return 0

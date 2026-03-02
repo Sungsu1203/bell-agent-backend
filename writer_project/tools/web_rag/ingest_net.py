@@ -10,6 +10,7 @@ import threading
 import requests
 import socket
 from requests.exceptions import SSLError
+from urllib.parse import urlparse
 try:
     from urllib3.exceptions import NameResolutionError as _UR_NRE
     _EXC_NAME_RESOLUTION: tuple[type[BaseException], ...] = (socket.gaierror, _UR_NRE)
@@ -140,7 +141,14 @@ def fetch_text(
             enc = guessed.get("encoding") or "utf-8"
         return data.decode(enc, errors="replace")
     except Exception as e:  # pragma: no cover
-        logger.warning("[fetch_text] url=%s error=%s", url, e)
+        # requests.HTTPError 등은 e.response.status_code 를 가진다.
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        if status == 404:
+            # 404는 자주 나와서 DEBUG로만 기록
+            logger.debug("[fetch_text] url=%s status=%s error=%s", url, status, e)
+        else:
+            # 그 외(403, 5xx, 연결 문제 등)는 기존처럼 WARNING 유지
+            logger.warning("[fetch_text] url=%s status=%s error=%s", url, status, e)
         return None
 
 
@@ -179,9 +187,59 @@ def try_fetch_pdf(url: str, timeout: int | None = None) -> bytes | None:
     sess = get_requests_session()
     t = timeout or int(REQ_READ_TIMEOUT)
     try:
-        r = sess.get(u, timeout=(REQ_CONN_TIMEOUT, t), stream=True)
+        # ── KHIDI 워크어라운드 ─────────────────────────────────────────────
+        # KHIDI fileDownload는 direct hit 시 HTML "설정정보 error page"를 반환하는 케이스가 있어
+        # 최소한의 세션 쿠키/리퍼러를 맞춘다.
+        pu = urlparse(u)
+        host = (pu.netloc or "").lower()
+        path_l = (pu.path or "").lower()
+        is_khidi_filedownload = ("khidi.or.kr" in host) and ("filedownload" in path_l)
+
+        headers = {
+            "Accept": "application/pdf,*/*;q=0.9",
+        }
+        if is_khidi_filedownload:
+            # 워밍업: 세션 쿠키 확보(실패해도 무시)
+            try:
+                sess.get("https://www.khidi.or.kr/kohes/", timeout=(REQ_CONN_TIMEOUT, min(10, t)))
+            except Exception:
+                pass
+            headers["Referer"] = "https://www.khidi.or.kr/kohes/"
+
+        r = sess.get(
+            u,
+            timeout=(REQ_CONN_TIMEOUT, t),
+            stream=True,
+            allow_redirects=True,
+            headers=headers,
+        )
         r.raise_for_status()
-        return r.content or b""
+        data = r.content or b""
+        if not data:
+            return None
+
+        ct = (r.headers.get("Content-Type") or "").lower()
+        # KHIDI 등에서 PDF 대신 HTML 에러 페이지가 200으로 내려오는 경우 방지
+        if "text/html" in ct or data.lstrip().startswith(b"<html"):
+            # 아주 짧은 바이트만 검사(로그/태깅 목적)
+            head = data.lstrip()[:300].lower()
+            if is_khidi_filedownload and (b"error page" in head or b"alert(" in head or b"\xec\x84\xa4\xec\xa0\x95" in head):
+                tag_quarantine(u, reason="khidi_block_page")
+            return None
+ 
+        # ✅ PDF 판정 (Content-Type이 octet-stream이어도 실제 PDF일 수 있음)
+        head = data.lstrip()[:8]
+
+        if head.startswith(b"%PDF-"):
+            return data
+
+        # Content-Disposition에 .pdf가 명시된 경우(다운로드 응답) 보조 인정
+        cd = (r.headers.get("Content-Disposition") or "").lower()
+        if ".pdf" in cd:
+            return data
+
+        # PDF가 아닌 것으로 판단 → 상위에서 HTML fetch/파서로 폴백할 수 있게 None
+        return None
     except SSLError:
         SSL_QUARANTINE.add(u)
         tag_quarantine(u, reason="ssl_error")

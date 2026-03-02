@@ -4,6 +4,12 @@ import logging
 logger = logging.getLogger(__name__)
 logging.getLogger("chardet").setLevel(logging.WARNING)  # chardet DEBUG 스팸 억제
 
+# NOTE:
+# Canonical URL normalization MUST be a single source of truth.
+# Do not re-define normalization logic here.
+from tools.web_rag.utils import _normalize_canonical_url
+
+
 import os, io, json, time
 from pathlib import Path
 from typing import Any, Dict, Tuple, Sequence, Callable, Mapping, MutableMapping, Iterable, Protocol, runtime_checkable, Optional, cast  # ← quick_ingest 프록시 시그니처용
@@ -16,7 +22,7 @@ from requests.auth import AuthBase
 from requests.models import Response
 
 from urllib3.exceptions import NameResolutionError
-from urllib.parse import urlparse  # host 추출용
+from urllib.parse import urlparse, urlunparse  # host 추출용
 
 # 네트워크 헬퍼/설정은 ingest_net에서 공통 사용
 #  ✅ 실제 HTTP 요청/응답은 ingest_net 모듈을 단일 진입점으로 사용한다.
@@ -73,6 +79,28 @@ class _PdfSslError(_SSLError):
 #  - mypy의 arg-type 경고를 해소
 # ─────────────────────────────────────────────────────────────────────────────
 RequestHooks = Mapping[str, Iterable[Callable[[requests.Response], Any]]]
+
+def _coerce_timeout(v: Any) -> float | tuple[float, float] | None:
+    """
+    requests timeout 타입 정규화:
+      - float/int -> float
+      - (a,b) -> (float(a), float(b))  (None 섞이면 None으로 대체하거나 기본값으로 치환)
+      - None/기타 -> None
+    """
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, tuple) and len(v) == 2:
+        a, b = v
+        # requests는 tuple 내 None을 싫어하므로 안전하게 치환
+        #  - None이면 0.0(즉시 타임아웃) 대신, "미지정" 의미로 기본값을 넣는 게 보통 더 안전
+        #  - 여기서는 cfg 상수(REQ_CONN/READ_TIMEOUT)로 치환
+        ca = float(a) if isinstance(a, (int, float)) else float(_REQ_CONN_TIMEOUT)
+        cb = float(b) if isinstance(b, (int, float)) else float(_REQ_READ_TIMEOUT)
+        return (ca, cb)
+    return None
+
 def _session_get(session: requests.Session, url: str, kwargs: Mapping[str, Any]) -> Response:
     kw: Dict[str, Any] = dict(kwargs)  # 복사해서 pop
     # ── allow_redirects: bool로 확정 ─────────────────────────────
@@ -122,7 +150,7 @@ def _session_get(session: requests.Session, url: str, kwargs: Mapping[str, Any])
             data=kw.pop("data", None),
             files=kw.pop("files", None),
             auth=cast(tuple[str, str] | AuthBase | None, kw.pop("auth", None)),
-            timeout=cast(float | tuple[float | None, float | None] | None, kw.pop("timeout", None)),
+            timeout=_coerce_timeout(kw.pop("timeout", None)),
             allow_redirects=allow_redirects,
             proxies=proxies,
             verify=kw.pop("verify", None),
@@ -179,6 +207,7 @@ def _record_retry_candidate(url: str, reason: str = "ssl_error") -> None:
 from .utils import (
     DATA_DIR,
     normalize_url as _normalize_url,  # ← 요청 전 정규화에 사용
+    looks_like_pdf_url as _looks_like_pdf_url
 )
 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode, unquote, quote
 
@@ -322,10 +351,7 @@ def get_requests_session() -> requests.Session:
 
 # PDF/HTML 로더 유틸
 import re as _re
-_PDF_URL_RE = _re.compile(r"\.pdf($|\?)|filedownload|filedown(type)?=|/fileDown|/download", _re.I)
-
-def _looks_like_pdf_url(url: str) -> bool:
-    return bool(_PDF_URL_RE.search(url or ""))
+from .utils import looks_like_pdf_url as _looks_like_pdf_url
 
 _PDF_HEADERS = {"Accept": "application/pdf"}
 
@@ -355,92 +381,9 @@ def _strip_tracking_params(qs_items: list[tuple[str, str]]) -> list[tuple[str, s
         out.append((k, v))
     return out
 
-def _normalize_canonical_url(u: str) -> str:
-    """
-    강한 URL 정규화:
-    - file:// → 절대경로 URI(Path.resolve().as_uri())로 일원화 **하되 fragment/쿼리를 보존**
-      (PPTX/PDF split 조각 식별자: #part, #index 등 유지)
-    - http(s):// → fragment 제거, 트래킹 파라미터 제거
-      (utm_*, gclid 등) 및 AMP 흔적(/amp, .amp, *.amp.dev) 제거
-    - m. 호스트를 www.로 보정(가능할 때)
-    """
-    raw = (u or "").strip()
-    if not raw:
-        return ""
-    try:
-        nu = _normalize_url(raw)
-    except Exception:
-        nu = raw
-
-    try:
-        p = urlparse(nu)
-        scheme_lower = (p.scheme or "").lower()
-
-        # 1) file:// — OS 경로를 절대 URI로 일원화 (fragment/쿼리 보존)
-        if scheme_lower == "file":
-            path_raw = unquote(p.path or "")
-            frag_raw = p.fragment or ""
-            query_raw = p.query or ""
-            try:
-                # Windows "file:///D:/..." 케이스 보정
-                if path_raw.startswith("/") and len(path_raw) >= 3 and path_raw[2] == ":":
-                    path_raw = path_raw.lstrip("/")
-                base_uri = Path(path_raw).resolve().as_uri()
-            except Exception:
-                # as_uri 실패 시, 최소한 표준 포맷으로 재구성 (fragment/쿼리 유지)
-                base_uri = urlunparse(p._replace(fragment="", params=""))
-
-            # file:// 는 조각 식별(슬라이드/페이지) 정보를 유지해야 하므로 fragment 보존
-            if query_raw:
-                base_uri = f"{base_uri}?{query_raw}"
-            if frag_raw:
-                base_uri = f"{base_uri}#{frag_raw}"
-            return base_uri
-
-        # 0) http(s) 등은 fragment 제거
-        p = p._replace(fragment="")
-        # host 정규화: m. → www. (가능한 경우)
-        host = (p.netloc or "").lower()
-        # 예외: 공공 포털/기관 도메인은 www 강제 금지(서비스 라우팅이 다름)
-        _NO_WWW_DOMAINS = ("khidi.or.kr", "mfds.go.kr", "kosis.kr")
-        def _no_www(h: str) -> bool:
-            return (
-                h.endswith(".go.kr") or
-                h.endswith(".or.kr") or
-                any(h.endswith(d) for d in _NO_WWW_DOMAINS)
-            )
-        # 예외: Dailypharm도 m→www 강제 금지
-        _is_dailypharm = host.endswith("dailypharm.com")
-        if host.startswith("m.") and len(host) > 2 and not _is_dailypharm and not _no_www(host):
-            host = "www." + host[2:]
-        # AMP 프록시 제거 등 기존 로직은 유지
-        # 일부 AMP 프록시 도메인 흔적 제거(가능한 범위 내에서만)
-        if host.endswith(".amp.dev"):
-            host = host.removesuffix(".amp.dev")
-
-        # AMP 경로 흔적 제거( /amp, .amp )
-        path = p.path or ""
-        if path.endswith("/amp"):
-            path = path[:-4] or "/"
-        if path.endswith(".amp"):
-            path = path[:-4] or "/"
-
-        # 쿼리에서 추적/가변 파라미터 제거
-        items = parse_qsl(p.query, keep_blank_values=True)
-        items = _strip_tracking_params(items)
-        query = urlencode(items, doseq=True)
-
-        # 기본 포트 제거
-        netloc = host
-        if netloc.endswith(":80"):
-            netloc = netloc[:-3]
-        if netloc.endswith(":443"):
-            netloc = netloc[:-4]
-
-        cano = urlunparse((p.scheme.lower(), netloc, path, "", query, ""))  # fragment 없음
-        return cano
-    except Exception:
-        return nu.split("#", 1)[0]
+#
+# _normalize_canonical_url is imported from tools.web_rag.utils
+#
 
 # ─────────────────────────────────────────────────────────────────────────────
 # [C] 잡음 URL 드랍 규칙(경량)
@@ -496,7 +439,7 @@ def _priority_sort_key(item: dict) -> tuple[int, int, int, int, str]:
         # 확장자/타입 랭크
         ext = (Path(fname).suffix.lower() if fname else Path(urlparse(u).path or "").suffix.lower())
         rank = 3
-        if "application/pdf" in ct or ext == ".pdf":
+        if "application/pdf" in ct or ext == ".pdf" or (u and _looks_like_pdf_url(u)):
             rank = 0
         elif "presentationml" in ct or ext in (".pptx", ".ppt"):
             rank = 1
@@ -555,6 +498,28 @@ def _fetch_binary(url: str, timeout: int = 10) -> bytes | None:
 
     # 요청 전에 항상 정규화
     u = _normalize_before_request(url)
+
+    # 🔧 KHIDI /fileDownload 예외 처리:
+    #   - 정규화 과정에서 'www.'가 제거되면 KHIDI 서버가 잘못된 Location 헤더를 반환해
+    #     'www.khidi.or.krfiledownload' 같은 호스트로 깨질 수 있음.
+    #   - /fileDownload 요청에 대해서는 항상 www 호스트를 유지/복원한다.
+    try:
+        pu = urlparse(u)
+        host = (pu.netloc or "").lower()
+        path_l = (pu.path or "").lower()
+        if ("khidi.or.kr" in host) and ("filedownload" in path_l):
+            new_netloc = "www.khidi.or.kr"
+            u = urlunparse((
+                pu.scheme or "https",
+                new_netloc,
+                pu.path,
+                pu.params,
+                pu.query,
+                pu.fragment,
+            ))
+    except Exception:
+        # KHIDI 보정 중 오류가 나더라도 전체 흐름을 막지 않음
+        pass
 
     # 1) PDF로 보이면 우선 PDF 전용 경로 한 번 시도
     try:
@@ -783,7 +748,7 @@ from .ingest_vector import (
     add_web_pages_json_to_chroma,
     retrieve,
     clear_vector_store,
-    ensure_vector_store_cleared_once,
+    ensure_vector_store_cleared_once as _ensure_vector_store_cleared_once,
     get_collection_count,
     get_total_collection_count,
     seed_web_namespace,
@@ -791,6 +756,106 @@ from .ingest_vector import (
     _resolve_persist_dir_strict,
     has_any_docs,
 )
+
+def _stored_urls_path(*, namespace: str, store_kind: str) -> Path:
+    """
+    stored_urls 캐시 파일 경로 (ns + kind 분리)
+      - store_kind: "web" | "local"
+    """
+    ns = (namespace or "").replace("/", "_").replace("\\", "_")
+    base = DATA_DIR / "stored_urls"
+    return base / f"stored_urls__{store_kind}__{ns}.json"
+
+def _load_stored_urls_cache(*, namespace: str, store_kind: str = "web") -> set[str]:
+    """
+    stored_urls 캐시 로드.
+
+    ✅ 정책:
+      - (ns 컬렉션 count==0)이면 fresh store로 간주 → stored_urls 캐시를 "스킵" (빈 set 반환)
+      - 이때 stale 파일이 있으면 함께 삭제하여 재시도/리빌드 시 혼선 방지
+
+    반환: 정규화 이전 raw URL 문자열 set (상위에서 필요 시 normalize)
+    """
+    ns = (namespace or "").replace("/", "_").replace("\\", "_")
+    base = DATA_DIR / "stored_urls"
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    p = _stored_urls_path(namespace=ns, store_kind=store_kind)
+
+    # 1) fresh store 판정(count==0) → 캐시 스킵(+삭제)
+    try:
+        # get_collection_count / _default_chroma_dir 는 이미 상단에서 ingest_vector로부터 import됨
+        cnt = int(get_collection_count(ns, _default_chroma_dir(ns)))
+        if cnt == 0:
+            try:
+                if p.exists():
+                    p.unlink()
+                    logger.info("[stored_urls] fresh store(count=0) → deleted stale cache: %s", p)
+            except Exception:
+                pass
+            return set()
+    except Exception:
+        # count 판정 실패 시에는 캐시 로드를 시도
+        pass
+
+    # 2) 캐시 로드
+    try:
+        if not p.exists():
+            return set()
+        raw = p.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return {str(x) for x in data if isinstance(x, str) and x.strip()}
+        if isinstance(data, dict):
+            # 과거 포맷 호환: 키를 URL로 간주
+            out: set[str] = set()
+            for k in data.keys():
+                if isinstance(k, str) and k.strip():
+                    out.add(k)
+            return out
+    except Exception as e:
+        logger.debug("[stored_urls] load failed ns=%s kind=%s err=%s", ns, store_kind, e)
+    return set() 
+
+def _delete_stored_urls_cache(*, namespace: str, store_kind: str = "web") -> None:
+    try:
+        p = _stored_urls_path(namespace=namespace, store_kind=store_kind)
+        if p.exists():
+            p.unlink()
+            logger.info("[stored_urls] deleted cache: %s", p)
+    except Exception as e:
+        logger.debug("[stored_urls] delete failed ns=%s kind=%s err=%s", namespace, store_kind, e)
+
+def ensure_vector_store_cleared_once(
+    namespace: str,
+    *,
+    persist_directory: str | None = None,
+) -> bool:
+    """
+    ingest_vector.ensure_vector_store_cleared_once 래퍼:
+      - CLEAR_CHROMA_ON_START로 Chroma를 비우는 경우,
+        같은 namespace의 stored_urls 캐시도 함께 삭제한다.
+    """
+    cleared = False
+    try:
+        cleared = bool(
+            _ensure_vector_store_cleared_once(
+                namespace,
+                persist_directory=persist_directory,
+            )
+        )
+    finally:
+        # ✅ 안전장치: CLEAR_CHROMA_ON_START가 켜져 있으면 캐시도 삭제
+        if cleared or _cfg_bool("CLEAR_CHROMA_ON_START", False):
+            # web_rag/ingest.py는 기본적으로 web 캐시를 지운다.
+            _delete_stored_urls_cache(namespace=namespace, store_kind="web")
+            # split/local 혼용 흔적 방지: 같은 ns의 local 캐시도 같이 제거
+            _delete_stored_urls_cache(namespace=namespace, store_kind="local")
+    return cleared
+
 
 __all__ = [
     # web.json → Document 변환

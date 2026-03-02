@@ -16,6 +16,9 @@ venv*/
 .env.*
 !.env.full.template
 
+# ── Secrets / credentials ────────────────────────────────
+writer_project/service_account*.json
+
 # ── Logs & run artifacts ─────────────────────────────────
 logs/
 **/logs/
@@ -24,11 +27,8 @@ data/
 **/resources/**/*.json
 **/state/**
 **/reports/**
-
-# ── Notebooks ────────────────────────────────────────────
-.ipynb_checkpoints/
-# 특정 파일(원문에 있던 PDF)
-chap09/data/OneNYC_2050_Strategic_Plan.pdf
+# research 폴더 아래 raw 웹검색 스냅샷 (Vertex/웹 검색 결과 저장본)
+**/research/**/resources_*.json
 
 # ── Vector DB / Chroma 산출물 ────────────────────────────
 # 폴더 통째로 무시(범용)
@@ -42,18 +42,3 @@ chap09/data/OneNYC_2050_Strategic_Plan.pdf
 **/length.bin
 **/link_lists.bin
 **/index_metadata.pickle
-
-# ── 대용량 미디어(refs 폴더 전역) ─────────────────────────
-# (현재 chap14-6/7만 필요한 경우엔 아래 두 줄만 남기세요)
-**/refs/**/*.mp4
-**/refs/**/*.pptx
-# 필요시 확장:
-# **/refs/**/*.mov
-# **/refs/**/*.avi
-# **/refs/**/*.mkv
-chap14-7/refs - origin/**
-chap14-8/refs - origin/**
-
-**/refs/**/*.mp4
-
-**/refs/**/*.pptx

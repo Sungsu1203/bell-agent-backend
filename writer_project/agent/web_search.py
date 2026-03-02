@@ -26,6 +26,7 @@ from utils.forced_queries import extract_forced_queries_from_messages
 from settings_gatekeep import gatekeep_enabled, get_allowed_domains
 from settings_gatekeep import url_allowed as _allowed
 from tools.web_rag.search import web_search
+from tools.web_rag.vertex_search import vertex_web_search
 
 # ── Gatekeep 캐시 동기화(모듈 로드시 1회) ─────────────────────────────────
 _refresh_gk_cache: Optional[Callable[[], None]]
@@ -618,6 +619,80 @@ def web_search_agent(state: State):
         s = re.sub(r"\s{2,}", " ", s).strip()
         return s
 
+    # --- Vertex 전용 쿼리 튜닝 ---------------------------------------------
+    def _to_vertex_query(q: str) -> str:
+        """
+        Vertex + Google Search grounding에 맞게
+        - 괄호 밖의 AND/OR는 자연어식으로 완화
+        - -토큰(제외 검색)이 너무 많으면 일부만 유지
+        정도만 가볍게 손보는 래퍼입니다.
+
+        입력은 이미 _normalize_query 를 거친 문자열(norm_q)라고 가정합니다.
+        """
+        s = (q or "").strip()
+        if not s:
+            return ""
+
+        # 1) 괄호 밖에서만 AND / OR 를 공백으로 치환
+        buf: list[str] = []
+        in_paren = 0
+        i = 0
+        n = len(s)
+
+        while i < n:
+            ch = s[i]
+            if ch == "(":
+                in_paren += 1
+                buf.append(ch)
+                i += 1
+                continue
+            if ch == ")":
+                in_paren = max(0, in_paren - 1)
+                buf.append(ch)
+                i += 1
+                continue
+
+            # 괄호 밖의 “ AND ” / “ OR ” → 공백 하나로 완화
+            if in_paren == 0 and s.startswith(" AND ", i):
+                buf.append(" ")
+                i += 5
+                continue
+            if in_paren == 0 and s.startswith(" OR ", i):
+                buf.append(" ")
+                i += 4
+                continue
+
+            buf.append(ch)
+            i += 1
+
+        s = "".join(buf).strip()
+
+        # 2) -토큰이 너무 많으면 앞에서 몇 개만 유지 (예: 3개)
+        tokens = s.split()
+        minus_tokens = [t for t in tokens if t.startswith("-")]
+        MAX_MINUS = 3
+
+        if len(minus_tokens) > MAX_MINUS:
+            # 앞에서 MAX_MINUS개만 살리고 나머지 -토큰은 버림
+            keep = minus_tokens[:MAX_MINUS]
+            new_tokens: list[str] = []
+            for t in tokens:
+                if t.startswith("-"):
+                    if t in keep:
+                        new_tokens.append(t)
+                        keep.remove(t)
+                    # 여기서 버려진 -토큰은 그냥 무시
+                else:
+                    new_tokens.append(t)
+            tokens = new_tokens
+
+        # 3) 필요하면 전체 토큰 수도 살짝 제한 (예: 40개)
+        MAX_TOKENS = 40
+        if len(tokens) > MAX_TOKENS:
+            tokens = tokens[:MAX_TOKENS]
+
+        return " ".join(tokens).strip()
+
     # --- Watchdog (already defined above) -----------------------------------
     # def _with_watchdog(...): ...
 
@@ -639,17 +714,77 @@ def web_search_agent(state: State):
             logger.info("[web_search] empty-after-normalize -> skip")
             return False
 
-        googleish = any(tok in norm_q for tok in ("site:", " OR ", " AND ", "(", ")"))
-
         ok = False
         for attempt in range(retries + 1):
             try:
-                # 1) Search call
+                # 1) Search call (Vertex + legacy 멀티엔진 병합)
                 payload = {"query": norm_q}
-                if googleish:
-                    payload["engine"] = "google_cse"
                 t0 = time.monotonic()
-                ret = web_search.invoke(payload)
+
+                query = (
+                    payload.get("query")
+                    or payload.get("q")
+                    or payload.get("input")
+                    or ""
+                )
+
+                # Vertex / legacy 결과를 모을 버퍼
+                combined_items: list[dict] = []
+
+                # -----------------------------------------
+                # 1-1. Vertex 우선 시도 (attempt==0에서 한 번만)
+                # -----------------------------------------
+                if attempt == 0 and query:
+                    try:
+                        vertex_result = vertex_web_search(query)
+                        v_urls = list(vertex_result.get("urls") or [])
+                        if v_urls:
+                            combined_items.extend({"url": u} for u in v_urls)
+                            logger.info(
+                                "[web_search] Vertex success (%d urls)", len(v_urls)
+                            )
+                    except Exception as e:
+                        logger.warning("[web_search] Vertex failed: %s", e)
+
+                # -----------------------------------------
+                # 1-2. legacy 멀티엔진 검색(Tavily+Naver 등)도 항상 시도
+                # -----------------------------------------
+                legacy_ret = None
+                try:
+                    legacy_ret = web_search.invoke(payload)
+                    logger.info("[web_search] legacy multi-engine search used")
+                except Exception as e:
+                    logger.warning("[web_search] legacy search failed: %s", e)
+
+                if legacy_ret is not None:
+                    try:
+                        if isinstance(legacy_ret, tuple) and len(legacy_ret) >= 2:
+                            legacy_items = list(legacy_ret[0] or [])
+                        elif isinstance(legacy_ret, list):
+                            legacy_items = list(legacy_ret)
+                        elif isinstance(legacy_ret, dict):
+                            legacy_items = list(
+                                legacy_ret.get("results")
+                                or legacy_ret.get("items")
+                                or []
+                            )
+                        else:
+                            legacy_items = []
+                    except Exception as e:
+                        logger.debug(
+                            "[web_search] legacy return normalize failed: %s", e
+                        )
+                        legacy_items = []
+
+                    if legacy_items:
+                        # dict 타입만 수용 (이후 파이프라인과 호환)
+                        combined_items.extend(
+                            it for it in legacy_items if isinstance(it, dict)
+                        )
+
+                # 최종 ret: list[dict] 형태로 넘기면, 아래 Normalize 블록이 그대로 처리
+                ret = combined_items
+
                 dt = time.monotonic() - t0
                 logger.info("[web_search][call ok] dt=%.2fs query=%s", dt, norm_q)
 
@@ -1374,7 +1509,7 @@ def get_PROJECT_ROOT() -> str:
     return str(_get_cfg_attr("PROJECT_ROOT", "") or "")
 
 def get_SEARCH_BACKENDS() -> str:
-    return str(_get_cfg_attr("SEARCH_BACKENDS", "google_cse,naver_direct,serpapi_naver,serpapi,tavily") or "")
+    return str(_get_cfg_attr("SEARCH_BACKENDS", "naver_direct,tavily") or "")
 
 def get_HAS_GOOGLE_KEYS() -> bool:
     return _cfg_bool("HAS_GOOGLE_KEYS", False)

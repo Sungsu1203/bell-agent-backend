@@ -5,6 +5,7 @@ logger = logging.getLogger(__name__)
 
 import re
 import os, json, time
+import html
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple, Sequence, Callable, TYPE_CHECKING, cast, Type
 from datetime import datetime
@@ -317,7 +318,7 @@ def _rerank_with_intent_and_diversity(items: List[Dict[str, Any]], *, intent: st
             base += 0.15
 
         url_l = (u or "").lower()
-        if intent in ("news","stats") and (url_l.endswith(".pdf") or "/upload/" in url_l):
+        if intent in ("news","stats") and (looks_like_pdf_url(url_l) or "/upload/" in url_l):
             base -= 0.10
 
         scored.append((base, it))
@@ -336,19 +337,77 @@ from .utils import (
     normalize_or_block_intermediate_news,
     _MIN_RESULTS_OK as __MIN_RESULTS_OK_FALLBACK,
     _SEARCH_TOPN as __SEARCH_TOPN_FALLBACK,
-    _simplify_for_naver, _should_skip_naver
+    _simplify_for_naver, _should_skip_naver,
+    looks_like_pdf_url,
 )
 
 from .utils import try_fetch_pdf, SSL_QUARANTINE  # PDF 단회 시도 / SSL 격리
 
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 from tools.web_rag.utils import normalize_url  # URL 정규화 단일 진입점
+
+
+def _normalize_khidi_pdf_url(u: str) -> str:
+    """
+    KHIDI /fileDownload URL 예외 처리:
+      - khidi.or.kr + /fileDownload/... 를 그대로 요청하면
+        잘못된 리다이렉트(host='www.khidi.or.krkohes' 등)로 이어질 수 있다.
+      - 이 경우 요청 직전에 항상 www.khidi.or.kr 호스트로 보정한다.
+    """
+    u = (u or "").strip()
+    if not u:
+        return u
+    try:
+        pu = urlparse(u)
+        host = (pu.netloc or "").lower()
+        path_l = (pu.path or "").lower()
+
+        # 예: https://khidi.or.kr/kohes/fileDownload?...  →
+        #     https://www.khidi.or.kr/kohes/fileDownload?...
+        if ("khidi.or.kr" in host) and ("filedownload" in path_l):
+            new_netloc = "www.khidi.or.kr"
+            return urlunparse((
+                pu.scheme or "https",
+                new_netloc,
+                pu.path,
+                pu.params,
+                pu.query,
+                pu.fragment,
+            ))
+    except Exception:
+        pass
+    return u
 
 def _canon_url(u: str) -> str:
     try:
         return normalize_url(u or "")
     except Exception:
         return u or ""
+    
+# ─────────────────────────────────────────────────────────────
+# Gatekeep drop reason (non-invasive; url_allowed()는 그대로 사용)
+# ─────────────────────────────────────────────────────────────
+def _gatekeep_drop_reason(u: str) -> str:
+    """
+    settings_gatekeep.url_allowed()를 수정하지 않고,
+    search.py 레벨에서 drop 사유를 추정합니다.
+    """
+    if not u:
+        return "empty_url"
+    try:
+        nu = _canon_url(u)
+        if not nu:
+            return "normalize_failed"
+        host = _host_for_log(nu)
+        if not host:
+            return "host_parse_failed"
+        if not gatekeep_enabled():
+            return "gatekeep_disabled"
+        if not url_allowed(nu):
+            return "domain_not_allowed"
+        return "unknown_block"
+    except Exception:
+        return "exception_during_gatekeep"
     
 def _canon_and_dedupe(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -408,18 +467,6 @@ def _looks_korean(q: str) -> bool:
     ql = q.lower()
     return (".kr" in ql) or (" korea" in ql) or (" ko-kr" in ql) or (" site:naver.com" in ql)
 
-def _looks_like_pdf_url(u: str) -> bool:
-    if not u:
-        return False
-    s = u.lower()
-    return (
-        s.endswith(".pdf")
-        or "filedown" in s
-        or "filedownload" in s
-        or "filedowntype" in s
-        or "downfile" in s
-    )
-
 
 # ── 연도 범위 확장(예: 2023..2025 → (2023 OR 2024 OR 2025)) ──────────────────
 _YEAR_RANGE_RE = _re.compile(r"\b(19|20)\d{2}\.\.(19|20)\d{2}\b")
@@ -453,7 +500,7 @@ def _pretag_content_type(items: List[Dict[str, Any]]) -> None:
         if it.get("content_type"):
             continue
         u = it.get("url") or it.get("source") or ""
-        if _looks_like_pdf_url(u):
+        if looks_like_pdf_url(u):
             it["content_type"] = "application/pdf"
 
 def _annotate_fetch_meta(items: List[Dict[str, Any]]) -> None:
@@ -471,7 +518,7 @@ def _annotate_fetch_meta(items: List[Dict[str, Any]]) -> None:
             it["fetched_at"] = now_iso
         if not it.get("content_type"):
             u = it.get("url") or it.get("source") or ""
-            if _looks_like_pdf_url(u):
+            if looks_like_pdf_url(u):
                 it["content_type"] = "application/pdf"
 
 def _fetch_pdf_once(u: str, timeout: int = 20) -> Optional[bytes]:
@@ -479,6 +526,9 @@ def _fetch_pdf_once(u: str, timeout: int = 20) -> Optional[bytes]:
     동일 URL은 세션 생존 동안 SSLError 발생 시 재시도하지 않도록 격리.
     성공 시 bytes 반환, 실패/격리 시 None.
     """
+    # 🔧 KHIDI /fileDownload 예외 처리: host 정규화
+    u = _normalize_khidi_pdf_url(u)
+
     if not u or u in SSL_QUARANTINE:
         return None
     return try_fetch_pdf(u, timeout=timeout)
@@ -501,7 +551,7 @@ def _enrich_raw_content(items: List[Dict[str, Any]], *, timeout: int = 20) -> No
             if it.get("raw_content"):
                 continue
 
-            if _looks_like_pdf_url(u):
+            if looks_like_pdf_url(u):
                 pdf_bytes = _fetch_pdf_once(u, timeout=timeout)
                 if pdf_bytes:
                     it["raw_content"] = ""  # 텍스트 변환은 다운스트림 파서에 맡김
@@ -583,26 +633,69 @@ def _search_tavily(query: str, *, num: int = 10, timeout: int = 15) -> List[Dict
 def _search_google_cse(query: str, *, num: int = 10, timeout: int = 20) -> List[Dict[str, Any]]:
     api_key = (os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_CSE_API_KEY") or "").strip()
     cse_id  = (os.getenv("GOOGLE_CSE_ID") or os.getenv("GOOGLE_CSE_CX") or "").strip()
-    if not (getattr(CFG, "HAS_GOOGLE_KEYS", False) and api_key and cse_id):
+    if not (api_key and cse_id):
+        logger.info("[GoogleCSE] skipped: missing api_key or cse_id (api=%s, cx=%s)",
+                    bool(api_key), bool(cse_id))
         return []
+    if not getattr(CFG, "HAS_GOOGLE_KEYS", True):
+        logger.warning("[GoogleCSE] CFG.HAS_GOOGLE_KEYS=False but env has keys. Proceeding anyway.")
     try:
+        # ✅ 한국어/국내 사이트 검색이면 기본 로케일을 ko/kr로 맞추는 게 유리합니다.
+        #    (ENV로 이미 지정된 경우엔 그 값을 존중)
         gl = os.getenv("GOOGLE_CSE_GL") or os.getenv("SEARCH_GL") or "us"
         lr = os.getenv("GOOGLE_CSE_LR") or ""
         hl = os.getenv("SEARCH_HL", "en")
+        try:
+            if _looks_korean(query):
+                if not (os.getenv("GOOGLE_CSE_GL") or os.getenv("SEARCH_GL")):
+                    gl = "kr"
+                if not os.getenv("SEARCH_HL"):
+                    hl = "ko"
+                # lr는 Google CSE의 language restrict 파라미터 (예: lang_ko)
+                if not os.getenv("GOOGLE_CSE_LR") and not lr:
+                    lr = "lang_ko"
+        except Exception:
+            pass
         num = max(1, min(int(num or 10), 10))
 
         g_cap = max(3, int(os.getenv("GOOGLE_TIMEOUT_SEC", str(DEFAULT_TIMEOUT_SECONDS))))
         timeout = min(timeout, g_cap)
 
-        # Google CSE 요청 URL — ENV가 있으면 덮어씀
-        url = GOOGLE_CSE_BASE_URL
-        params = {"key": api_key, "cx": cse_id, "q": query, "num": num, "hl": hl, "gl": gl}
+        # Google CSE 요청 URL — ENV가 있으면 덮어씀 (안전 fallback 추가)
+        url = (
+            os.getenv("GOOGLE_CSE_BASE_URL")
+            or GOOGLE_CSE_BASE_URL
+            or "https://customsearch.googleapis.com/customsearch/v1"
+        ).strip()
+
+        params = {
+            "key": api_key,
+            "cx": cse_id,
+            "q": query,
+            "num": num,
+            "hl": hl,
+            "gl": gl,
+        }
         if lr:
             params["lr"] = lr
 
         r = http_get(url, params=params, timeout=timeout)
-        r.raise_for_status()
+        try:
+            r.raise_for_status()
+        except Exception:
+            logger.warning("[GoogleCSE] HTTP %s body=%s", getattr(r, "status_code", "?"),
+                           (getattr(r, "text", "") or "")[:500])
+            raise
         data = r.json() or {}
+        if isinstance(data, dict) and data.get("error"):
+            err = data.get("error") or {}
+            logger.warning("[GoogleCSE] API error: code=%s message=%s status=%s",
+                        err.get("code"), err.get("message"), err.get("status"))
+        try:
+            si = data.get("searchInformation") or {}
+            logger.info("[GoogleCSE] totalResults=%s searchTime=%s", si.get("totalResults"), si.get("searchTime"))
+        except Exception:
+            pass
         items = data.get("items") or []
         parsed: List[Dict[str, Any]] = []
         for it in items:
@@ -620,6 +713,80 @@ def _search_google_cse(query: str, *, num: int = 10, timeout: int = 20) -> List[
     except Exception as e:
         logger.warning("Google CSE search failed: %s", e)
         return []
+    
+
+# ── Google CSE (with meta) ──────────────────────────────────────────────────
+def _search_google_cse_with_meta(
+    query: str, *, num: int = 10, timeout: int = 20
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """
+    기존 _search_google_cse()와 동일하게 검색하되,
+    searchInformation.totalResults 등을 meta로 함께 반환합니다.
+    - 반환: (parsed_items, meta={"totalResults": str|int|None, "searchTime": ..., "raw": ...})
+    """
+    api_key = (os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_CSE_API_KEY") or "").strip()
+    cse_id  = (os.getenv("GOOGLE_CSE_ID") or os.getenv("GOOGLE_CSE_CX") or "").strip()
+    if not (api_key and cse_id):
+        return [], {"totalResults": None}
+    try:
+        gl = os.getenv("GOOGLE_CSE_GL") or os.getenv("SEARCH_GL") or "us"
+        lr = os.getenv("GOOGLE_CSE_LR") or ""
+        hl = os.getenv("SEARCH_HL", "en")
+        try:
+            if _looks_korean(query):
+                if not (os.getenv("GOOGLE_CSE_GL") or os.getenv("SEARCH_GL")):
+                    gl = "kr"
+                if not os.getenv("SEARCH_HL"):
+                    hl = "ko"
+                if not os.getenv("GOOGLE_CSE_LR") and not lr:
+                    lr = "lang_ko"
+        except Exception:
+            pass
+
+        num = max(1, min(int(num or 10), 10))
+        g_cap = max(3, int(os.getenv("GOOGLE_TIMEOUT_SEC", str(DEFAULT_TIMEOUT_SECONDS))))
+        timeout = min(timeout, g_cap)
+
+        url = (
+            os.getenv("GOOGLE_CSE_BASE_URL")
+            or GOOGLE_CSE_BASE_URL
+            or "https://customsearch.googleapis.com/customsearch/v1"
+        ).strip()
+
+        params = {"key": api_key, "cx": cse_id, "q": query, "num": num, "hl": hl, "gl": gl}
+        if lr:
+            params["lr"] = lr
+
+        r = http_get(url, params=params, timeout=timeout)
+        try:
+            r.raise_for_status()
+        except Exception:
+            logger.warning("[GoogleCSE] HTTP %s body=%s", getattr(r, "status_code", "?"),
+                           (getattr(r, "text", "") or "")[:500])
+            raise
+
+        data = r.json() or {}
+        si = (data.get("searchInformation") or {}) if isinstance(data, dict) else {}
+        total = si.get("totalResults")
+        meta = {"totalResults": total, "searchTime": si.get("searchTime")}
+
+        items = data.get("items") or []
+        parsed: List[Dict[str, Any]] = []
+        for it in items:
+            link = _canon_url(it.get("link") or it.get("formattedUrl") or "")
+            if not link:
+                continue
+            parsed.append({
+                "title": it.get("title") or it.get("htmlTitle") or link,
+                "url": link,
+                "content": it.get("snippet") or it.get("htmlSnippet") or "",
+                "raw_content": "",
+                "source": link,
+            })
+        return parsed, meta
+    except Exception as e:
+        logger.warning("Google CSE search (with meta) failed: %s", e)
+        return [], {"totalResults": None}
 
 def _search_serpapi(query: str, *, num: int = 10, timeout: int = 20) -> List[Dict[str, Any]]:
     api_key = (os.getenv("SERPAPI_API_KEY") or "").strip()
@@ -662,16 +829,40 @@ def _search_naver_direct(query: str, *, num: int = 10, timeout: int = 20) -> Lis
     if not (client_id and client_secret):
         logger.debug("Naver direct search skipped: credential not set.")
         return []
-    q_naver = _simplify_for_naver(query)
+    q_naver = _simplify_for_naver(query, apply_limits=False)
     if not q_naver or len(q_naver) < 2:
         logger.info("[Naver(Direct)] skipped (empty after simplify)")
         return []
     from urllib.parse import quote
     encoded_query = quote(q_naver)
-    url = "https://openapi.naver.com/v1/search/news.json"
+    # intent 기반 endpoint 선택 (최소 diff)
+    intent = _infer_intent_from_query(query)
+    where = (os.getenv("NAVER_DIRECT_WHERE") or "").strip().lower()
+    if not where:
+        if intent == "news":
+            where = "news"
+        elif intent in ("stats", "regulation"):
+            where = "webkr"
+        else:
+            # 커뮤니티/커머스 성격은 webkr가 범용성이 좋음
+            where = "webkr"
+
+    endpoint = {
+        "news": "news.json",
+        "webkr": "webkr.json",
+        "blog": "blog.json",
+        "cafe": "cafearticle.json",
+    }.get(where, "news.json")
+
+    url = f"https://openapi.naver.com/v1/search/{endpoint}"
     num = max(1, min(int(num or 10), 100))
     headers = {"X-Naver-Client-Id": client_id, "X-Naver-Client-Secret": client_secret}
-    params = {"query": q_naver, "display": num, "start": 1, "sort": "sim"}
+    # 최신성 필요 시 date 우선(뉴스/연도 포함)
+    sort = "sim"
+    ql = (q_naver or "")
+    if intent == "news" or _re.search(r"\b(19|20)\d{2}\b", ql):
+        sort = (os.getenv("NAVER_DIRECT_SORT") or "date").strip().lower() or "date"
+    params = {"query": q_naver, "display": num, "start": 1, "sort": sort}
     logger.debug("[Naver(Direct)][query] %s (encoded: %s)", _ell(q_naver), encoded_query[:50] + "...")
     try:
         r = http_get(url, headers=headers, params=params, timeout=timeout)
@@ -679,14 +870,20 @@ def _search_naver_direct(query: str, *, num: int = 10, timeout: int = 20) -> Lis
         data = r.json() or {}
         items = data.get("items") or []
         parsed: List[Dict[str, Any]] = []
+        _tag_re = _re.compile(r"<[^>]+>")
+        def _clean(s: str) -> str:
+            s = _tag_re.sub("", s or "")
+            s = html.unescape(s)
+            return _re.sub(r"\s{2,}", " ", s).strip()
+
         for it in items:
             link = _canon_url(it.get("link") or it.get("url") or "")
             if not link:
                 continue
             parsed.append({
-                "title": it.get("title") or link,
+                "title": _clean(it.get("title") or link),
                 "url": link,
-                "content": it.get("description") or "",
+                "content": _clean(it.get("description") or ""),
                 "raw_content": "",
                 "source": link,
             })
@@ -705,7 +902,7 @@ def _search_serpapi_naver(query: str) -> List[dict]:
     api_key = (os.getenv("SERPAPI_API_KEY") or "").strip()
     if not api_key:
         return []
-    q_naver = _simplify_for_naver(query)
+    q_naver = _simplify_for_naver(query, apply_limits=False)
     if not q_naver or len(q_naver) < 2:
         logger.info("[SerpAPI(Naver)] skipped (empty after simplify)")
         return []
@@ -821,11 +1018,35 @@ def _filter_non_2xx(items: List[Dict[str, Any]], *, timeout: float = 6.0, limit:
 # =============================================================================
 # Query shaping / normalization
 # =============================================================================
+
+def _strip_unbalanced_quotes(s: str) -> str:
+    """
+    Google CSE는 따옴표가 한쪽만 존재(odd count)하면 0건이 되는 경우가 자주 발생합니다.
+    - " 개수가 홀수면: 전체 " 를 제거 (보수적으로 안전한 선택)
+    - ' 도 동일 처리(필요 시)
+    """
+    if not s:
+        return s
+    try:
+        if s.count('"') % 2 == 1:
+            s = s.replace('"', " ")
+        # single quote는 일반 텍스트에서도 많이 쓰이므로 과격하게 제거하지 않되,
+        # 짝이 안 맞는 경우만 공백으로 치환
+        if s.count("'") % 2 == 1:
+            s = s.replace("'", " ")
+        s = _re.sub(r"\s{2,}", " ", s).strip()
+        return s
+    except Exception:
+        return s
+
 def _sanitize_query(q: str) -> str:
     if not q:
         return q
     s = q.strip()
     s = _re.sub(r"^\(\s*untitled\s*\)\s*", "", s, flags=_re.I)
+
+    # ✅ 가장 중요한 방어: planner가 만든 query에 닫는 따옴표만 붙는 케이스 제거
+    s = _strip_unbalanced_quotes(s)
 
     s = _re.sub(r"\s{2,}", " ", s).strip()
     return s
@@ -889,11 +1110,150 @@ def _to_google_precision_alt(q: str) -> str:
     return s
 
 def _to_naver_recall(q: str) -> str:
-    s = _simplify_for_naver(q)
+    # SSOT: 길이/토큰 캡은 이 함수에서만 적용 (utils._simplify_for_naver는 정리만)
+    s = _simplify_for_naver(q, apply_limits=False)
+    # SSOT: NAVER_MAX_TOKENS / NAVER_MAX_LEN
     toks = s.split()
-    if len(toks) > 5:
-        s = " ".join(toks[:5])
+    try:
+        base_max = int(os.getenv("NAVER_MAX_TOKENS", "15"))
+    except Exception:
+        base_max = 15
+    # recall은 짧게(대략 절반), 너무 짧아지지 않게 하한/상한
+    max_toks = max(4, min(8, max(1, base_max // 2)))
+    if len(toks) > max_toks:
+        s = " ".join(toks[:max_toks])
+    try:
+        max_len = int(os.getenv("NAVER_MAX_LEN", "200"))
+    except Exception:
+        max_len = 200
+    if max_len > 0 and len(s) > max_len:
+        s = s[:max_len].rstrip()
     return s
+
+
+def _to_naver_prec(q: str) -> str:
+    """
+    naver용 정밀(prec) 변형:
+    - 구글식 연산자(site:, OR, 괄호) 제거
+    - SSOT: NAVER_NEGATIVE_CAP / NAVER_MAX_TOKENS / NAVER_MAX_LEN / NAVER_TRIM_OPERATORS
+    - 따옴표/특수 따옴표 정리 + 짝 안맞는 따옴표 제거
+    - 마이너스 토큰은 1~2개까지만 유지(네이버 노이즈 차단 정도만)
+    - recall보다 토큰을 조금 더 남겨 의도/브랜드/연도 보존
+    """
+    s = (q or "").strip()
+    if not s:
+        return ""
+    # 따옴표 정규화 + 불균형 따옴표 제거
+    s = s.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+    s = _strip_unbalanced_quotes(s)
+    # 구글식/과한 구조 제거 (NAVER_TRIM_OPERATORS=0이면 과격 제거를 피함)
+    trim_ops = (os.getenv("NAVER_TRIM_OPERATORS", "0") or "").strip().lower() in {"1","true","yes","y","on"}
+    if trim_ops:
+        s = _remove_all_site_terms(s)
+        s = s.replace(" OR ", " ").replace(" AND ", " ")
+        s = s.replace("(", " ").replace(")", " ")
+    # naver 친화 단순화(문장부호/과한 기호 정리)
+    # SSOT: 길이/토큰 캡은 이 함수에서만 적용
+    s = _simplify_for_naver(s, apply_limits=False)
+    # 마이너스 토큰 cap (SSOT: NAVER_NEGATIVE_CAP)
+    try:
+        cap = int(os.getenv("NAVER_NEGATIVE_CAP", "3"))
+    except Exception:
+        cap = 3
+    s = _cap_minus_tokens(s, cap=cap)
+    # 길이/토큰 제한(prec는 좀 더 길게)
+    toks = s.split()
+    try:
+        base_max = int(os.getenv("NAVER_MAX_TOKENS", "15"))
+    except Exception:
+        base_max = 15
+    # prec는 넉넉히(의도/브랜드/연도 보존), 과도 길이만 방지
+    max_toks = max(6, min(base_max, 12))
+    if len(toks) > max_toks:
+        s = " ".join(toks[:max_toks])
+    try:
+        max_len = int(os.getenv("NAVER_MAX_LEN", "200"))
+    except Exception:
+        max_len = 200
+    if max_len > 0 and len(s) > max_len:
+        s = s[:max_len].rstrip()
+    s = _re.sub(r"\s{2,}", " ", s).strip()
+    return s
+
+# =============================================================================
+# Google CSE only: query rewriting (L0/L1/L2) + site splitting
+# =============================================================================
+
+_CSE_SITE_RE = _re.compile(r"(?i)\bsite:([^\s()]+)")
+
+def _extract_sites(q: str) -> List[str]:
+    """site:example.com 들을 순서대로 추출"""
+    try:
+        return [m.group(1).strip() for m in _CSE_SITE_RE.finditer(q or "") if m.group(1).strip()]
+    except Exception:
+        return []
+
+def _remove_all_site_terms(q: str) -> str:
+    """모든 site:... 토큰 제거"""
+    try:
+        s = _CSE_SITE_RE.sub(" ", q or "")
+        return _re.sub(r"\s{2,}", " ", s).strip()
+    except Exception:
+        return (q or "").strip()
+
+def _keep_only_one_site(q: str, site: str) -> str:
+    """기존 site:...를 모두 제거 후 site 하나만 남김"""
+    s = _remove_all_site_terms(q)
+    if not site:
+        return s
+    return _re.sub(r"\s{2,}", " ", f"site:{site} {s}".strip()).strip()
+
+def _cse_rewrite_levels(q: str) -> List[Tuple[str, str]]:
+    """
+    L0/L1/L2 생성.
+    - L0: 원문
+    - L1: (a | b) / (a OR b) 같은 괄호/OR 과다를 완화 + 마이너스 토큰 제한
+    - L2: site/연도/부정키워드 제거(생존 모드) → 핵심 텍스트만
+    """
+    s0 = (q or "").strip()
+    if not s0:
+        return [("L0", "")]
+
+    # L1: OR/괄호 과다 완화(보수적으로)
+    s1 = s0
+    try:
+        s1 = _re.sub(r"\s*\|\s*", " OR ", s1)
+        # 연도 OR 블록이 길면 keep=1 로 축약
+        s1 = _re.sub(r"\((?:\s*(?:19|20)\d{2}\s*(?:OR\s*)?)+\)",
+                     lambda m: _re.sub(r"\s{2,}", " ", _to_google_precision(m.group(0))).strip(),
+                     s1)
+        s1 = _cap_minus_tokens(s1, cap=2)
+        s1 = _strip_unbalanced_quotes(s1)
+        s1 = _re.sub(r"\s{2,}", " ", s1).strip()
+    except Exception:
+        s1 = s0
+
+    # L2: 생존 모드(핵심 텍스트만)
+    s2 = s1
+    try:
+        s2 = _remove_all_site_terms(s2)
+        # 연도 제거
+        s2 = _re.sub(r"\b(19|20)\d{2}\b", " ", s2)
+        # 마이너스 토큰 제거
+        s2 = _re.sub(r"(^|\s)-\S+", " ", s2).strip()
+        # 괄호 제거(간단히)
+        s2 = s2.replace("(", " ").replace(")", " ")
+        s2 = _strip_unbalanced_quotes(s2)
+        s2 = _re.sub(r"\s{2,}", " ", s2).strip()
+    except Exception:
+        s2 = s1
+
+    out: List[Tuple[str, str]] = [("L0", s0)]
+    if s1 and s1 != s0:
+        out.append(("L1", s1))
+    if s2 and s2 not in {s0, s1}:
+        out.append(("L2", s2))
+    return out
 
 # =============================================================================
 # Backend router & helpers
@@ -931,35 +1291,44 @@ def _is_googleish(q: str) -> bool:
     s = q or ""
     return any(tok in s for tok in ("site:", " OR ", " AND ", "(", ")"))
 
-def _resolve_backend_chain(engine_arg: Optional[str], *, num: int, googleish: bool) -> List[str]:
+def _resolve_backend_chain(
+    engine_arg: Optional[str],
+    *,
+    num: int,
+    googleish: bool,
+) -> List[str]:
     eng = (engine_arg or os.getenv("WEB_SEARCH_ENGINE") or "auto").strip().lower()
     cfg_backends = (getattr(CFG, "SEARCH_BACKENDS", "") or "").strip()
-    default_chain = "google_cse,naver_direct,serpapi_naver,serpapi,tavily"
 
-    if eng == "auto" and googleish:
-        base = cfg_backends or (os.getenv("SEARCH_BACKENDS") or default_chain)
-        chain = ["google_cse"]
-        for b in base.split(","):
-            a = _normalize_backend_alias(b.strip())
-            if a and a not in chain:
-                chain.append(a)
-        return chain
+    # 🔹 레거시 기본 체인: Naver Direct + Tavily 만 사용
+    default_chain = "naver_direct,tavily"
 
+    # 1) 명시적 엔진 지정 (예: WEB_SEARCH_ENGINE=naver_direct)
     if eng and eng != "auto":
         fallback = cfg_backends or (os.getenv("SEARCH_BACKENDS") or default_chain)
-        chain = [_normalize_backend_alias(eng)]
+        chain: list[str] = []
+        a0 = _normalize_backend_alias(eng)
+        if a0:
+            chain.append(a0)
         for b in fallback.split(","):
             a = _normalize_backend_alias(b.strip())
             if a and a not in chain:
                 chain.append(a)
         return chain
 
+    # 2) eng == "auto" 인 경우:
+    #    예전처럼 googleish일 때 google_cse를 앞에 꽂지 않고,
+    #    그냥 SEARCH_BACKENDS 또는 default_chain만 사용한다.
     src_list = cfg_backends or (os.getenv("SEARCH_BACKENDS") or "")
     if src_list:
-        return [_normalize_backend_alias(s) for s in src_list.split(",") if s.strip()]
+        return [
+            _normalize_backend_alias(s)
+            for s in src_list.split(",")
+            if s.strip()
+        ]
 
-    return [s.strip() for s in default_chain.split(",")]
-
+    # 3) 아무 설정도 없으면 default_chain 사용
+    return [s.strip() for s in default_chain.split(",") if s.strip()]
 # =============================================================================
 # Public Tool: web_search
 # =============================================================================
@@ -971,17 +1340,29 @@ def web_search(
     num: int = 10,
 ) -> Tuple[List[Dict[str, Any]], str]:
     """
-    멀티 엔진 웹검색 (Google CSE ↔ Naver Direct/SerpAPI ↔ Tavily)
+    멀티 엔진 웹검색 (Vertex AI Search -> (legacy) Naver Direct -> Tavily)
     반환: (results[list[dict]], json_path[str])
     - 결과 스키마: {title, url, content, raw_content, source}
     - ENV:
       SEARCH_POLICY=best_of_chain | first_ok
       SEARCH_MIN_OK=1
       SEARCH_TOPN=10
-      SEARCH_BACKENDS=google_cse,naver_direct,serpapi_naver,serpapi,tavily
+      SEARCH_BACKENDS=naver_direct,tavily
       SEARCH_TIME_BUDGET_SEC=25
       BACKEND_TIMEOUT_SEC=15 (cap to DEFAULT_TIMEOUT_SECONDS)
     """
+    _cse_api_key = (os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_CSE_API_KEY") or "").strip()
+    _cse_cx = (os.getenv("GOOGLE_CSE_ID") or os.getenv("GOOGLE_CSE_CX") or "").strip()
+
+    # Google CSE는 현재 사실상 미사용.
+    # 키가 둘 다 설정된 경우에만, 그리고 DEBUG 레벨일 때만 진단 로그를 남긴다.
+    if _cse_api_key and _cse_cx:
+        logger.debug(
+            "[CSE DIAG] google_cse keys present (api_key_len=%d cx_len=%d)",
+            len(_cse_api_key),
+            len(_cse_cx),
+        )
+
     try:
         reload_config()
         from settings_gatekeep import refresh_gatekeep_cache as _refresh_gk
@@ -1051,7 +1432,7 @@ def web_search(
     if base_query != raw_query:
         logger.debug("[web_search][sanitized] %s  ←  %s", base_query, raw_query)
 
-    _ = _append_default_negatives(base_query)
+    base_query = _append_default_negatives(base_query)
 
     _policy = (getattr(CFG, "SEARCH_POLICY", "best_of_chain") or "best_of_chain").strip()
     _min_ok = int(getattr(CFG, "SEARCH_MIN_OK", __MIN_RESULTS_OK_FALLBACK) or __MIN_RESULTS_OK_FALLBACK)
@@ -1155,7 +1536,12 @@ def web_search(
             else:
                 variants = [("precAneg", q_prec_a_neg), ("precA", q_prec_a), ("precB", q_prec_b)]
         elif bk in ("naver", "serpapi_naver", "naver_direct"):
-            variants = [("recall", _to_naver_recall(base_query))]
+            # naver variants 2개: recall(짧게) + prec(조금 더 정밀)
+            q_rec = _to_naver_recall(base_query)
+            q_pre = _to_naver_prec(base_query)
+            variants = [("recall", q_rec)]
+            if q_pre and q_pre != q_rec:
+                variants.append(("prec", q_pre))
         else:
             variants = [("default", base_query)]
 
@@ -1168,8 +1554,67 @@ def web_search(
             try:
                 to = min(_backend_timeout, max(3, int(_budget_left())))
                 logger.info("[web_search] calling backend=%s variant=%s timeout=%ss", bk, label, to)
-                _res = _backend_call(bk, q_use, num=num, timeout=to) or []
-                logger.info("[web_search] backend=%s variant=%s got=%d", bk, label, len(_res))
+                # ── Google CSE only: L0/L1/L2 + site split retry + logs(len/level/totalResults)
+                if bk == "google_cse":
+                    best_local: List[Dict[str, Any]] = []
+                    best_local_label: Optional[str] = None
+                    best_total: Any = None
+
+                    # 1) L0/L1/L2 생성
+                    for lvl, q_lvl in _cse_rewrite_levels(q_use):
+                        if not q_lvl:
+                            continue
+                        if _budget_left() <= 0:
+                            break
+
+                        # 2) site 분할 재시도: site가 여러 개면 1개씩 호출
+                        sites = _extract_sites(q_lvl)
+                        if sites:
+                            # 너무 많으면 3개까지만(최소 diff/안전)
+                            sites = sites[:3]
+                            merged_lvl: List[Dict[str, Any]] = []
+                            total_any = None
+                            for s_site in sites:
+                                q_one = _keep_only_one_site(q_lvl, s_site)
+                                logger.info("[CSE] len=%d level=%s site=%s q=%s",
+                                            len(q_one or ""), lvl, s_site, _ell(q_one))
+                                _tmp, meta = _search_google_cse_with_meta(q_one, num=num, timeout=to)
+                                try:
+                                    total_any = meta.get("totalResults")
+                                except Exception:
+                                    total_any = None
+                                logger.info("[CSE] totalResults=%s level=%s site=%s got=%d",
+                                            total_any, lvl, s_site, len(_tmp))
+                                if _tmp:
+                                    merged_lvl.extend(_tmp)
+                            merged_lvl = _canon_and_dedupe(merged_lvl)
+                            if merged_lvl and len(merged_lvl) > len(best_local):
+                                best_local = merged_lvl
+                                best_local_label = f"{label}:{lvl}:site_split"
+                                best_total = total_any
+                        else:
+                            logger.info("[CSE] len=%d level=%s q=%s", len(q_lvl or ""), lvl, _ell(q_lvl))
+                            _tmp, meta = _search_google_cse_with_meta(q_lvl, num=num, timeout=to)
+                            try:
+                                best_total = meta.get("totalResults")
+                            except Exception:
+                                best_total = None
+                            logger.info("[CSE] totalResults=%s level=%s got=%d", best_total, lvl, len(_tmp))
+                            if _tmp and len(_tmp) > len(best_local):
+                                best_local = _tmp
+                                best_local_label = f"{label}:{lvl}"
+
+                        # first_ok면 이 레벨에서 min_ok 충족 시 즉시 중단
+                        if _policy == "first_ok" and best_local and len(best_local) >= _min_ok:
+                            break
+
+                    _res = best_local
+                    if best_local_label:
+                        used_label = best_local_label
+                    logger.info("[web_search] backend=%s variant=%s got=%d", bk, used_label or label, len(_res))
+                else:
+                    _res = _backend_call(bk, q_use, num=num, timeout=to) or []
+                    logger.info("[web_search] backend=%s variant=%s got=%d", bk, label, len(_res))
             except Exception as e:
                 logger.warning("web_search backend '%s' failed on %s: %s", bk, label, e)
                 _res = []
@@ -1188,8 +1633,18 @@ def web_search(
                 for _it in best_res:
                     _u = _it.get("url") or _it.get("source") or ""
                     # ✅ 정규화된 URL 기준으로 게이트키핑 (normalize_url 일관 사용)
-                    if _u and url_allowed(_canon_url(_u)):
-                        _allowed_cnt += 1
+                    if _u:
+                        nu = _canon_url(_u)
+                        if url_allowed(nu):
+                            _allowed_cnt += 1
+                        else:
+                            reason = _gatekeep_drop_reason(nu)
+                            logger.info(
+                                "[GATEKEEP][DROP] reason=%s host=%s url=%s",
+                                reason,
+                                _host_for_log(nu),
+                                nu,
+                            )
                 if _allowed_cnt:
                     allowlist_hits += _allowed_cnt
             except Exception:
@@ -1280,7 +1735,11 @@ def web_search(
                 q_prec_a_neg = _append_default_negatives(q_prec_a)
                 vset = [("precAneg", q_prec_a_neg), ("precA", q_prec_a), ("precB", q_prec_b)]
             elif bk in ("naver", "serpapi_naver", "naver_direct"):
-                vset = [("recall", _to_naver_recall(base_query))]
+                q_rec = _to_naver_recall(base_query)
+                q_pre = _to_naver_prec(base_query)
+                vset = [("recall", q_rec)]
+                if q_pre and q_pre != q_rec:
+                    vset.append(("prec", q_pre))
             else:
                 vset = [("default", base_query)]
 
@@ -1365,7 +1824,24 @@ def web_search(
     # ✅ 최종 단계에서도 한 번 더 보강(앞선 단계의 결과라도 안전 재확인)
     results = _canon_and_dedupe(results)
     _pretag_content_type(results)
-    results = _apply_gatekeep_to_results(results)
+    if gatekeep_enabled():
+        filtered = []
+        for it in results:
+            u = it.get("url") or it.get("source") or ""
+            nu = _canon_url(u)
+            if url_allowed(nu):
+                filtered.append(it)
+            else:
+                reason = _gatekeep_drop_reason(u)
+                logger.info(
+                    "[GATEKEEP][DROP] reason=%s host=%s url=%s",
+                    reason,
+                    _host_for_log(nu),
+                    nu,
+                )
+        results = filtered
+    else:
+        results = _apply_gatekeep_to_results(results)
     results = _pick_top(results, _topn)
     try:
         probe_timeout = float(os.getenv("WEB_FETCH_PROBE_TIMEOUT", "6"))

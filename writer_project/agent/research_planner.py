@@ -1,6 +1,7 @@
 from __future__ import annotations
 from langchain_core.output_parsers.string import StrOutputParser
 from utils.tasks import AIMessage
+import os
 
 import logging
 logger = logging.getLogger(__name__)
@@ -145,6 +146,17 @@ def research_planner(state: State):
         objs0 = [str(s).strip() for s in (st.get("research_objectives") or []) if str(s).strip()]
         if objs0:
             return list(dict.fromkeys(objs0))
+
+        # 1.5) ENV: BLOCKAGI_OBJECTIVE_1..n (가장 흔한 형태) 직접 로딩
+        # loader가 없거나 실패해도 objectives가 "합쳐지지 않도록" 보장합니다.
+        env_split: list[str] = []
+        for i in range(1, 10):
+            v = (os.getenv(f"BLOCKAGI_OBJECTIVE_{i}") or "").strip()
+            if v:
+                env_split.append(v)
+        if env_split:
+            return list(dict.fromkeys(env_split))
+        
         # 2) ENV/CFG 혼합 로딩 (가능하면 helper 사용)
         try:
             loader = getattr(config, "load_research_objectives_from_env", None)
@@ -226,10 +238,29 @@ def research_planner(state: State):
     # ① LLM 결과 정규화
     raw_lines = [q for q in queries_text.splitlines() if q.strip()]
 
+    def _strip_unbalanced_quotes(s: str) -> str:
+        """
+        LLM 출력에 따옴표가 한쪽만 남아 있으면(odd count) 검색이 0건이 되는 경우가 많습니다.
+        - " 개수가 홀수면: 전체 " 제거
+        - ' 도 홀수면 제거(보수적으로)
+        """
+        if not s:
+            return s
+        try:
+            if s.count('"') % 2 == 1:
+                s = s.replace('"', " ")
+            if s.count("'") % 2 == 1:
+                s = s.replace("'", " ")
+            s = re.sub(r"\s{2,}", " ", s).strip()
+            return s
+        except Exception:
+            return s
+
     def _strip_bullet_num(s: str) -> str:
         s = re.sub(r"^\s*[\-\•]\s*", "", s)
         s = re.sub(r"^\s*\d+\.\s*", "", s)
-        return re.sub(r"\s+", " ", s).strip().strip('"').strip("'")
+        s = re.sub(r"\s+", " ", s).strip().strip('"').strip("'")
+        return _strip_unbalanced_quotes(s)
 
     normed: list[str] = []
     _seen = set()
@@ -297,6 +328,8 @@ def research_planner(state: State):
 
         # 공백 정규화
         s = re.sub(r"\s+", " ", s).strip()
+        # 따옴표 안전화(LLM이 남긴 홀수 따옴표 제거)
+        s = _strip_unbalanced_quotes(s)
 
         # 한국 타깃 강화(옵션)
         if _cfg_bool("PLANNER_FORCE_KR", False):
@@ -363,7 +396,8 @@ def research_planner(state: State):
         normed = merged
 
     # 개수 상한(옵션)
-    max_q = int(_cfg_int("RESEARCH_PLANNER_MAX_Q", 7) or 7)
+    # 1목표=1쿼리 기본값(필요하면 ENV로 늘릴 수 있음)
+    max_q = int(_cfg_int("RESEARCH_PLANNER_MAX_Q", 2) or 2)
 
     if max_q > 0 and len(normed) > max_q:
         normed = normed[:max_q]

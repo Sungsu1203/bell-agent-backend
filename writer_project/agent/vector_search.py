@@ -28,7 +28,7 @@ from utils.query_filters import (
     clean_seed as _clean_seed,
     ok_query as _ok_query,
 )
-from prompts import get_vector_search_prompt
+from prompts import get_vector_search_prompt, get_direct_qa_prompt
 from utils.tasks import has_pending, iter_tool_calls, schedule_writer_if_needed
 from utils.outline import get_topic_outline_text
 from tools.web_rag import (
@@ -38,6 +38,9 @@ from tools.web_rag import (
     ensure_vector_store_cleared_once,
     _default_chroma_dir,
 )
+
+from typing import Any, Sequence
+
 # URL/NS/경로 유틸(공식)
 from tools.web_rag.utils import (
     sanitize_ns as _wr_sanitize_ns,
@@ -48,10 +51,16 @@ from tools.web_rag.utils import (
 from tools.local_rag import ingest_local_files
 from utils.text_utils import plain_snip as _plain_snip
 
+from collections import Counter
+
 from utils.ref_format import format_ref_for_log
 
 from typing import Callable, Optional, TYPE_CHECKING
 from pathlib import Path
+
+from typing import Any, List, Optional, Sequence  # 파일 상단에 없으면 추가
+
+from tools.web_rag import retrieve
 
 try:
     from tools.metrics import record_retrieval_source as _record_retrieval_source  # pyright: ignore[reportMissingImports]
@@ -85,16 +94,15 @@ def _emit_min_qa(
             content=answer_text,
             additional_kwargs={
                 "role": "qa",
-                "qa_direct_reply": True,
+                "qa_fallback": True,
                 "refs_preview": used_refs,
                 "reason": (reason or "direct_qa_min_response"),
             },
         )
     )
-    # 플래그 세팅: 직답 완료로 간주(작성기는 잠시 억제)
+
     flags_now = cast(MutableMapping[str, Any], state.setdefault("flags", {}))
-    flags_now["qa_direct_reply"] = True
-    flags_now["suppress_writer"] = True
+    flags_now["qa_fallback"] = True
     state["flags"] = dict(flags_now)
     state["messages"] = messages
     # 라우터 힌트
@@ -382,10 +390,22 @@ def _dual_retrieve(query: str, *, top_k: int, ns_default: str, persist_dir: str)
        ⚠️ 말미에 기본 NS로 '무조건 폴백'을 수행하여 0-hit 반복을 방지한다.
        ⚠️ persist_directory는 호출 인자(persist_dir)를 우선 사용하여 모든 NS에 일관 적용.
     """
+    import inspect  # 파일 상단에 없으면 추가
+
     ns_web = (_cfg_str("CHROMA_NAMESPACE_WEB", "") or "").strip()
     ns_loc = (_cfg_str("CHROMA_NAMESPACE_LOCAL", "") or "").strip()
+    # ✅ env가 비어 있으면 ns_default 기반으로 자동 파생 (ingest 쪽 split 네임스페이스와 정합)
+    if not ns_web:
+        ns_web = f"{ns_default}-web"
+    if not ns_loc:
+        ns_loc = f"{ns_default}-local"
     include_base_cfg = _cfg_bool("CHROMA_INCLUDE_BASE", False)
     mode = (_cfg_str("MERGE_RETRIEVE_MODE", "web_first") or "web_first").lower()
+
+    logger.debug(
+        "[dual-retrieve][ns] ns_default=%s ns_web=%s ns_loc=%s",
+        ns_default, ns_web, ns_loc
+    )
 
     # persist_directory 일관성: 외부 인자가 있으면 모든 NS에 동일 적용, 없으면 기본 규칙
     def _dir_for(ns_name: str) -> str:
@@ -396,6 +416,43 @@ def _dual_retrieve(query: str, *, top_k: int, ns_default: str, persist_dir: str)
         base = persist_dir.strip() if (persist_dir and str(persist_dir).strip()) else _default_chroma_dir(ns_name)
         # ns_name은 반드시 sanitize된 값이어야 함
         return _wr_resolve_persist_dir(ns_name, base)
+
+    def _call_retrieve(q: str, *, ns_name: str, k: int) -> List[Any]:
+        if k <= 0:
+            return []
+        q_clean = (q or "").strip()
+        if not q_clean:
+            return []
+        try:
+            logger.warning(
+                "[CHECK][_call_retrieve][which] retrieve=%r module=%s",
+                retrieve,
+                getattr(retrieve, "__module__", "?"),
+            )
+            return list(retrieve(q_clean, namespace=ns_name, persist_directory=_dir_for(ns_name), top_k=k) or [])
+        except Exception as e:
+            logger.warning("retrieve 실패(ns='%s'): %s", ns_name, e)
+            return []
+
+    # ✅ [CHECK] 현재 ns/persist_dir 기준으로 실제 컬렉션이 있는지 카운트 확인 (0-hit 원인 규명용)
+    try:
+        web_dir = _dir_for(ns_web) if ns_web else ""
+        loc_dir = _dir_for(ns_loc) if ns_loc else ""
+        base_dir = _dir_for(ns_default)
+
+        web_cnt = _collection_count(ns_web, web_dir) if ns_web else None
+        loc_cnt = _collection_count(ns_loc, loc_dir) if ns_loc else None
+        base_cnt = _collection_count(ns_default, base_dir)
+
+        logger.warning(
+            "[CHECK][dual-retrieve][count] web=%s (ns=%s dir=%s) | local=%s (ns=%s dir=%s) | base=%s (ns=%s dir=%s)",
+            web_cnt, ns_web, web_dir,
+            loc_cnt, ns_loc, loc_dir,
+            base_cnt, ns_default, base_dir,
+        )
+    except Exception as e:
+        logger.warning("[CHECK][dual-retrieve][count] failed: %s", e)
+
 
     # ◀︎ 변경: 사용자가 CHROMA_INCLUDE_BASE=1 을 지정한 경우,
     #          컬렉션 비어있어도 include_base를 유지(초기 빈약 문제 완화).
@@ -411,29 +468,25 @@ def _dual_retrieve(query: str, *, top_k: int, ns_default: str, persist_dir: str)
             logger.debug("[dual-retrieve] base collection check skipped: %s | include_base=%s", e, include_base)
 
 
-    # 0) 아무 것도 없으면 기본 NS만
-    if not ns_web and not ns_loc:
-        try:
-            docs = retrieve.invoke({
-                "query": query, "namespace": ns_default,
-                "persist_directory": _dir_for(ns_default), "top_k": top_k
-            })
-            docs = list(docs or [])
-            docs = _rerank_docs_by_domain(docs)
-            return _dedupe_docs(docs)
-        except Exception as e:
-            logger.warning("retrieve 실패(single ns='%s'): %s", ns_default, e)
-            return []
-
     # 내부 헬퍼
-    def _get(ns_name: str, k: int) -> List[Any]:
+
+    def _get(ns_name: str, k: int, src: str) -> List[Any]:
         if k <= 0:
             return []
         try:
-            return retrieve.invoke({
-                "query": query, "namespace": ns_name,
-                "persist_directory": _dir_for(ns_name), "top_k": k
-            }) or []
+            docs = _call_retrieve(query, ns_name=ns_name, k=k)
+            logger.warning("[CHECK][_get] src=%s ns=%s k=%d raw=%d", src, ns_name, k, len(docs or []))
+            # ✅ provenance tag: 이 doc이 어디서 retrieve됐는지 표시
+            for d in docs:
+                try:
+                    md = getattr(d, "metadata", None)
+                    if isinstance(md, dict):
+                        md["_retrieved_src"] = src      # "web" | "local" | "base"
+                        md["_retrieved_ns"] = ns_name   # 실제 namespace
+                except Exception:
+                    pass
+
+            return docs
         except Exception as e:
             logger.warning("retrieve 실패(ns='%s'): %s", ns_name, e)
             return []
@@ -441,8 +494,17 @@ def _dual_retrieve(query: str, *, top_k: int, ns_default: str, persist_dir: str)
     # 1) (공통) 웹/로컬 조회
     #    - 우선 웹/로컬을 k 분할로 조회 (한쪽만 설정된 경우 자동으로 (top_k,0) 또는 (0,top_k))
     k_web, k_loc = _split_k(top_k) if (ns_web and ns_loc) else ((top_k, 0) if ns_web else (0, top_k))
-    web_docs = _dedupe_docs(_get(ns_web, k_web) if ns_web else [])
-    loc_docs = _dedupe_docs(_get(ns_loc, k_loc) if ns_loc else [])
+    web_raw = _get(ns_web, k_web, "web") if ns_web else []
+    loc_raw = _get(ns_loc, k_loc, "local") if ns_loc else []
+    web_docs = _dedupe_docs(web_raw)
+    loc_docs = _dedupe_docs(loc_raw)
+
+    logger.warning(
+        "[CHECK][dual-retrieve][peek] k=%d split(web=%d,local=%d) raw(web=%d,local=%d) dedupe(web=%d,local=%d)",
+        top_k, k_web, k_loc,
+        len(web_raw or []), len(loc_raw or []),
+        len(web_docs or []), len(loc_docs or [])
+    )
 
     # 2) base 포함 설정이면 부족분만큼 기본 NS에서 추가
     base_docs: List[Any] = []
@@ -450,10 +512,18 @@ def _dual_retrieve(query: str, *, top_k: int, ns_default: str, persist_dir: str)
         remaining = max(0, top_k - len(web_docs) - len(loc_docs))
         if remaining > 0:
             try:
-                base_docs = _dedupe_docs(retrieve.invoke({
-                    "query": query, "namespace": ns_default,
-                    "persist_directory": _dir_for(ns_default), "top_k": remaining
-                }) or [])
+                base_docs = _dedupe_docs(_call_retrieve(query, ns_name=ns_default, k=remaining))
+
+                # ✅ base provenance tag (include_base로 채운 문서도 출처가 보이게)
+                for d in (base_docs or []):
+                    try:
+                        md = getattr(d, "metadata", None)
+                        if isinstance(md, dict):
+                            md["_retrieved_src"] = "base"
+                            md["_retrieved_ns"] = ns_default
+                    except Exception:
+                        pass
+
                 logger.info("[dual-retrieve] include_base used → fetched %d from base", len(base_docs))
             except Exception as e:
                 logger.warning("retrieve 실패(base ns='%s'): %s", ns_default, e)
@@ -483,10 +553,18 @@ def _dual_retrieve(query: str, *, top_k: int, ns_default: str, persist_dir: str)
     # 4) ✅ 무조건 폴백: 병합 결과가 비었으면 기본 NS에서 재조회
     if not merged:
         try:
-            fallback = _dedupe_docs(retrieve.invoke({
-                "query": query, "namespace": ns_default,
-                "persist_directory": _dir_for(ns_default), "top_k": top_k
-            }) or [])
+            fallback = _dedupe_docs(_call_retrieve(query, ns_name=ns_default, k=top_k))
+
+            # ✅ base provenance tag (fallback으로 돌아온 문서도 출처가 보이게)
+            for d in (fallback or []):
+                try:
+                    md = getattr(d, "metadata", None)
+                    if isinstance(md, dict):
+                        md["_retrieved_src"] = "base"
+                        md["_retrieved_ns"] = ns_default
+                except Exception:
+                    pass
+
             # 폴백 결과에도 도메인 재랭킹 적용
             fallback = _rerank_docs_by_domain(list(fallback or []))
             fallback = _dedupe_docs(fallback)[:top_k]
@@ -514,6 +592,21 @@ def _dual_retrieve(query: str, *, top_k: int, ns_default: str, persist_dir: str)
         local_in= sum(1 for d in (loc_docs  or []) if id(d) in m_ids)
         base_in = sum(1 for d in (base_docs or []) if id(d) in m_ids)
         record_retrieval_source(web_cnt=web_in, local_cnt=local_in, base_cnt=base_in, total=len(merged or []))
+    except Exception:
+        pass
+
+    # ✅ [CHECK] metadata 기반 출처 카운트(객체 id 재생성 문제 회피)
+    try:
+        from collections import Counter
+        src_cnt = Counter(
+            (getattr(d, "metadata", {}) or {}).get("_retrieved_src", "unknown")
+            for d in (merged or [])
+        )
+        ns_cnt = Counter(
+            (getattr(d, "metadata", {}) or {}).get("_retrieved_ns", "unknown")
+            for d in (merged or [])
+        )
+        logger.warning("[CHECK][dual-retrieve][merged] src=%s | ns=%s", dict(src_cnt), dict(ns_cnt))
     except Exception:
         pass
 
@@ -832,21 +925,48 @@ def vector_search_agent(state: State):
                     or has_pending(tasks, "chapter_writer", prefix="write:")
                 )
                 if not _has_writer:
-                    # facts_ctx 제공 + 즉시 요약 생성(Direct QA 본문을 messages에 기록)
+                    # facts_ctx 제공 + Direct QA 프롬프트 기반 요약 생성(Direct QA 본문을 messages에 기록)
                     reply_text: str = ""
                     try:
                         txt = (getattr(best_doc, "page_content", "") or "").strip()
                         state["facts_ctx"] = (txt[:800] if txt else "")
                         context = (txt[:1200] if txt else "").strip()
+
                         if context:
-                            prompt = (
-                                "다음 컨텍스트만 근거로 한국어로 2~3문장 핵심 답변을 작성하세요.\n"
-                                "- 컨텍스트 밖의 지식은 쓰지 말 것\n"
-                                "- 불확실하면 모른다고 말할 것\n\n"
-                                f"컨텍스트:\n{context}\n"
+                            # ── 질문 텍스트 추출 ─────────────────────────────
+                            # 1) state에 저장된 qa_query / last_user_query 우선
+                            question = (
+                                (state.get("qa_query") or "").strip()
+                                or (state.get("last_user_query") or "").strip()
                             )
-                            resp = llm.invoke(prompt)
-                            reply_text = getattr(resp, "content", str(resp)).strip()
+                            # 2) 없으면 마지막 HumanMessage에서 가져오기
+                            if not question:
+                                last_human = next(
+                                    (m for m in reversed(messages) if isinstance(m, HumanMessage)),
+                                    None,
+                                )
+                                if last_human is not None and getattr(last_human, "content", None):
+                                    question = str(last_human.content).strip()
+
+                            # ── Direct QA 프롬프트 + LLM 체인 ─────────────────
+                            prompt = get_direct_qa_prompt()
+                            # 이 스코프에 llm이 이미 있다면 재사용, 아니면 get_llm() 호출
+                            try:
+                                _llm = llm  # 기존 llm 변수가 있으면 사용
+                            except NameError:
+                                _llm = get_llm()
+
+                            chain = prompt | _llm
+                            qa_result = chain.invoke(
+                                {
+                                    "topic_title": state.get("topic_title") or "",
+                                    "question": question,
+                                    "context": context,
+                                }
+                            )
+                            reply_text = getattr(qa_result, "content", qa_result)
+                            reply_text = (reply_text or "").strip()
+
                     except Exception as e:
                         logger.warning("[vector_search][smoke→direct_qa] summary generation failed: %s", e)
                         reply_text = ""
@@ -875,10 +995,12 @@ def vector_search_agent(state: State):
                             # State.flags는 Dict/Flags 타입 요구 → plain dict로 재대입
                             state["flags"] = dict(flags_now)
                     else:
-                        # 본문 생성 실패 시에도 최소한의 플래그는 세팅(communicator 폴백 가동)
+                        # 본문 생성 실패: qa_direct_reply는 "완료" 의미이므로 절대 True로 두지 않는다.
+                        # communicator 폴백을 태우되, 완료 플래그 없이 진행한다.
                         flags_now = cast(MutableMapping[str, Any], state.setdefault("flags", {}))
-                        flags_now["qa_direct_reply"] = True
-                        flags_now["suppress_writer"] = True
+                        # 안전상 잔존값 제거(있을 수 있음)
+                        if flags_now.get("qa_direct_reply") is True:
+                            flags_now["qa_direct_reply"] = False
                         state["flags"] = dict(flags_now)
 
                     # communicator 스케줄(중복 예약 방지)
@@ -900,7 +1022,7 @@ def vector_search_agent(state: State):
                         "messages": messages,
                         "task_history": tasks,
                         "references": references,
-                        "qa_direct_reply": True,
+                        "qa_direct_reply": bool(reply_text),
                         "next_agent": "communicator",
                     }
 
@@ -1001,7 +1123,13 @@ def vector_search_agent(state: State):
 
     last_human = next((m for m in reversed(messages) if isinstance(m, HumanMessage)), None)
     forced_seed = bool(last_human and isinstance(last_human.content, str) and _was_research_token(last_human.content))
-    skip_direct_qa = _looks_like_research_mode(state)
+    # 연구 모드라도 DIRECT_QA=True면 user_q를 비우지 않는다(q='' 방지, research 흔들림 최소)
+    _direct_qa_on = False
+    try:
+        _direct_qa_on = bool(getattr(config.CFG, "DIRECT_QA", False))
+    except Exception:
+        _direct_qa_on = False
+    skip_direct_qa = _looks_like_research_mode(state) and (not _direct_qa_on)
     user_q = "" if skip_direct_qa else _extract_user_query(last_human.content) if (last_human and isinstance(last_human.content, str)) else ""
     user_q = _clean_seed(user_q)
     user_q_clean = _strip_web_filters(user_q)
@@ -1036,9 +1164,25 @@ def vector_search_agent(state: State):
         if _looks_like_local_glob(user_q_clean):
             logger.debug("[FILTER] skip local/glob query: %s", user_q_clean)
         else:
+            retrieved_docs: list[Any] = []
             try:
-                logger.debug("retrieve.invoke (dual) args: %s", {"query": user_q_clean, "top_k": TOP_K})
+                logger.debug("retrieve (dual) args: %s", {"query": user_q_clean, "top_k": TOP_K})
                 retrieved_docs: list[Any] = _dual_retrieve(user_q_clean, top_k=TOP_K, ns_default=ns, persist_dir=persist_dir)
+
+                src_cnt = Counter(
+                    (getattr(d, "metadata", {}) or {}).get("_retrieved_src", "unknown")
+                    for d in (retrieved_docs or [])
+                )
+                ns_cnt = Counter(
+                    (getattr(d, "metadata", {}) or {}).get("_retrieved_ns", "unknown")
+                    for d in (retrieved_docs or [])
+                )
+
+                logger.warning(
+                    "[CHECK][dual-retrieve] src=%s | ns=%s",
+                    dict(src_cnt),
+                    dict(ns_cnt),
+                )
             except Exception as e:
                 logger.warning("retrieve 실패(user_q='%s' → '%s'): %s", user_q, user_q_clean, e)
                 retrieved_docs = []
@@ -1053,7 +1197,7 @@ def vector_search_agent(state: State):
             cast(MutableMapping[str, Any], state)["references"] = merged_dict
             references = _to_refs(merged_dict)
 
-            ALLOW_SUMMARY = _cfg_bool("ALLOW_LOCAL_SUMMARY", False)
+            ALLOW_SUMMARY = _cfg_bool("ALLOW_LOCAL_SUMMARY", _cfg_bool("ALLOW_SUMMARY", False))
 
             def _has_writer_pending(_tasks):
                 try:
@@ -1152,7 +1296,7 @@ def vector_search_agent(state: State):
                                 "messages": messages,
                                 "task_history": tasks,
                                 "references": references,
-                                "qa_direct_reply": True,
+                                "qa_direct_reply": False,
                                 "next_agent": "communicator",
                             }
 
@@ -1177,7 +1321,7 @@ def vector_search_agent(state: State):
                     "messages": messages,
                     "task_history": tasks,
                     "references": references,
-                    "qa_direct_reply": True,
+                    "qa_direct_reply": False,
                     "next_agent": "communicator",
                 }
     else:
@@ -1194,7 +1338,7 @@ def vector_search_agent(state: State):
             seed_key = seed_clean.strip().lower()
             if seed_clean and (not _is_noise_query(seed_clean)) and _ok_query(seed_clean) and (not _looks_like_local_glob(seed_clean)):
                 try:
-                    logger.debug("retrieve.invoke (dual) args: %s", {"query_raw": seed_raw, "query_retrieval": seed_clean, "top_k": TOP_K})
+                    logger.debug("retrieve (dual) args: %s", {"query_raw": seed_raw, "query_retrieval": seed_clean, "top_k": TOP_K})
                     retrieved_docs = _dual_retrieve(seed_clean, top_k=TOP_K, ns_default=ns, persist_dir=persist_dir)
                 except Exception as e:
                     logger.warning("retrieve 실패(seed='%s' → '%s'): %s", seed_raw, seed_clean, e)

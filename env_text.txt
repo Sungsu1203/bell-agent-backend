@@ -5,7 +5,7 @@ LLM_MODEL=gemini-2.5-flash
 # GEMINI_API_KEY=                     # ← 사용 안함: 주석 처리
 GCP_PROJECT_ID=gemini-rag-project-new
 GCP_REGION=us-central1
-GOOGLE_APPLICATION_CREDENTIALS=D:\GPT_AGENT\writer_project\service_account_key.json
+GOOGLE_APPLICATION_CREDENTIALS=D:\GPT_AGENT\writer_project\service_account.json
 
 # (OpenAI 경로를 일시 차단하고 싶으면 유지해도 무방)
 OPENAI_REQUEST_TIMEOUT=10
@@ -33,8 +33,8 @@ DASH_RATE_SEC=8
 
 # ────────────────────────── Project / Topic ─────────────────────
 PROJECT_ROOT=D:\GPT_AGENT\writer_project
-TOPIC_TITLE=한국 피로회복 비타민제 시장 / 종근당 '벤포벨'
-TOPIC_SLUG=venfobel-market-gm
+TOPIC_TITLE=키성장 건기식 시장 분석 및 고효율 TMDB Gathering/커머스 전략
+TOPIC_SLUG=height-growth-supplement-db-strategy
 
 # ────────────────────────── Writer / Flow ───────────────────────
 DOC_MODE=report
@@ -50,9 +50,9 @@ ECHO_QA=1
 # ────────────────────────── Research Mode ───────────────────────
 BLOCKAGI_AGENT_ROLE=research analyst
 ITERATION_COUNT=2
-BLOCKAGI_OBJECTIVE_1=시장규모/성장 전망
-BLOCKAGI_OBJECTIVE_2=경쟁/브랜드 현황
-BLOCKAGI_OBJECTIVE_3=소비자 인식/태도
+BLOCKAGI_OBJECTIVE_1=아이커, 아이클타임 등 국내 주요 키성장 건기식 브랜드의 2025-2026년 마케팅 포지셔닝 및 점유율 분석
+BLOCKAGI_OBJECTIVE_2=학부모 커뮤니티(맘카페 등) 내 키성장 고민 키워드 분석 및 상담(TM) 신청 유도 pain 포인트 도출
+BLOCKAGI_OBJECTIVE_3=고순도 DB 수집을 위한 최신 랜딩 페이지 트렌드 및 TM 연계 D2C 커머스 신규 모델 제안
 BLOCKAGI_LANG=ko
 USER_AGENT=blockagi/1.0 (+https://example.com/contact)
 
@@ -76,17 +76,17 @@ WEB_DEFAULT_NEGATIVES=-행사 -세미나
 WEB_APPLY_DEFAULT_NEGATIVES=0
 
 # Tavily / Google CSE
-TAVILY_API_KEY=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    # Pay-as-you-go 회사카드
-GOOGLE_CSE_API_KEY=AIzaSyCslB4dXD7WwnzoBl5eBAYnqylOVGU2Id8
-GOOGLE_CSE_ID=04d71adde64a1414c
-GOOGLE_CSE_BASE_URL=https://customsearch.googleapis.com/customsearch/v1
+TAVILY_API_KEY=    # Pay-as-you-go 회사카드
+GOOGLE_CSE_API_KEY=
+GOOGLE_CSE_ID=
+GOOGLE_CSE_BASE_URL=
 
 # NAVER Direct API
-NAVER_CLIENT_ID=XZyYVP0KXnHVL6vyfGT6
-NAVER_CLIENT_SECRET=nBh0wwSacS
+NAVER_CLIENT_ID=
+NAVER_CLIENT_SECRET=
 
 # (SerpAPI Naver 미사용이면 전부 주석)
-# SERPAPI_API_KEY=ea2cb2677497699e56d12172916e7c0a7aab2cdf0ca60154de03373f76a785c6
+# SERPAPI_API_KEY=
 # SERPAPI_NAVER_HL=ko
 # SERPAPI_NAVER_GL=kr
 # SERPAPI_NAVER_NUM=10                # 1~10 권장
@@ -111,9 +111,9 @@ ALLOW_GLOBAL_CLEAR=1
 
 # ────────────────────────── Vector / RAG ────────────────────────
 CHROMA_DIR=data/chroma_store
-CHROMA_NAMESPACE=kr-vitamin-venfobel-gm
-CHROMA_NAMESPACE_WEB=kr-vitamin-venfobel-gm-web
-CHROMA_NAMESPACE_LOCAL=kr-vitamin-venfobel-gm-local
+CHROMA_NAMESPACE=kr-ckdhc-iker-gm
+CHROMA_NAMESPACE_WEB=kr-ckdhc-iker-gm-web
+CHROMA_NAMESPACE_LOCAL=kr-ckdhc-iker-gm-local
 MERGE_RETRIEVE_MODE=local_first     # web_first
 CLEAR_CHROMA_ON_START=0
 CLEAR_GUARD_DISABLE=0
@@ -161,7 +161,7 @@ MIN_CHUNK_CHARS=80
 DIRECT_QA=1
 ALLOW_SUMMARY=1        # 근거가 적어도 최소 요약 허용(임시)
 # 로컬 RAG 소스
-LOCAL_RAG_GLOBS=refs/**/*.pdf,refs/**/*.pptx,refs/**/*.xlsx,research/venfobel-market-gm/round-*-findings.md
+LOCAL_RAG_GLOBS=refs/**/*.pdf,refs/**/*.pptx,refs/**/*.xlsx,research/height-growth-supplement-db-strategy/round-*-findings.md
 INCLUDE_FINDINGS_IN_VECTOR=1
 
 # 최소 하한(게이트)
@@ -191,7 +191,7 @@ URL_TREAT_WWW_EQUIV=1
 URL_NORMALIZE_MOBILE_TO_WWW=1
 
 # 중복/트레일링 제거, 핵심 도메인만 정리
-ALLOWED_DOMAINS=dailypharm.com,medipana.com,kpanews.co.kr,hankyung.com,kosis.kr,index.go.kr,data.go.kr,moef.go.kr,mfds.go.kr,hira.or.kr,khidi.or.kr,krei.re.kr,scienceon.kisti.re.kr,repository.kisti.re.kr,lkp.news,consumernews.co.kr,asiatoday.co.kr,medicopharma.co.kr,dart.fss.or.kr,ckdpharm.com,chongkundang.com,krx.co.kr,healtho.co.kr,sedaily.com,mk.co.kr,hankyoreh.com,chosunbiz.com,dongascience.com,pharmnews.com,law.go.kr,yakup.com,mediapen.com,nspna.com,news.naver.com,m.news.naver.com,search.naver.com,naver.com,
+ALLOWED_DOMAINS=naver.com,daum.net,kosis.kr,dailypharm.com,yakup.com,hankyung.com,mk.co.kr,medigatenews.com,docdocdoc.co.kr,moms-club.co.kr,lemonde.kr,news.jtbc.co.kr,donga.com,chosun.com
 
 
 # ────────────────────────── Metrics/Telemetry ───────────────────

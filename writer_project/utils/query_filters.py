@@ -107,7 +107,7 @@ def _boolean_tokens_regex() -> Optional[Pattern[str]]:
     return re.compile(r"\\b(?:" + "|".join(map(re.escape, toks)) + r")\\b", re.IGNORECASE)
 
 
-def strip_web_filters(q: str) -> str:
+def strip_web_filters(q: str, *, strip_site_filters: Optional[bool] = None) -> str:
     """검색어에서 불필요한 필터/부정 토큰/불리언 연산자 제거.
 
     동적 설정:
@@ -120,7 +120,8 @@ def strip_web_filters(q: str) -> str:
     s = q
 
     # site: 필터 제거 (괄호 포함/미포함)
-    if _get_strip_site_filters():
+    do_strip_site = _get_strip_site_filters() if strip_site_filters is None else bool(strip_site_filters)
+    if do_strip_site:
         s = re.sub(r"\(\s*site:[^\)]+\)", " ", s, flags=re.IGNORECASE)
         s = re.sub(r"-?\s*site:[^\s)]+", " ", s, flags=re.IGNORECASE)
 

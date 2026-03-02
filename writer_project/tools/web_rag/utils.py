@@ -1,6 +1,8 @@
 # web_rag\utils.py
 from __future__ import annotations
 
+import re as _re
+
 import logging
 logger = logging.getLogger(__name__)
 from typing import Literal
@@ -12,14 +14,16 @@ import re
 import time
 import hashlib
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Union, Callable
+from typing import List, Dict, Any, Optional, Union, Callable, MutableMapping
 from datetime import datetime
 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode, urljoin
+from typing import Tuple
 
 import base64
 
 import requests
 import html
+from urllib.parse import unquote, quote  # already imported later, but safe if duplicated
 
 # 게이트키핑
 from settings_gatekeep import (
@@ -50,6 +54,66 @@ from tools.web_rag.ingest_net import (
     tag_quarantine,
 )
 
+
+# -----------------------------------------------------------------------------
+# ID helpers (SSoT): doc_id generation building blocks
+# -----------------------------------------------------------------------------
+
+def cap_id(s: str, *, max_chars: int, keep_tail: int = 12) -> str:
+    """Cap an identifier to max length while keeping the tail for uniqueness."""
+    if max_chars <= 0:
+        return s
+    if len(s) <= max_chars:
+        return s
+    if keep_tail < 0:
+        keep_tail = 0
+    if keep_tail >= max_chars:
+        return s[-max_chars:]
+    return s[: max_chars - keep_tail] + s[-keep_tail:]
+
+
+def make_doc_id(
+    src: str,
+    ver: str,
+    text: str,
+    *,
+    counter: MutableMapping[str, int],
+    max_id_chars: int,
+    include_mtime: bool = True,
+    include_content_sha: bool = False,
+) -> str:
+    """
+    SSoT doc_id generator. Must match legacy ingest_vector behavior:
+      1) seed starts with canonicalized source (fallback to raw src on error)
+      2) optionally append |ver if include_mtime and ver
+      3) optionally append |sha1(text)[:16] if include_content_sha
+      4) base = sha1(seed).hexdigest()
+      5) counter[base] += 1; raw_id = f"{base}-{counter[base]:06d}"
+      6) cap(raw_id) to max_id_chars
+    """
+    src_raw = (src or "").strip()
+    ver_raw = (ver or "").strip()
+    text_raw = text or ""
+
+    try:
+        src_norm = _normalize_canonical_url(src_raw)
+    except Exception:
+        src_norm = src_raw
+
+    seed = src_norm
+    if include_mtime and ver_raw:
+        seed = f"{seed}|{ver_raw}"
+
+    if include_content_sha:
+        try:
+            seed += "|" + hashlib.sha1(text_raw.encode("utf-8", "ignore")).hexdigest()[:16]
+        except Exception:
+            pass
+
+    base = hashlib.sha1(seed.encode("utf-8", "ignore")).hexdigest()
+    counter[base] = int(counter.get(base, 0)) + 1
+    raw_id = f"{base}-{counter[base]:06d}"
+    return cap_id(raw_id, max_chars=max_id_chars, keep_tail=12)
 
 # ─────────────────────────────────────────────────────────────
 # CFG helper shims (define only if missing to avoid redeclare)
@@ -202,6 +266,43 @@ def http_get(url: str, **kw) -> requests.Response:
     s = _net_get_requests_session()
     return s.get(norm_url, **kw)
 
+def _fix_khidi_host_and_path(netloc: str, path: str) -> tuple[str, str]:
+    """
+    KHIDI 특수 버그 교정:
+    - 'khidi.or.krkps', 'www.khidi.or.krkohes' 같은 잘못된 host를
+      host='(www.)khidi.or.kr', path='/kps...' 또는 '/kohes...' 로 분리한다.
+    """
+    try:
+        base = "khidi.or.kr"
+        host_l = (netloc or "").lower()
+        if not host_l:
+            return netloc, path
+
+        idx = host_l.rfind(base)
+        if idx == -1:
+            return netloc, path
+
+        suffix = host_l[idx + len(base):]
+
+        # 우리가 실제로 본 케이스: 'kps', 'kohes'
+        if suffix in ("kps", "kohes"):
+            # prefix + base = 실제 host (prefix는 원래 대소문자 유지)
+            netloc = netloc[:idx] + base
+
+            seg = suffix  # 'kps' 또는 'kohes'
+            # path 앞에 세그먼트를 붙여서 '/kps/...' 또는 '/kohes/...' 로 이동
+            p = path or "/"
+            if not p.startswith("/"):
+                p = "/" + p
+            # 이미 '/kps', '/kohes'로 시작하면 중복 방지
+            if not p.startswith(f"/{seg}"):
+                p = f"/{seg}{p}"
+            path = p
+
+        return netloc, path
+    except Exception:
+        return netloc, path
+
 # =============================================================================
 # Env & Paths
 # =============================================================================
@@ -277,6 +378,163 @@ def sanitize_ns(raw: str) -> str:
 # 과거 호환용 비공개 별칭
 _sanitize_ns = sanitize_ns
 
+###############################################################################
+# seen-hash (SSOT): web.json 입력이 "변경 없음"이면 ingest를 스킵하기 위한 공용 헬퍼
+# - 저장 위치: persist_dir(=chroma leaf 디렉터리) 아래
+#   <ns>.__seen_sources__.json
+# - ingest_vector.py / ingest.py 어디서든 순환참조 없이 동일 규칙으로 사용 가능
+###############################################################################
+
+def _seen_hash_path(namespace: str, persist_dir: str | Path) -> Path:
+    """
+    네임스페이스/퍼시스트디렉터리별 seen-hash 저장 경로.
+    - persist_dir는 leaf 디렉터리(…/chroma_store/<ns>)가 들어오는 것을 전제로 한다.
+    """
+    ns = sanitize_ns(namespace or "")
+    base = Path(persist_dir)
+    base.mkdir(parents=True, exist_ok=True)
+    return base / f"{ns}.__seen_sources__.json"
+
+def _source_hash(title: str, url: str, content: str, raw: str, ctype: str) -> str:
+    """
+    소스의 변경 여부를 판단하기 위한 안정 해시.
+    - title/url/content/raw_content/content_type를 함께 섞는다.
+    """
+    h = hashlib.blake2b(digest_size=16)
+    h.update((title or "").encode("utf-8", "ignore"))
+    h.update((url or "").encode("utf-8", "ignore"))
+    if content:
+        h.update(content.encode("utf-8", "ignore"))
+    elif raw:
+        h.update(raw.encode("utf-8", "ignore"))
+    h.update((ctype or "").encode("utf-8", "ignore"))
+    return h.hexdigest()
+
+def _flex_load_json_items(path: str | Path) -> list[dict[str, Any]]:
+    """
+    web.json 포맷의 다양성을 흡수:
+      - JSON array
+      - dict wrapper (results/items/data)
+      - NDJSON
+    """
+    p = Path(path)
+    txt = p.read_text(encoding="utf-8")
+    try:
+        data = json.loads(txt)
+    except json.JSONDecodeError:
+        items: list[dict[str, Any]] = []
+        for line in txt.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                o = json.loads(line)
+                if isinstance(o, dict):
+                    items.append(o)
+            except Exception:
+                pass
+        return items
+
+    if isinstance(data, list):
+        return [x for x in data if isinstance(x, dict)]
+    if isinstance(data, dict):
+        for k in ("results", "items", "data"):
+            v = data.get(k)
+            if isinstance(v, list):
+                return [x for x in v if isinstance(x, dict)]
+        return [data]
+    return []
+
+def _normalize_seen_source(u: str) -> str:
+    """
+    seen-hash 키로 쓸 source URL 정규화.
+    - 목표: 과거 ingest_vector._normalize_canonical_url() 기반 키와 최대한 동일하게
+      (호환 유지 목적이므로 “변형 최소”보다 “과거 규칙 재현”을 우선)
+    """
+    raw = (u or "").strip()
+    if not raw:
+        return ""
+
+    # 1) file:// 는 가능하면 resolve().as_uri()로 일원화 (과거 패턴에 맞춤)
+    s = raw.lower()
+    if s.startswith("file://"):
+        try:
+            pu = urlparse(raw)
+            path_raw = unquote(pu.path or "")
+            # Windows file:///C:/... 보정
+            if path_raw.startswith("/") and len(path_raw) >= 3 and path_raw[2] == ":":
+                path_raw = path_raw.lstrip("/")
+            base = Path(path_raw).resolve().as_uri()
+            # 과거 로직이 query/fragment를 보존했으면 유지(없으면 그냥 base)
+            if pu.query:
+                base = base + "?" + pu.query
+            if pu.fragment:
+                base = base + "#" + pu.fragment
+            return base
+        except Exception:
+            return raw
+
+    # 2) 로컬 경로(드라이브/UNC/절대경로)는 “원문 유지” (키가 URL이 아닌 케이스)
+    if _re.match(r"^[a-zA-Z]:[\\/]", raw) or raw.startswith("\\\\") or raw.startswith("/"):
+        return raw
+
+    # 3) http(s)는 normalize_url로 통일 (이미 fragment 제거/추적 제거 포함)
+    try:
+        # ingest_vector._normalize_canonical_url()과 "정확히 동일" 키 생성이 목적이므로
+        # normalize_url()이 아니라 canonical 규칙을 사용한다.
+        return _normalize_canonical_url(raw)
+    except Exception:
+        return raw
+
+def compute_incoming_hashes(json_path: str | Path) -> dict[str, str]:
+    """
+    web.json(배열/ndjson/래핑)에서 {source_url: hash} 맵 생성.
+    - source_url 키는 정규화된 URL을 사용한다.
+    """
+    try:
+        items = _flex_load_json_items(json_path)
+    except Exception:
+        return {}
+
+    out: dict[str, str] = {}
+    for r in items:
+        try:
+            url0 = (r.get("url") or r.get("source") or "").strip()
+            url = _normalize_seen_source(url0)
+            if not url:
+                continue
+            title   = (r.get("title") or "").strip()
+            content = (r.get("content") or r.get("snippet") or "").strip()
+            raw     = (r.get("raw_content") or "").strip()
+            ctype   = (r.get("content_type") or r.get("mime") or "").strip()
+            out[url] = _source_hash(title, url, content, raw, ctype)
+        except Exception:
+            continue
+    return out
+
+def load_seen_source_hashes(namespace: str, persist_dir: str | Path) -> dict[str, str]:
+    p = _seen_hash_path(namespace, persist_dir)
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+def save_seen_source_hashes(namespace: str, persist_dir: str | Path, m: dict[str, str]) -> None:
+    p = _seen_hash_path(namespace, persist_dir)
+    try:
+        p.write_text(json.dumps(m, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.debug("[seen-hash] save failed: %s (%s)", p, e)
+
+def delete_seen_source_hashes(namespace: str, persist_dir: str | Path) -> None:
+    p = _seen_hash_path(namespace, persist_dir)
+    try:
+        if p.exists():
+            p.unlink()
+            logger.info("[seen-hash] deleted: %s", p)
+    except Exception as e:
+        logger.debug("[seen-hash] delete failed: %s (%s)", p, e)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # JSON-safe 변환(바이너리 → base64) 헬퍼
@@ -330,6 +588,11 @@ def _to_safe_json_record(it: Dict[str, Any]) -> Dict[str, Any]:
         d["content"] = txt[:8000] + " …(truncated)"
 
     return d
+
+_PDF_URL_RE = _re.compile(r"\.pdf($|\?)|filedownload|filedown(type)?=|/fileDown|/download", _re.I)
+
+def looks_like_pdf_url(url: str) -> bool:
+    return bool(_PDF_URL_RE.search(url or ""))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 결과 저장 (web.json 스냅샷) + 메트릭
@@ -453,6 +716,9 @@ def _canon_url(url: str) -> str:
             else:
                 path = extra_path
 
+        # 🔧 KHIDI 특수 교정 (host에 'khidi.or.krkps', 'khidi.or.krkohes' 등이 섞인 경우 수정)
+        netloc, path = _fix_khidi_host_and_path(netloc, path)
+
         # 쿼리 파라미터 중복 제거(마지막 값 우선)
         dedup: dict[str, str] = {}
         for k, v in parse_qsl(u.query, keep_blank_values=True):
@@ -509,6 +775,105 @@ _TRACKING_PARAMS = {
     "spm","ref","ref_src","cmpid","cmp","campaign","ga_source","ga_medium",
     "utm_name","utm_reader","utm_social","utm_social-type","vero_id"
 }
+
+def _strip_tracking_params(items: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """
+    ingest_vector._strip_tracking_params()와 동일 목적:
+    - key 기준(대소문자 무시)으로 _TRACKING_PARAMS 제거
+    - 순서 보존(정렬/중복제거/값변형 없음)
+    """
+    out: list[tuple[str, str]] = []
+    for (k, v) in items or []:
+        kk = (k or "").strip()
+        if not kk:
+            out.append((k, v))
+            continue
+        if kk.lower() in _TRACKING_PARAMS:
+            continue
+        out.append((k, v))
+    return out
+
+def _normalize_canonical_url(u: str) -> str:
+    """
+    ingest_vector.py::_normalize_canonical_url()와 "동일" 규칙으로 canonical URL 생성.
+    - file:// → Path.resolve().as_uri()로 일원화(단, fragment/쿼리 보존)
+    - http(s):// → fragment 제거, 트래킹 파라미터 제거, AMP 흔적 제거, m. → www. (예외 도메인 제외)
+    """
+    raw = (u or "").strip()
+    if not raw:
+        return ""
+
+    # IMPORTANT:
+    # For file:// URIs, we must preserve query/fragment (e.g., #part/#index for split docs).
+    # Some generic normalizers drop fragments; therefore skip _normalize_url for file://.
+    if raw.lower().startswith("file://"):
+        nu = raw
+    else:
+        try:
+            nu = _normalize_url(raw)
+        except Exception:
+            nu = raw
+
+    try:
+        p = urlparse(nu)
+        scheme_lower = (p.scheme or "").lower()
+
+        # file:// 은 경로를 절대 URI로 일원화 (fragment/쿼리 보존)
+        if scheme_lower == "file":
+            path_raw = unquote(p.path or "")
+            frag_raw = p.fragment or ""
+            query_raw = p.query or ""
+            try:
+                if path_raw.startswith("/") and len(path_raw) >= 3 and path_raw[2] == ":":
+                    path_raw = path_raw.lstrip("/")
+                base_uri = Path(path_raw).resolve().as_uri()
+            except Exception:
+                base_uri = urlunparse(p._replace(fragment="", params=""))
+
+            if query_raw:
+                base_uri = f"{base_uri}?{query_raw}"
+            if frag_raw:
+                base_uri = f"{base_uri}#{frag_raw}"
+            return base_uri
+
+        # http(s):// 계열
+        p = p._replace(fragment="")
+        host = (p.netloc or "").lower()
+
+        _NO_WWW_DOMAINS = ("khidi.or.kr", "mfds.go.kr", "kosis.kr")
+        def _no_www(h: str) -> bool:
+            return (
+                h.endswith(".go.kr") or
+                h.endswith(".or.kr") or
+                any(h.endswith(d) for d in _NO_WWW_DOMAINS)
+            )
+        _is_dailypharm = host.endswith("dailypharm.com")
+        if host.startswith("m.") and len(host) > 2 and not _is_dailypharm and not _no_www(host):
+            host = "www." + host[2:]
+
+        if host.endswith(".amp.dev"):
+            host = host.removesuffix(".amp.dev")
+
+        path = p.path or ""
+        if path.endswith("/amp"):
+            path = path[:-4] or "/"
+        if path.endswith(".amp"):
+            path = path[:-4] or "/"
+
+        items = parse_qsl(p.query, keep_blank_values=True)
+        items = _strip_tracking_params(items)
+        query = urlencode(items, doseq=True)
+
+        netloc = host
+        if netloc.endswith(":80"):
+            netloc = netloc[:-3]
+        if netloc.endswith(":443"):
+            netloc = netloc[:-4]
+
+        cano = urlunparse((p.scheme.lower(), netloc, path, "", query, ""))
+        return cano
+    except Exception:
+        return nu.split("#", 1)[0]
 
 def _strip_default_port(host: str, scheme: str) -> str:
     if not (_URL_STRIP_DEFAULT_PORTS and host):
@@ -839,16 +1204,40 @@ def normalize_url(u: str) -> str:
       - 스킴을 https로 강제
       - 경로의 중복 슬래시를 1개로 축약
     """
-    canon = _normalize_url(_canon_url(u))
+    raw = (u or "").strip()
+    if not raw:
+        return ""
+
+    # [KHIDI strong exception] query 보존 우선 (tracking만 제거)
     try:
-        pu = urlparse(canon)
-        host = (pu.netloc or "").lower()
-        if host.endswith("khidi.or.kr"):
-            fixed_path = re.sub(r"/{2,}", "/", pu.path or "/")
-            canon = urlunparse(("https", pu.netloc, fixed_path, "", pu.query or "", ""))
+        pu0 = urlparse(raw)
+        host0 = (pu0.netloc or "").lower()
+        if "/" in host0:
+            host0 = host0.split("/", 1)[0]
+        if host0.endswith("khidi.or.kr"):
+            qs0 = parse_qsl(pu0.query, keep_blank_values=True)
+            # tracking만 제거, 나머지는 순서/중복/빈값 보존
+            kept = [(k, v) for (k, v) in qs0 if (k or "").strip().lower() not in _TRACKING_PARAMS]
+            raw2 = urlunparse((
+                pu0.scheme or "https",
+                pu0.netloc,
+                pu0.path or "/",
+                "",
+                urlencode(kept, doseq=True),
+                ""
+            ))
+            canon = _normalize_url(raw2)
+        else:
+            canon = _normalize_url(_canon_url(raw))
     except Exception:
-        # 보정 중 오류 시 기존 canon을 그대로 반환
-        pass
+        canon = _normalize_url(_canon_url(raw))
+
+    # [D) KHIDI 소프트 규칙]
+    #   - 정규화 직후 khidi.or.kr 전용으로 https 강제 / path 중복 슬래시 축약을 수행하던 블록.
+    #   - 실제 운용 중 'www.khidi.or.krkohes' 형태처럼 호스트/경로가 섞이는 문제가
+    #     KHIDI 계열에서 반복적으로 포착되어, 일단 여기의 추가 보정은 비활성화한다.
+    #   - khidi.or.kr 도메인은 이미 상위 정규화/게이트키핑(_canon_url, _normalize_url,
+    #     settings_gatekeep.py) 로직에서 충분히 처리되므로, 해당 소프트 규칙 없이도 동작 가능하다.
     return canon
 
 
@@ -876,9 +1265,8 @@ def _pick_top(items: List[Dict[str, Any]], topn: int) -> List[Dict[str, Any]]:
     return items[: max(1, int(topn or 1))]
 
 # ====== Naver 질의 간소화/스킵 판정 ======
-import re as _re
 
-def _simplify_for_naver(q: str) -> str:
+def _simplify_for_naver(q: str, *, apply_limits: bool = True) -> str:
     if not q:
         return q
     s = q
@@ -905,29 +1293,30 @@ def _simplify_for_naver(q: str) -> str:
         s = s.replace("..", " ")
         s = _re.sub(r"\b(event|exhibition|tickets)\b", " ", s, flags=_re.I)
 
-    cap = _cfg_int("NAVER_NEGATIVE_CAP", default=0)
-    s = _cap_minus_tokens(s, cap)
-    s = _re.sub(r"\s+", " ", s).strip()
-    if len(s) > 200:
-        s = s[:200].rstrip()
+    # ✅ 2차 패치: 길이/토큰/마이너스 캡은 variants 단계(SSOT)에서 1회 적용하는 게 목표.
+    # 단, 기존 호출부 회귀 방지를 위해 기본값 apply_limits=True 유지.
+    if apply_limits:
+        cap = _cfg_int("NAVER_NEGATIVE_CAP", default=0)
+        s = _cap_minus_tokens(s, cap)
+        s = _re.sub(r"\s+", " ", s).strip()
+        max_len = _cfg_int("NAVER_MAX_LEN", default=200)
+        if max_len > 0 and len(s) > max_len:
+            s = s[:max_len].rstrip()
+    else:
+        # 공백 정리만 수행(제한은 상위(search.py variants)가 담당)
+        s = _re.sub(r"\s+", " ", s).strip()
     return s
 
 def _should_skip_naver(q: str) -> bool:
-    s = _simplify_for_naver(q or "")
+    # ✅ 2차 패치: skip 판정에서 길이/토큰 캡이 다시 걸리면 중복/충돌이 생김.
+    # 따라서 여기서는 apply_limits=False로 "정리만" 하고, 구조적 복잡도만으로 skip 판단.
+    s = _simplify_for_naver((q or ""), apply_limits=False)
     if not s:
         logger.debug("[naver.skip] reason=empty-after-simplify")
         return True
-    max_len = _cfg_int("NAVER_MAX_LEN", default=120)
-    max_toks = _cfg_int("NAVER_MAX_TOKENS", default=8)
-    if len(s) > max_len:
-        logger.debug("[naver.skip] reason=too_long len=%d max=%d q=%r", len(s), max_len, s)
-        return True
-    tokc = len(s.split())
-    if tokc > max_toks:
-        logger.debug("[naver.skip] reason=too_many_tokens tok=%d max=%d q=%r", tokc, max_toks, s)
-        # 완전 차단 대신 약간의 버퍼 허용(운용 튜닝)
-        if tokc > (max_toks + 2):
-            return True
+
+    # ❌ 길이/토큰 기반 skip 제거: variants 단계에서 NAVER_*_MAX_TOKENS / NAVER_MAX_LEN로 이미 캡 가능
+    # ✅ 여기서는 "구조적 복잡도"만 검사
     bad = [
         r"\b(site:|filetype:|ext:|intitle:|inurl:|cache:)\S*",
         r"[\"{}|\[\]]",
@@ -937,6 +1326,29 @@ def _should_skip_naver(q: str) -> bool:
         if _re.search(pat, s, flags=_re.I):
             logger.debug("[naver.skip] reason=bad_pattern pattern=%r q=%r", pat, s)
             return True
+
+    # 불균형 따옴표는 네이버에서 종종 역효과 → skip(상위에서 정리/제거 가능)
+    try:
+        if s.count('"') % 2 == 1:
+            logger.debug("[naver.skip] reason=unbalanced_double_quote q=%r", s)
+            return True
+        if s.count("'") % 2 == 1:
+            logger.debug("[naver.skip] reason=unbalanced_single_quote q=%r", s)
+            return True
+    except Exception:
+        pass
+
+    # OR/AND/괄호/파이프 등 "구글식 구조"가 남아있으면 skip
+    # - NAVER_TRIM_OPERATORS=True면 위에서 대부분 제거되어 중복 판단이 되기 쉬움.
+    # - 따라서 TRIM이 꺼진 경우에만 구조 검사(중복 경로 축소).
+    structured_ops = False
+    if not _truthy_cfg("NAVER_TRIM_OPERATORS", default=True):
+        structured_ops = (
+            (" OR " in s) or (" AND " in s) or ("(" in s) or (")" in s) or ("|" in s)
+        )
+    if structured_ops:
+        logger.debug("[naver.skip] reason=structured_ops q=%r", s)
+        return True
     return False
 
 def _is_naver_safe(q: str) -> bool:
@@ -1324,12 +1736,16 @@ __all__ = [
     "_now", "_now_iso", "refresh_runtime_config",
     "_save_results",
     "_ell",
+    # search.py에서 직접 import 하는 상수들(타입체커/IDE 호환)
+    "_LOG_TOPK",
+    "_MIN_RESULTS_OK",
+    "_SEARCH_TOPN",
     "_normalize_url", "_canon_url", "normalize_url", "safe_urljoin",
     "_dedupe_keep_order_dicts", "_pick_top",
     "_simplify_for_naver", "_should_skip_naver", "_is_naver_safe",
     "_strip_minus_tokens", "_cap_minus_tokens",
     "_normalize_results", "_clean_text",
-    "_looks_like_pdf_bytes", "_is_block_page", "_looks_like_serialized_blob",
+    "_looks_like_pdf_bytes","looks_like_pdf_url", "_is_block_page", "_looks_like_serialized_blob",
     "_append_default_negatives",
     "_apply_gatekeep_to_results",
     "_load_web_page", "_enrich_raw_content",
@@ -1339,6 +1755,11 @@ __all__ = [
     "_RECENTLY_CLEARED", "_FRESH_KEYS","_host_only",
     # 신규 공개 헬퍼
     "normalize_or_block_intermediate_news",
+    # seen-hash (SSOT) 공개 API
+    "compute_incoming_hashes",
+    "load_seen_source_hashes",
+    "save_seen_source_hashes",
+    "delete_seen_source_hashes",
     # PDF 단회 시도/격리 공개 심볼
     "SSL_QUARANTINE", "DNS_QUARANTINE", "try_fetch_pdf", "tag_quarantine",
 ]

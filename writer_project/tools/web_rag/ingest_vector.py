@@ -6,11 +6,21 @@ import logging
 logger = logging.getLogger(__name__)
 logging.getLogger("chardet").setLevel(logging.WARNING)  # chardet DEBUG 스팸 억제
 
+# NOTE:
+# Canonical URL normalization + doc_id generation are SSoT in tools.web_rag.utils.
+from tools.web_rag.utils import (
+    _normalize_canonical_url,
+    make_doc_id as _make_doc_id_ssot,
+    cap_id as _cap_id_ssot,
+)
+
+
 import os
 import time
 import json
 import hashlib
 from pathlib import Path
+from typing import Set
 from types import ModuleType
 from typing import (
     Any,
@@ -30,6 +40,7 @@ from typing import (
 import inspect
 
 import re as _re
+import glob as _glob
 
 from langchain_core.tools import tool
 from langchain_core.documents import Document
@@ -74,7 +85,53 @@ from .utils import (
     _resolve_persist_dir,
     _FRESH_KEYS,
     normalize_url as _normalize_url,
+    # ✅ seen-hash SSOT (moved to utils.py)
+    compute_incoming_hashes,
+    load_seen_source_hashes,
+    save_seen_source_hashes,
+    delete_seen_source_hashes,
 )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# stored_urls cache helpers (ingest.py와 경로 규칙을 동일하게 유지)
+#  - ⚠️ ingest_vector.py → ingest.py import는 순환 위험이 크므로 금지
+#  - 여기서는 "삭제"만 담당 (정책/로드/세이브는 ingest.py가 주도)
+# ─────────────────────────────────────────────────────────────────────────────
+def _stored_urls_path(*, namespace: str, store_kind: str) -> Path:
+    ns = (namespace or "").replace("/", "_").replace("\\", "_")
+    base = DATA_DIR / "stored_urls"
+    return base / f"stored_urls__{store_kind}__{ns}.json"
+
+def _delete_stored_urls_cache(*, namespace: str, store_kind: str) -> None:
+    try:
+        p = _stored_urls_path(namespace=namespace, store_kind=store_kind)
+        if p.exists():
+            p.unlink()
+            logger.info("[stored_urls] deleted cache: %s", p)
+    except Exception as e:
+        logger.debug("[stored_urls] delete failed ns=%s kind=%s err=%s", namespace, store_kind, e)
+
+def _delete_all_stored_urls_for_ns(ns: str) -> None:
+    """
+    split 모드/단일 모드 모두에서 안전하게 stale 방지.
+    - 기본: web/local 둘 다 지움
+    - split 모드면 ns_web/ns_local도 같이 지움
+    """
+    try:
+        _delete_stored_urls_cache(namespace=ns, store_kind="web")
+        _delete_stored_urls_cache(namespace=ns, store_kind="local")
+    except Exception:
+        pass
+    try:
+        ns_web = (getattr(CFG, "CHROMA_NAMESPACE_WEB", "") or "").strip()
+        ns_loc = (getattr(CFG, "CHROMA_NAMESPACE_LOCAL", "") or "").strip()
+        if ns_web:
+            _delete_stored_urls_cache(namespace=ns_web, store_kind="web")
+        if ns_loc:
+            _delete_stored_urls_cache(namespace=ns_loc, store_kind="local")
+    except Exception:
+        pass
 
 # PDF/HTML 로더 유틸
 
@@ -149,157 +206,10 @@ def _strip_tracking_params(qs_items: list[tuple[str, str]]) -> list[tuple[str, s
         out.append((k, v))
     return out
 
-def _normalize_canonical_url(u: str) -> str:
-    """
-    강한 URL 정규화:
-    - file:// → 절대경로 URI(Path.resolve().as_uri())로 일원화 **하되 fragment/쿼리를 보존**
-    - http(s):// → fragment 제거, 트래킹 파라미터 제거, AMP 흔적 제거, m. → www. (예외 도메인 제외)
-    """
-    raw = (u or "").strip()
-    if not raw:
-        return ""
-    try:
-        nu = _normalize_url(raw)
-    except Exception:
-        nu = raw
+#
+# _normalize_canonical_url is imported from tools.web_rag.utils
+#
 
-    try:
-        p = urlparse(nu)
-        scheme_lower = (p.scheme or "").lower()
-
-        # file:// 은 경로를 절대 URI로 일원화 (fragment/쿼리 보존)
-        if scheme_lower == "file":
-            path_raw = unquote(p.path or "")
-            frag_raw = p.fragment or ""
-            query_raw = p.query or ""
-            try:
-                if path_raw.startswith("/") and len(path_raw) >= 3 and path_raw[2] == ":":
-                    path_raw = path_raw.lstrip("/")
-                base_uri = Path(path_raw).resolve().as_uri()
-            except Exception:
-                base_uri = urlunparse(p._replace(fragment="", params=""))
-
-            if query_raw:
-                base_uri = f"{base_uri}?{query_raw}"
-            if frag_raw:
-                base_uri = f"{base_uri}#{frag_raw}"
-            return base_uri
-
-        # http(s):// 계열
-        p = p._replace(fragment="")
-        host = (p.netloc or "").lower()
-
-        _NO_WWW_DOMAINS = ("khidi.or.kr", "mfds.go.kr", "kosis.kr")
-        def _no_www(h: str) -> bool:
-            return (
-                h.endswith(".go.kr") or
-                h.endswith(".or.kr") or
-                any(h.endswith(d) for d in _NO_WWW_DOMAINS)
-            )
-        _is_dailypharm = host.endswith("dailypharm.com")
-        if host.startswith("m.") and len(host) > 2 and not _is_dailypharm and not _no_www(host):
-            host = "www." + host[2:]
-
-        if host.endswith(".amp.dev"):
-            host = host.removesuffix(".amp.dev")
-
-        path = p.path or ""
-        if path.endswith("/amp"):
-            path = path[:-4] or "/"
-        if path.endswith(".amp"):
-            path = path[:-4] or "/"
-
-        items = parse_qsl(p.query, keep_blank_values=True)
-        items = _strip_tracking_params(items)
-        query = urlencode(items, doseq=True)
-
-        netloc = host
-        if netloc.endswith(":80"):
-            netloc = netloc[:-3]
-        if netloc.endswith(":443"):
-            netloc = netloc[:-4]
-
-        cano = urlunparse((p.scheme.lower(), netloc, path, "", query, ""))
-        return cano
-    except Exception:
-        return nu.split("#", 1)[0]
-# ── incoming/seen hash helpers ────────────────────────────────────────────────
-def _seen_hash_path(ns: str, pd: str) -> Path:
-    """네임스페이스/퍼시스트디렉터리별 seen-hash 저장 경로."""
-    base = Path(pd)
-    base.mkdir(parents=True, exist_ok=True)
-    return base / f"{ns}.__seen_sources__.json"
-
-def _source_hash(title: str, url: str, content: str, raw: str, ctype: str) -> str:
-    h = hashlib.blake2b(digest_size=16)
-    h.update((title or "").encode("utf-8", "ignore"))
-    h.update((url or "").encode("utf-8", "ignore"))
-    if content:
-        h.update(content.encode("utf-8", "ignore"))
-    elif raw:
-        h.update(raw.encode("utf-8", "ignore"))
-    h.update((ctype or "").encode("utf-8", "ignore"))
-    return h.hexdigest()
-
-def _compute_incoming_hashes(json_path: str) -> dict[str, str]:
-    """web.json(배열/ndjson/래핑)에서 {source:hash} 맵 생성."""
-    def _flex_load(path: str):
-        txt = Path(path).read_text(encoding="utf-8")
-        try:
-            data = json.loads(txt)
-        except json.JSONDecodeError:
-            items = []
-            for line in txt.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    items.append(json.loads(line))
-                except Exception:
-                    pass
-            return items
-        if isinstance(data, list):
-            return data
-        if isinstance(data, dict):
-            for k in ("results", "items", "data"):
-                v = data.get(k)
-                if isinstance(v, list):
-                    return v
-            return [data]
-        return []
-
-    try:
-        items = _flex_load(json_path) or []
-    except Exception:
-        return {}
-
-    out: dict[str, str] = {}
-    for r in items:
-        if not isinstance(r, dict):
-            continue
-        url = _normalize_canonical_url((r.get("url") or r.get("source") or "").strip())
-        if not url:
-            continue
-        title   = (r.get("title") or "").strip()
-        content = (r.get("content") or r.get("snippet") or "").strip()
-        raw     = (r.get("raw_content") or "").strip()
-        ctype   = (r.get("content_type") or r.get("mime") or "").strip()
-        out[url] = _source_hash(title, url, content, raw, ctype)
-    return out
-
-def _load_seen_source_hashes(ns: str, pd: str) -> dict[str, str]:
-    p = _seen_hash_path(ns, pd)
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-def _save_seen_source_hashes(ns: str, pd: str, m: dict[str, str]) -> None:
-    p = _seen_hash_path(ns, pd)
-    try:
-        p.write_text(json.dumps(m, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        logger.debug("[ingest] save seen hashes failed: %s", p)
 
 # ---- Vector store cache (persist_dir, collection) ----
 _VS_CACHE: Dict[Tuple[str, str], Chroma] = {}
@@ -311,16 +221,16 @@ def _resolve_ns(
 ) -> str:
     """
     네임스페이스 결정 우선순위:
-      1) collection_name
-      2) namespace
+      1) namespace (명시 인자 최우선; split(web/local) 모드에서 필수)
+      2) collection_name
       3) CFG.CHROMA_NAMESPACE
       4) CFG.TOPIC_SLUG (suffix -default)
       5) "default"
     """
-    if collection_name and collection_name.strip():
-        return collection_name.strip()
     if namespace and namespace.strip():
         return namespace.strip()
+    if collection_name and collection_name.strip():
+        return collection_name.strip()
     env_ns = (getattr(CFG, "CHROMA_NAMESPACE", "") or "").strip()
     if env_ns:
         return env_ns
@@ -750,6 +660,12 @@ def clear_vector_store(namespace: Optional[str] = None, persist_directory: Optio
     ns = _resolve_ns(namespace=namespace, collection_name=None)
     pd = _resolve_persist_dir(ns, persist_directory)
 
+    # ✅ stored_urls 캐시(= seen-hash)도 함께 삭제
+    try:
+        delete_seen_source_hashes(ns, pd)
+    except Exception:
+        pass
+
     # 런타임 가드: 동일 (pd, ns) 중복 초기화를 억제
     if not _clear_once_guard(pd, ns, reason="clear_vector_store()"):
         return pd
@@ -800,6 +716,16 @@ def clear_vector_store(namespace: Optional[str] = None, persist_directory: Optio
             ok = True
         except Exception as e:
             logger.warning("[INIT] clear_vector_store failed(final): %s", e)
+
+# ✅ 벡터 스토어가 실제로 비워졌다면 stored_urls도 반드시 제거 (stale 방지)
+
+    if ok:
+        try:
+            _delete_all_stored_urls_for_ns(ns)
+        except Exception:
+            pass
+    else:
+        logger.debug("[stored_urls] skip delete: vector store clear not confirmed (ns=%s dir=%s)", ns, pd)
 
     try:
         os.makedirs(pd, exist_ok=True)
@@ -893,6 +819,11 @@ def documents_to_chroma(
                 import shutil
                 if os.path.isdir(pd_eff):
                     shutil.rmtree(pd_eff)
+                # ✅ ns별 seen-hash 캐시도 같이 삭제
+                try:
+                    delete_seen_source_hashes(ns_eff, pd_eff)
+                except Exception:
+                    pass
                 os.makedirs(pd_eff, exist_ok=True)
                 logger.info("documents_to_chroma: cleared vector store (ns=%s, dir=%s, part=%s)", ns_eff, pd_eff, label)
             except Exception as e:
@@ -941,6 +872,28 @@ def documents_to_chroma(
         except Exception:
             pass
     pre_docs_count = len(pre_docs)
+
+    # ✅ (여기에) 1.5) 초소형/잡음 문서 필터 추가
+    # 예: 너무 짧은 본문 제거(메뉴/푸터/한 줄짜리 등)
+    min_chars = _cfg_int("RAG_MIN_DOC_CHARS", 200)  # 원하는 기본값
+    min_tokens = _cfg_int("RAG_MIN_DOC_TOKENS", 30) # 선택
+
+    filtered_docs: List[Document] = []
+    skipped_too_small = 0
+
+    for d in pre_docs:
+        txt = getattr(d, "page_content", "") or ""
+        # 아주 단순 기준: 글자수 + (선택) 토큰수
+        if len(txt) < min_chars:
+            skipped_too_small += 1
+            continue
+        if min_tokens > 0 and len(txt.split()) < min_tokens:
+            skipped_too_small += 1
+            continue
+        filtered_docs.append(d)
+
+    pre_docs = filtered_docs
+    pre_docs_count2 = len(pre_docs)  # (옵션) 로그용
 
     # 2) 웹/로컬/기타 파티션
     web_docs, loc_docs, oth_docs = [], [], []
@@ -1227,40 +1180,48 @@ def documents_to_chroma(
         ids: List[str] = []
         counter: _dd[str, int] = _dd(int)
 
-        def _cap_id(s: str) -> str:  # ID 길이 상한 보정
-            if len(s) <= MAX_ID_CHARS:
-                return s
-            keep_tail = 12
-            return s[: MAX_ID_CHARS - keep_tail] + s[-keep_tail:]
+        # ─────────────────────────────────────────────
+        # [ADD] 임베딩 안전 배치 가드
+        # - 총 텍스트 길이 18k 초과 시 강제 분할
+        # - CHROMA_MAX_BATCH 환경변수 상한 적용
+        # ─────────────────────────────────────────────
+        MAX_BATCH = _cfg_int("CHROMA_MAX_BATCH", 16)  # 기본 16으로 보수적
+        MAX_TEXT_SUM = 18000
+
+        def _yield_batches(docs: List[Document], ids_list: List[str]):
+            batch_docs, batch_ids = [], []
+            text_sum = 0
+            for d, i in zip(docs, ids_list):
+                l = len((d.page_content or ""))
+                # 조건 1: batch size 초과
+                # 조건 2: 텍스트 총합 초과
+                if (
+                    batch_docs
+                    and (len(batch_docs) >= MAX_BATCH or text_sum + l > MAX_TEXT_SUM)
+                ):
+                    yield batch_docs, batch_ids
+                    batch_docs, batch_ids = [], []
+                    text_sum = 0
+                batch_docs.append(d)
+                batch_ids.append(i)
+                text_sum += l
+            if batch_docs:
+                yield batch_docs, batch_ids
+
+        def _cap_id(s: str) -> str:
+            return _cap_id_ssot(s, max_chars=MAX_ID_CHARS, keep_tail=12)
 
         def _make_doc_id(src: str, ver: str, text: str) -> str:
-            """
-            같은 원칙:
-            1) 안정 키 구성: source(정규화) + version(mtime 등) [+ 내용 해시 옵션]
-            2) 결정적 base 해시 + 시퀀스 번호(충돌 방지)
-            3) 길이 상한(capping)
-            """
-            # source 정규화(모바일/AMP/트래킹 파라미터 제거)
-            try:
-                src_norm = _normalize_canonical_url(src)
-            except Exception:
-                src_norm = src
-            seed = src_norm
-            if _cfg_bool("RAG_ID_INCLUDE_MTIME", True) and ver:
-                seed = f"{seed}|{ver}"
-            if _cfg_bool("RAG_ID_INCLUDE_CONTENT_SHA", False):
-                try:
-                    import hashlib as _hl
-                    seed += "|" + _hl.sha1((text or "").encode("utf-8", "ignore")).hexdigest()[:16]
-                except Exception:
-                    pass
-            # 결정적 base 해시 + 시퀀스
-            import hashlib as _hl2
-            base = _hl2.sha1(seed.encode("utf-8", "ignore")).hexdigest()
-            counter[base] += 1
-            raw_id = f"{base}-{counter[base]:06d}"
-            return _cap_id(raw_id)
-
+            return _make_doc_id_ssot(
+                src,
+                ver,
+                text,
+                counter=counter,
+                max_id_chars=MAX_ID_CHARS,
+                include_mtime=_cfg_bool("RAG_ID_INCLUDE_MTIME", True),
+                include_content_sha=_cfg_bool("RAG_ID_INCLUDE_CONTENT_SHA", False),
+            )
+        
         for doc in splits:
             meta = getattr(doc, "metadata", {}) or {}
             src  = str(meta.get("source") or meta.get("url") or meta.get("file_path") or "")
@@ -1280,7 +1241,15 @@ def documents_to_chroma(
         except Exception: pass
 
         try:
-            added_chunks = _batched_add(vs_eff, splits, ids, quarantine_dir=qdir, max_seconds=INDEX_TIMEOUT_SEC)
+            added_chunks = 0
+            for _docs, _ids in _yield_batches(splits, ids):
+                added_chunks += _batched_add(
+                    vs_eff,
+                    _docs,
+                    _ids,
+                    quarantine_dir=qdir,
+                    max_seconds=INDEX_TIMEOUT_SEC,
+                )
             if added_chunks == 0 and verbose:
                 logger.info(
                     ("[HINT][%s] added_chunks=0 → common causes: "
@@ -1436,10 +1405,15 @@ def add_web_pages_json_to_chroma(
     """web.json → Document → Chroma 업서트 편의 함수."""
     # [ADD] 사전 해시/버전키 기반 no-op 빠른 종료
     # ns/pd를 먼저 해석해야 seen-hash 파일을 찾을 수 있습니다.
-    ns_probe = _resolve_ns(namespace=namespace, collection_name=collection_name)
+    ns_base = _resolve_ns(namespace=namespace, collection_name=collection_name)
+    ns_web_env = (getattr(CFG, "CHROMA_NAMESPACE_WEB", "") or "").strip()
+    ns_loc_env = (getattr(CFG, "CHROMA_NAMESPACE_LOCAL", "") or "").strip()
+    split_mode = bool(ns_web_env and ns_loc_env)
+    # web.json 경로는 "웹 소스"이므로 split 모드면 web ns로 강제
+    ns_probe = (ns_web_env if split_mode else ns_base)
     pd_probe = _resolve_persist_dir(ns_probe, persist_directory)
-    existing = _load_seen_source_hashes(ns_probe, pd_probe)  # {source:hash}
-    incoming = _compute_incoming_hashes(json_file)            # {source:hash}
+    existing = load_seen_source_hashes(ns_probe, pd_probe)  # {source:hash}
+    incoming = compute_incoming_hashes(json_file)            # {source:hash}
     new_sources = [s for s, h in incoming.items() if existing.get(s) != h]
     if not new_sources and incoming:
         logger.info("[ingest] all sources unchanged → skip build (ns=%s dir=%s, sources=%d)",
@@ -1460,9 +1434,13 @@ def add_web_pages_json_to_chroma(
     # 인덱싱이 실제로 수행되었다면 seen-hash 갱신
     if added > 0 and incoming:
         try:
-            ns_effective = _resolve_ns(namespace=namespace, collection_name=collection_name)
+            ns_base2 = _resolve_ns(namespace=namespace, collection_name=collection_name)
+            ns_web_env2 = (getattr(CFG, "CHROMA_NAMESPACE_WEB", "") or "").strip()
+            ns_loc_env2 = (getattr(CFG, "CHROMA_NAMESPACE_LOCAL", "") or "").strip()
+            split_mode2 = bool(ns_web_env2 and ns_loc_env2)
+            ns_effective = (ns_web_env2 if split_mode2 else ns_base2)
             pd_effective = _resolve_persist_dir(ns_effective, persist_directory)
-            _save_seen_source_hashes(ns_effective, pd_effective, incoming)
+            save_seen_source_hashes(ns_effective, pd_effective, incoming)
         except Exception:
             logger.debug("[ingest] save seen hashes skipped (ns/pd unresolved or write fail)")
     return (in_docs, added)
@@ -1518,6 +1496,7 @@ def retrieve(
     세션/주제별 Chroma 컬렉션에서 RAG 검색 (고속 경로 + 친절한 예외 메시지)
     """
     q = (query or "").strip()
+
     if not q:
         return []
 
@@ -1529,17 +1508,59 @@ def retrieve(
         logger.debug("[retrieve] skip glob-like query: %s", query)
         return []
 
-    ns = _resolve_ns(namespace=namespace, collection_name=collection_name)
+    # ✅ [CHECK] Tool/invoke 경로에서 인자가 실제로 전달되는지 확인
+    try:
+        logger.warning(
+            "[CHECK][retrieve][args] namespace=%r collection_name=%r persist_directory=%r top_k=%r",
+            namespace, collection_name, persist_directory, top_k
+        )
+    except Exception:
+        pass
+
+    # ✅ 호출자가 namespace를 명시하면 그것을 최우선으로 존중한다.
+    #    (dual-retrieve에서 ns_web/ns_local로 호출하는데 _resolve_ns가 base로 덮어쓰는 현상 방지)
+    ns_arg = (namespace or "").strip()
+    if ns_arg:
+        ns = ns_arg
+        logger.debug(
+            "[retrieve][ns_resolve] (explicit) arg.namespace=%r arg.collection_name=%r -> ns=%r",
+            namespace, collection_name, ns
+        )
+    else:
+        ns = _resolve_ns(namespace=namespace, collection_name=collection_name)
+        logger.debug(
+            "[retrieve][ns_resolve] (resolved) arg.namespace=%r arg.collection_name=%r -> ns=%r",
+            namespace, collection_name, ns
+        )
     # ✅ 옵션 A 강제: split 모드에서 web/local 네임스페이스일 때는 항상 ns 전용 디렉터리로 라우팅
     pd = _resolve_persist_dir_strict(ns, persist_directory)
     vs = _get_vs(ns, pd, embedding)
     logger.debug("[retrieve] using collection(ns=%s, dir=%s)", ns, pd)
+
+    # ✅ [CHECK] retrieve가 실제로 바라보는 컬렉션 카운트 (dual-retrieve count와 불일치 여부 확인)
+    try:
+        c = getattr(getattr(vs, "_collection", None), "count", None)
+        if callable(c):
+            logger.warning("[CHECK][retrieve] ns=%s dir=%s collection_count=%s", ns, pd, c())
+        else:
+            logger.warning("[CHECK][retrieve] ns=%s dir=%s collection_count=(unknown)", ns, pd)
+    except Exception as e:
+        logger.warning("[CHECK][retrieve] collection_count failed: %s", e)
+
 
     emb_fn = getattr(vs, "_embedding_function", None) or embedding or _get_embeddings(embedding)
 
     try:
         q_emb = emb_fn.embed_query(q) if hasattr(emb_fn, "embed_query") else emb_fn(q)
         n = max(1, int(top_k or 5))
+        # ✅ [CHECK] query embedding 차원 확인 (dimension mismatch는 보통 예외지만, 이상치 탐지용)
+        try:
+            q_dim = len(q_emb) if hasattr(q_emb, "__len__") else None
+            logger.warning("[CHECK][retrieve] ns=%s dir=%s top_k=%d q_len=%d q_emb_dim=%s",
+                           ns, pd, n, len(q), q_dim)
+        except Exception:
+            pass
+
         res = vs._collection.query(
             query_embeddings=[q_emb],
             n_results=n,
@@ -1549,6 +1570,15 @@ def retrieve(
         docs_out: list[Document] = []
         docs = (res or {}).get("documents") or []
         metas = (res or {}).get("metadatas") or []
+        # ✅ [CHECK] raw 응답 구조/길이 확인 (실제로 0-hit인지 판단)
+        try:
+            d0 = len(docs[0]) if (isinstance(docs, list) and docs and isinstance(docs[0], list)) else 0
+            m0 = len(metas[0]) if (isinstance(metas, list) and metas and isinstance(metas[0], list)) else 0
+            logger.warning("[CHECK][retrieve-fast] ns=%s dir=%s raw_docs0=%d raw_metas0=%d keys=%s",
+                           ns, pd, d0, m0, list((res or {}).keys()))
+        except Exception:
+            pass
+
         if docs and isinstance(docs, list):
             rows = zip(docs[0] if docs else [], metas[0] if metas else [])
             for doc_text, meta in rows:

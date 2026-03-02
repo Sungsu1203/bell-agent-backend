@@ -1,0 +1,161 @@
+Folder PATH listing
+Volume serial number is A6BD-DC85
+D:.
+|   .gitignore
+|   app.py
+|   content_utils.py
+|   graph.py
+|   mypy.ini
+|   oauth_client_info.json
+|   prompts.py
+|   pyproject.toml
+|   pytest.ini
+|   rag_expression.py
+|   README-dev.md
+|   report_builder.py
+|   repo_tree.txt
+|   requirements.lock.txt
+|   service_account.json
+|   settings_gatekeep.py
+|   structure_folder.txt
+|   
++---agent
+|       chapter_writer.py
+|       communicator.py
+|       content_strategist.py
+|       research_planner.py
+|       research_synthesizer.py
+|       section_writer.py
+|       supervisor.py
+|       vector_search.py
+|       web_search.py
+|       __init__.py
+|       
++---chapters
++---content
+|       api.py
+|       __init__.py
+|       
++---core
+|       config.py
+|       llm.py
+|       models.py
+|       paths.py
+|       routers.py
+|       state_io.py
+|       state_types.py
+|       topic.py
+|       __init__.py
+|       
++---data
+|   \---chroma_store
++---local
+|   +---CASE_SPLIT
+|   |       compliance_guide.md
+|   |       policy_overview.md
+|   |       
+|   +---EMPTY
+|   \---ONE
+|           control_recycle.md
+|           
++---logs
+|       run_full.log
+|       run_stack.log
+|       
++---outlines
+|   +---default
+|   |       outline_report.md
+|   |       
+|   +---height-growth-supplement-db-strategy
+|   |       outline_report.md
+|   |       
+|   \---sections
+|       +---height-growth-supplement-db-strategy
+|       \---venfobel-market-gm
++---refs
+|       (디트라이브) 종근당건강 아이커_운영제안.pdf
+|       1월효율자료.pdf
+|       TMDB효율자료.pdf
+|       종근당건강아이커.docx
+|       종근당건강아이커.pdf
+|       
++---reports
+|   +---height-growth-supplement-db-strategy
+|   |       height-growth-supplement-db-strategy_20260131_145126.md
+|   |       height-growth-supplement-db-strategy_20260131_145703.md
+|   |       height-growth-supplement-db-strategy_20260131_150428.md
+|   |       height-growth-supplement-db-strategy_20260131_150829.md
+|   |       height-growth-supplement-db-strategy_20260131_151244.md
+|   |       height-growth-supplement-db-strategy_20260131_151658.md
+|   |       height-growth-supplement-db-strategy_20260131_155111.md
+|   |       height-growth-supplement-db-strategy_20260131_160141.md
+|   |       height-growth-supplement-db-strategy_20260131_160255.md
+|   |       height-growth-supplement-db-strategy_20260131_160359.md
+|   |       height-growth-supplement-db-strategy_20260131_160556.md
+|   |       height-growth-supplement-db-strategy_20260131_160738.md
+|   |       height-growth-supplement-db-strategy_20260131_160852.md
+|   |       height-growth-supplement-db-strategy_20260206_083004.md
+|   |       
+|   +---outlines
+|   |   +---data
+|   |   |   \---venfobel-market-gm
+|   |   |       \---sections
+|   |   \---outlines
+|   \---venfobel-market-gm
+|           venfobel-market-gm_20251119_093832.md
+|           venfobel-market-gm_20260131_114126.md
+|           venfobel-market-gm_20260131_114249.md
+|           
++---research
+|   \---height-growth-supplement-db-strategy
+|       |   round-01-findings.md
+|       |   round-02-findings.md
+|       |   
+|       \---state
+|               last_state.json
+|               last_state.pkl
+|               
++---resources
+|   \---height-growth-supplement-db-strategy
++---sections
+|   \---height-growth-supplement-db-strategy
+|           d2c-커머스-전환-및-옴니채널-모델-제안.md
+|           executive-summary.md
+|           경쟁-브랜드-db-마케팅-분석.md
+|           고효율-db-gathering-채널-믹스-전략.md
+|           소비자-행동-및-타겟-심층-분석.md
+|           실행-로드맵-및-예상-kpi.md
+|           
++---state
++---tools
+|   |   local_rag.py
+|   |   metrics.py
+|   |   __init__.py
+|   |   
+|   +---data
+|   +---snapshots
+|   |       make_snapshot.ps1
+|   |       
+|   \---web_rag
+|           ingest.py
+|           ingest_config.py
+|           ingest_docs.py
+|           ingest_net.py
+|           ingest_vector.py
+|           search.py
+|           utils.py
+|           __init__.py
+|           
+\---utils
+        forced_queries.py
+        outline.py
+        query_filters.py
+        rag_utils.py
+        refs.py
+        ref_format.py
+        sanitize.py
+        tasks.py
+        text_utils.py
+        writer_scheduler.py
+        __init__.py
+        

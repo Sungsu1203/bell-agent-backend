@@ -8,12 +8,51 @@ from pathlib import Path
 import threading
 from datetime import datetime
 from typing import Any, List, Tuple, Optional, Callable
-from urllib.parse import unquote
+from urllib.parse import unquote, quote, urlencode
 from typing import Dict
 from fnmatch import fnmatch
 from collections import Counter
 
 from langchain_core.documents import Document
+
+
+# -----------------------------------------------------------------------------
+# SSoT alignment (web_rag/utils):
+# - metadata["source"]        : canonical file:// URI (with fragment for part/index/chunk)
+# - metadata["source_version"]: mtime string (used by web_rag/utils.make_doc_id in ingest_vector)
+# - DO NOT generate local-only doc_id based on custom __v_/__c_ encoding
+# -----------------------------------------------------------------------------
+from tools.web_rag.utils import _normalize_canonical_url
+
+
+def _build_local_source(p: Path, *, part: str | None = None, index: int | None = None, chunk: int | None = None) -> str:
+    """
+    Build canonical 'source' for local chunks:
+      file:///.../file.pdf#part=Slide&index=3&chunk=12
+    Fragment is preserved by utils._normalize_canonical_url (file:// policy).
+    """
+    # 1) raw file URI 생성 (OS resolve 기반으로 최대한 단일화)
+    base = _file_uri(str(p))
+
+    # 2) fragment는 "항상 동일한 순서/인코딩"으로 구성한다.
+    #    (file:// 정책상 utils._normalize_canonical_url()이 fragment를 그대로 보존하므로,
+    #     표준화는 여기서 강제해야 doc_id가 흔들리지 않는다.)
+    frag: dict[str, str] = {}
+    if part is not None:
+        frag["part"] = str(part)
+    if index is not None:
+        frag["index"] = str(index)
+    if chunk is not None:
+        frag["chunk"] = str(chunk)
+
+    if frag:
+        # quote keys/values via urlencode (stable encoding)
+        base = base + "#" + urlencode(frag, doseq=False, quote_via=quote)
+
+    # IMPORTANT:
+    # Do NOT canonicalize here.
+    # Canonicalization is SSoT in tools.web_rag.utils.make_doc_id().
+    return base
 
 # ── explicit module export list (typed) ─────────────────────────────────────
 # 현재 파일에서 외부로 제공하는 퍼블릭 API만 나열합니다.
@@ -893,6 +932,21 @@ def _file_uri(path: str) -> str:
     return Path(path).resolve().as_uri()  # file:/// 형태 보장
 
 # ──────────────────────────────────────────────────────────────
+# URL 안정화: stored_urls/seen-hash, dedupe를 위해 url은 base로 고정
+#  - fragment/query를 url에 섞지 않고 locator로 분리한다.
+# ──────────────────────────────────────────────────────────────
+def _make_locator(*, part_label: str, index_num: Any, chunk: int, kind: str) -> str:
+    """
+    UI/디버깅용 위치 힌트.
+    url에는 fragment를 넣지 않고, 별도 locator로 보관한다.
+    """
+    try:
+        return f"{kind}:{part_label}:{index_num}:chunk:{int(chunk)}"
+    except Exception:
+        return f"{kind}:{part_label}:{index_num}:chunk:{chunk}"
+
+
+# ──────────────────────────────────────────────────────────────
 # part 메타 구성 유틸: kind와 인덱스를 안정 문자열로 결합
 # ──────────────────────────────────────────────────────────────
 def _compose_part(kind: str, idx: Any) -> str:
@@ -916,7 +970,7 @@ def _to_webjson_items(path: str, *, max_pages_per_file: Optional[int] = None) ->
     url_click = _file_uri(path)  # 사람이 눌러 열어볼 주소
     ver = _file_version(path)
     fetched_at = _now_iso()
-    # doc_id 안정화용: 파일 mtime 포함
+    # source_version 안정화용: 파일 mtime 포함 (web_rag SSoT와 동일하게 사용)
     try:
         _st = os.stat(path)
         _mtime = int(_st.st_mtime)
@@ -1073,15 +1127,17 @@ def _to_webjson_items(path: str, *, max_pages_per_file: Optional[int] = None) ->
                 continue
             for j, ch in enumerate(chunks, start=1):
                 part_value = _compose_part(kind, f"{part_label}:{index_num}")
-                # doc_id: url | mtime | part | index | chunk 기반(sha1, 32자)
-                _doc_id_src = f"{url_click}|{_mtime}|{part_label}|{index_num}|{j}"
-                _doc_id = hashlib.sha1(_doc_id_src.encode("utf-8")).hexdigest()[:32]
+                # SSoT: source is canonical file:// URI + fragment (part/index/chunk)
+                # ingest_vector will generate ids from (source, source_version, content) using utils.make_doc_id
+                _src = _build_local_source(Path(path), part=part_label, index=index_num, chunk=j)
+                _ver = str(_mtime)
                 final_items.append({
                     "title": f"{title} ({part_label}, Index: {index_num}, Chunk {j})",
-                    "url": f"{url_click}#part={part_label}&index={index_num}",
-                    "source": f"{url_click}__s_{part_label}__r_{index_num}__c_{j}__v_{ver}",
-                    "doc_id": _doc_id,
+                    "url": url_click,
+                    "source": _src,
+                    "source_version": _ver,
                     "part": part_value,
+                    "locator": _make_locator(part_label=str(part_label), index_num=index_num, chunk=j, kind=kind),
                     "content": ch,
                     "content_type": content_type,
                     "bytes": _filesize_bytes,
@@ -1106,14 +1162,15 @@ def _to_webjson_items(path: str, *, max_pages_per_file: Optional[int] = None) ->
             chunks = _ensure_min_chunk(content, ext, chunks)
             for j, ch in enumerate(chunks, start=1):
                 part_value = _compose_part("chunk", j)
-                _doc_id_src = f"{url_click}|{_mtime}|chunk|{j}"
-                _doc_id = hashlib.sha1(_doc_id_src.encode("utf-8")).hexdigest()[:32]
+                _src = _build_local_source(Path(path), part="chunk", index=None, chunk=j)
+                _ver = str(_mtime)
                 final_items.append({
                     "title": f"{title} (Chunk {j})",
                     "url": url_click,
-                    "source": f"{url_click}__c_{j}__v_{ver}",
-                    "doc_id": _doc_id,
+                    "source": _src,
+                    "source_version": _ver,
                     "part": part_value,
+                    "locator": _make_locator(part_label="chunk", index_num=j, chunk=j, kind="chunk"),
                     "content": ch,
                     "content_type": content_type,
                     "bytes": _filesize_bytes,
@@ -1266,8 +1323,9 @@ def build_webjson_from_local(
     if items:
         def _pretty_src(src: str) -> str:
             s = unquote(src or "")
-            if "__v_" in s:
-                s = s.split("__v_")[0]
+            # NOTE:
+            # local sources are now canonical file:// URIs with optional fragment.
+            # legacy "__v_" suffix stripping is no longer applicable.
             if "__p_" in s:
                 s = s.split("__p_")[0]
             return s

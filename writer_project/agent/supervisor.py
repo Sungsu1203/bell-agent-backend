@@ -421,14 +421,16 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
                 tasks.append(
                     Task(agent="vector_search_agent", done=False, description=desc, done_at="")
                 )
-            # 직답 경로 플래그 유지
-            mstate["qa_direct_reply"] = True
+            # vector_search 입력 채널 보강
+            if _last_text:
+                mstate["last_user"] = _last_text
+                cast(MutableMapping[str, Any], mstate.setdefault("flags", {}))["last_user_query"] = _last_text
+
             logger.info("[Supervisor] Direct QA fast-path → vector_search_agent (pending added)")
             _dash_emit(state, where="supervisor", picked="vector_search_agent", reason="direct_qa_fastpath_pending_added")
             return {
                 "messages": messages,
                 "task_history": tasks,
-                "qa_direct_reply": state.get("qa_direct_reply"),
                 "flags": state.get("flags", {}),
             }
         else:
@@ -478,12 +480,19 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
     if last_text and _is_qa_like(last_text):
         if not _safe_has_pending(tasks, "vector_search_agent"):
             tasks.append(Task(agent="vector_search_agent", done=False, description=f"qa_query:{last_text}", done_at=""))
-            mstate["qa_direct_reply"] = True
+            # vector_search 입력 채널 보강(q='' 방지)
+            mstate["last_user"] = last_text
+            flags_now = dict(mstate.get("flags") or {})
+            flags_now["last_user_query"] = last_text
+            mstate["flags"] = flags_now
+            # vector_search가 실제로 읽는 입력 채널 보강(빈 q 방지)
+            mstate["last_user"] = last_text
+            cast(MutableMapping[str, Any], mstate.setdefault("flags", {}))["last_user_query"] = last_text
             logger.info("[Supervisor fast-path] QA-like → vector_search_agent scheduled")
             _dash_emit(state, where="supervisor", picked="vector_search_agent", reason="qa_like_new_task")
         else:
             logger.info("[Supervisor fast-path] vector_search_agent pending already exists.")
-        return {"messages": messages, "task_history": tasks, "qa_direct_reply": state.get("qa_direct_reply"), "flags": state.get("flags", {})}
+        return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
 
     # 새 주제
     new_title = extract_new_topic_title(last_text)
