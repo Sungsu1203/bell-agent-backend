@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 logger = logging.getLogger(__name__)
@@ -337,34 +337,31 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
         len(msgs),
         (last_human.__class__.__name__ if last_human else None),
     )
-    if False and last_txt and re.search(r"(목차|outline)\s*(보여줘|보기|표시|줘)?\s*$", last_txt):
-        pass  # v2026-03-03-E: show_outline is handled in run_once/FastCommandHandler
-        # legacy (kept for reference):
-        # logger.info("[Supervisor fast-path] show_outline(text) → communicator (no-llm)")
-        # _st = cast(MutableMapping[str, Any], state)
-        # tasks = list(_st.get("task_history") or [])
-        # fname = "outline_report.md"
-        # if not _safe_has_pending(tasks, "communicator"):
-        #     tasks.append(Task(agent="communicator", done=False, description=f"show_outline:{fname}", done_at=""))
-        # _st["task_history"] = tasks
-        # _st["next_agent"] = "communicator"
-        # return cast(Dict[str, Any], _st)
+    if last_txt and re.search(r"(목차|outline)\s*(보여줘|보기|표시|줘)?\s*$", last_txt):
+# DISABLED(v2026-03-03-E): # DISABLED(v2026-03-03-E):         logger.info("[Supervisor fast-path] show_outline(text) → communicator (no-llm)")
+        _st = cast(MutableMapping[str, Any], state)
+        tasks = list(_st.get("task_history") or [])
+        fname = "outline_report.md"
+        if not _safe_has_pending(tasks, "communicator"):
+# DISABLED(v2026-03-03-E):             tasks.append(Task(agent="communicator", done=False, description=f"show_outline:{fname}", done_at=""))
+        _st["task_history"] = tasks
+        _st["next_agent"] = "communicator"
+        return cast(Dict[str, Any], _st)
 
 
     # ✅ pre-flight: show_outline은 LLM/Embedding 초기화 없이 즉시 처리
-    if False and (state.get("command_intent") == "show_outline" or (state.get("flags") or {}).get("show_outline")):
-        pass  # v2026-03-03-E: show_outline is handled in run_once/FastCommandHandler
-        # legacy (kept for reference):
-        # logger.info("[Supervisor fast-path] show_outline → communicator (no-llm)")
-        # _st = cast(MutableMapping[str, Any], state)
-        # tasks = list(_st.get("task_history") or [])
-        # fname = "outline_report.md"
-        # if not _safe_has_pending(tasks, "communicator"):
-        #     tasks.append(Task(agent="communicator", done=False, description=f"show_outline:{fname}", done_at=""))
-        # _st["task_history"] = tasks
-        # _st["next_agent"] = "communicator"
-        # return cast(Dict[str, Any], _st)
-
+    if state.get("command_intent") == "show_outline" or (state.get("flags") or {}).get("show_outline"):
+# DISABLED(v2026-03-03-E): # DISABLED(v2026-03-03-E):         logger.info("[Supervisor fast-path] show_outline → communicator (no-llm)")
+        _st = cast(MutableMapping[str, Any], state)
+        tasks = list(_st.get("task_history") or [])
+        # outline 파일명은 기존 기본값을 그대로 사용(너 로그에도 outline_report.md)
+        fname = "outline_report.md"
+        if not _safe_has_pending(tasks, "communicator"):
+# DISABLED(v2026-03-03-E):             tasks.append(Task(agent="communicator", done=False, description=f"show_outline:{fname}", done_at=""))
+        _st["task_history"] = tasks
+        # router가 next_agent를 보든 task_history를 보든 확실히 communicator로 감
+        _st["next_agent"] = "communicator"
+        return cast(Dict[str, Any], _st)
     llm = get_llm()
     state = sanitize_state(state)  # Mapping -> dict (copy) or in-place if mutable
     mstate: MutableMapping[str, Any] = cast(MutableMapping[str, Any], state)
@@ -498,25 +495,23 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
         or bool(re.search(r"(목차|outline).*(보여줘|보여|display|show)", last_text, re.I))
         or last_text.strip() in {"목차", "목차 보여줘", "show outline", "show me the outline"}
     )
-    if False and _outline_show_intent:
-        pass  # v2026-03-03-E: show_outline is handled in run_once/FastCommandHandler
-        # legacy (kept for reference):
-        # fname = _pick_outline_filename(last_text)
-        # if not _safe_has_pending(tasks, "communicator"):
-        #     tasks.append(Task(agent="communicator", done=False, description=f"show_outline:{fname}", done_at=""))
-        # # 혹시 남아있는 Direct QA 의향/플래그가 있으면 끄고(오작동 방지)
-        # mstate["qa_direct_reply"] = False
-        # try:
-        #     f0 = dict(state.get("flags") or {})
-        #     f0.pop("qa_direct_reply", None)
-        #     # suppress_vector_qa는 write락 전용이지만, 안전하게 남겨도 무해
-        #     mstate["flags"] = f0
-        # except Exception:
-        #     pass
-        # messages.append(AIMessage(content=f"[Supervisor fast-path] → communicator (show_outline:{fname})"))
-        # logger.info("[Supervisor fast-path] show_outline → communicator (target=%s)", fname)
-        # _dash_emit(state, where="supervisor", picked="communicator", reason="show_outline_preempt_qa_like")
-        # return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
+    if _outline_show_intent:
+        fname = _pick_outline_filename(last_text)
+        if not _safe_has_pending(tasks, "communicator"):
+# DISABLED(v2026-03-03-E):             tasks.append(Task(agent="communicator", done=False, description=f"show_outline:{fname}", done_at=""))
+        # 혹시 남아있는 Direct QA 의향/플래그가 있으면 끄고(오작동 방지)
+        mstate["qa_direct_reply"] = False
+        try:
+            f0 = dict(state.get("flags") or {})
+            f0.pop("qa_direct_reply", None)
+            # suppress_vector_qa는 write락 전용이지만, 안전하게 남겨도 무해
+            mstate["flags"] = f0
+        except Exception:
+            pass
+        messages.append(AIMessage(content=f"[Supervisor fast-path] → communicator (show_outline:{fname})"))
+# DISABLED(v2026-03-03-E): # DISABLED(v2026-03-03-E):         logger.info("[Supervisor fast-path] show_outline → communicator (target=%s)", fname)
+# DISABLED(v2026-03-03-E):         _dash_emit(state, where="supervisor", picked="communicator", reason="show_outline_preempt_qa_like")
+        return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
 
     # ✅ FAST-PATH(우선): 목차 생성도 QA-like보다 먼저 처리
     if is_outline_creation(last_text):
@@ -661,16 +656,14 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
         or bool(re.search(r"(목차|outline).*(보여줘|보여|display|show)", last_text, re.I))
         or last_text.strip() in {"목차", "목차 보여줘", "show outline", "show me the outline"}
     )
-    if False and _outline_show_intent:
-        pass  # v2026-03-03-E: show_outline is handled in run_once/FastCommandHandler
-        # legacy (kept for reference):
-        # fname = _pick_outline_filename(last_text)
-        # if not _safe_has_pending(tasks, "communicator"):
-        #     tasks.append(Task(agent="communicator", done=False, description=f"show_outline:{fname}", done_at=""))
-        # messages.append(AIMessage(content=f"[Supervisor fast-path] → communicator (show_outline:{fname})"))
-        # logger.info("[Supervisor fast-path] show_outline → communicator (target=%s)", fname)
-        # _dash_emit(state, where="supervisor", picked="communicator", reason="show_outline")
-        # return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
+    if _outline_show_intent:
+        fname = _pick_outline_filename(last_text)
+        if not _safe_has_pending(tasks, "communicator"):
+# DISABLED(v2026-03-03-E):             tasks.append(Task(agent="communicator", done=False, description=f"show_outline:{fname}", done_at=""))
+        messages.append(AIMessage(content=f"[Supervisor fast-path] → communicator (show_outline:{fname})"))
+# DISABLED(v2026-03-03-E): # DISABLED(v2026-03-03-E):         logger.info("[Supervisor fast-path] show_outline → communicator (target=%s)", fname)
+# DISABLED(v2026-03-03-E):         _dash_emit(state, where="supervisor", picked="communicator", reason="show_outline")
+        return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
 
     if _is_research_mode_local(state):
         no_research_pending = not any(
@@ -699,14 +692,12 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
         messages.append(AIMessage(content=f"[Supervisor fast-path] → content_strategist (target={fname})"))
         return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
 
-    if False and is_outline_display(last_text):
-        pass  # v2026-03-03-E: show_outline is handled in run_once/FastCommandHandler
-        # legacy (kept for reference):
-        # fname = _pick_outline_filename(last_text)
-        # if not _safe_has_pending(tasks, "communicator"):
-        #     tasks.append(Task(agent="communicator", done=False, description=f"show_outline:{fname}", done_at=""))
-        # messages.append(AIMessage(content=f"[Supervisor fast-path] → communicator (show_outline:{fname})"))
-        # return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
+    if is_outline_display(last_text):
+        fname = _pick_outline_filename(last_text)
+        if not _safe_has_pending(tasks, "communicator"):
+# DISABLED(v2026-03-03-E):             tasks.append(Task(agent="communicator", done=False, description=f"show_outline:{fname}", done_at=""))
+        messages.append(AIMessage(content=f"[Supervisor fast-path] → communicator (show_outline:{fname})"))
+        return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
 
     # fast-path: RAG update
     _rag_re = r"(최신|업데이트|update|latest).*?(자료|리소스|레퍼런스|참고|sources|material).*?(rag|벡터|vector|임베딩|embedding|index|색인|chroma)"
@@ -953,7 +944,7 @@ def supervisor_router(state: Mapping[str, Any]) -> str:
         _dash_emit(state, where="router", picked=ret, reason=f"new_topic refs_empty={refs_empty}")
         return ret
 
-    if False and is_outline_display(last_text):
+    if is_outline_display(last_text):
         ret = "communicator"; _dash_emit(state, where="router", picked=ret, reason="show_outline"); return ret
 
     if is_outline_creation(last_text):

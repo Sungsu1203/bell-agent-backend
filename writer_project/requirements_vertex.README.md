@@ -1,0 +1,1 @@
+requests 경고 때문에 urllib3<2.3, chardet<6로 맞췄다

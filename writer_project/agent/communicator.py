@@ -12,6 +12,7 @@ from prompts import get_communicator_prompt
 from core.paths import read_outline
 from utils.outline import get_topic_outline_text
 from core.llm import get_llm
+from core.routers import _is_show_outline_intent
 import logging
 from pathlib import Path
 logger = logging.getLogger(__name__)
@@ -231,9 +232,27 @@ def communicator(state: State):
         if not reply_text:
             # Direct QA 플래그는 있는데 본문이 없으면: 빈 저장/빈 출력 금지 → fallback 스케줄링
             logger.warning("[COMMUNICATOR] qa_direct_reply=True but last AI message is empty. Scheduling fallback.")
+
+            # ✅ show_outline이면 RAG 재시도 스케줄링 금지 (web/vector로 새는 것 차단)
+            if state.get("command_intent") == "show_outline" or (state.get("flags") or {}).get("show_outline"):
+                logger.info("[COMMUNICATOR][fallback-skip] show_outline intent → skip web/vector scheduling")
+                tasks0 = state.get("task_history", []) or []
+
+                # communicator task 닫기 (기존 로직 재사용)
+                pending0 = next((t for t in reversed(tasks0)
+                                 if (not getattr(t, "done", True)) and getattr(t, "agent", "") == "communicator"), None)
+                if pending0:
+                    pending0.done = True
+                    pending0.done_at = _now_str()
+
+                state["task_history"] = tasks0
+                _set_flag_qa_done(state)
+                return {"messages": state.get("messages") or [], "task_history": tasks0, "qa_direct_reply": False}
+
             tasks0 = state.get("task_history", []) or []
             allow_web = not bool(getattr(config.CFG, "SKIP_WEB_SEARCH", False))
             have_refs = bool(((state.get("references") or {}).get("docs") or []))
+
 
             if have_refs:
                 if not has_pending(tasks0, "vector_search_agent"):
@@ -296,7 +315,6 @@ def communicator(state: State):
         logger.info("[COMMUNICATOR] Delivered Direct QA Summary.")
         return {"messages": messages0, "task_history": tasks0, "qa_direct_reply": False}
 
-    llm = get_llm()
     # Mapping → dict(materialize) for mutation safety & type-check compatibility
     state = cast(State, sanitize_state(state))
 
@@ -472,6 +490,28 @@ def communicator(state: State):
         # ▾ 답변이 비어 있으면 직답 경로 중단 → 폴백 라우팅(웹서치/벡터 재시도)
         if not ans:
             tasks = state.get("task_history", []) or []
+
+            # ✅ show_outline intent면: web_search/vector_search 폴백 스케줄링 금지
+            # (목차 요청이 DB-empty 보정 로직에 의해 web→vector로 새는 것 차단)
+            if _is_show_outline_intent(state):
+                logger.info("[COMMUNICATOR][fallback-skip] show_outline intent → skip web/vector scheduling")
+                # 현 communicator 태스크 종료
+                pending = next((t for t in reversed(tasks) if (not t.done) and t.agent == "communicator"), None)
+                if pending:
+                    pending.done = True
+                    pending.done_at = _now_str()
+                state["task_history"] = tasks
+                # 플래그 정리(내부 flags에만)
+                flags_fix = dict(state.get("flags") or {})
+                flags_fix["qa_direct_reply"] = False
+                flags_fix["suppress_writer"] = False
+                state["flags"] = flags_fix
+                return {
+                    "messages": state.get("messages", []) or [],
+                    "task_history": tasks,
+                    "qa_direct_reply": False,
+                }
+
             # 폴백 선택: refs가 있으면 벡터 재시도, 없으면(가능 시) 웹서치, 아니면 벡터 재시도
             have_refs = bool(((state.get("references") or {}).get("docs") or []))
             allow_web = not bool(getattr(config.CFG, "SKIP_WEB_SEARCH", False))
@@ -763,6 +803,24 @@ def communicator(state: State):
             # 🔧 변경: 메시지가 없으면 합성하지 말고 즉시 폴백 라우팅(웹서치/벡터 재시도)
             logger.warning("[COMMUNICATOR] qa_direct_reply=True but no AI message. Routing to fallback instead of synthesizing.")
             tasks = state.get("task_history", []) or []
+
+            # ✅ show_outline intent면: web_search/vector_search 폴백 스케줄링 금지
+            if _is_show_outline_intent(state):
+                logger.info("[COMMUNICATOR][fallback-skip] show_outline intent → skip web/vector scheduling")
+                # 커뮤니케이터 태스크 종료
+                pending = next((t for t in reversed(tasks) if (not t.done) and t.agent == "communicator"), None)
+                if pending:
+                    pending.done = True
+                    pending.done_at = _now_str()
+                state["task_history"] = tasks
+                # 플래그 정리
+                flags_fix = dict(state.get("flags") or {})
+                flags_fix["qa_direct_reply"] = False
+                flags_fix["suppress_writer"] = False
+                state["flags"] = flags_fix
+                # 저장 없음(빈 요약 저장 방지)
+                return {"messages": messages, "task_history": tasks, "qa_direct_reply": False}
+
             allow_web = not bool(getattr(config.CFG, "SKIP_WEB_SEARCH", False))
             if allow_web and not has_pending(tasks, "web_search_agent"):
                 tasks.append(Task(agent="web_search_agent", done=False, description="fallback: direct_qa_missing → rag_update:auto", done_at=""))
@@ -798,6 +856,8 @@ def communicator(state: State):
         # 아래 SAVE HOOK(628+)로 그대로 내려감
         pass
     else:
+        # ✅ LLM은 "진짜로 생성이 필요할 때만" 지연 초기화 (show_outline/early-return 경로에서 init 방지)
+        llm = get_llm()
         communicator_prompt = get_communicator_prompt()
         system_chain = communicator_prompt | llm
 

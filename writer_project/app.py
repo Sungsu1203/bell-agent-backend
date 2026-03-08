@@ -2,6 +2,27 @@
 
 from __future__ import annotations
 
+import re
+from rag_expression import (
+    extract_new_topic_title,
+    extract_section_index,
+    extract_write_title,
+    is_outline_creation,
+    is_outline_display,
+)
+
+from core.models import Task
+
+from dataclasses import dataclass
+from pathlib import Path
+import re
+from typing import Any, Dict, Optional, Tuple
+from collections.abc import MutableMapping
+
+# ✅ repo rule 기반 outline 경로 생성 함수
+from core.paths import outline_path, _default_outline_name
+
+
 # ── Fault handler (deadlock/멈춤 추적) ──────────────────────────────────────────
 import faulthandler, sys, time
 faulthandler.enable()  # 항상 가능한 초반에 활성화
@@ -64,18 +85,9 @@ dotenv_path = find_dotenv(filename=".env", usecwd=True)
 # 1) .env 로드만 수행(주입/강제 덮어쓰기 제거) → 단일 진입점은 CFG에서 처리
 load_dotenv(dotenv_path=dotenv_path, override=False)
 
-print("ENV ALLOW_SUMMARY =", os.getenv("ALLOW_SUMMARY"))
-early_debug(f"[EARLY] dotenv loaded: {dotenv_path}")
-
 # ── ENV DIAGNOSTIC (safe: only length) ─────────────────────────
 def _mask_len(v: str | None) -> int:
     return len(v.strip()) if v else 0
-
-print(
-    "[ENV DIAG]",
-    "CSE_KEY_LEN=", _mask_len(os.getenv("GOOGLE_CSE_API_KEY")),
-    "CSE_ID_LEN=", _mask_len(os.getenv("GOOGLE_CSE_ID")),
-)
 
 # ── 표준 라이브러리 ────────────────────────────────────────────────────────────
 import sys
@@ -96,6 +108,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import asyncio
+import threading
 
 from collections import deque
 from fastapi.responses import FileResponse
@@ -104,7 +117,7 @@ import threading
 
 # ── 프로젝트 의존 ───────────────────────────────────────────────────────────────
 from content.api import find_section_path  # re-export 사용(섹션 파일 탐색)
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 import core.config as config
 
 from core.paths import now_str as _now_str, current_path
@@ -204,9 +217,16 @@ def setup_logging(stream: Optional[TextIO] = None) -> None:
             pass
 
     # LOG_LEVEL 등은 CFG를 단일 진입점으로 사용
-    level_name = (str(getattr(config.CFG, "LOG_LEVEL", "INFO")) or "INFO").strip().upper()
-    level = getattr(logging, level_name, logging.INFO)
-    root.setLevel(level)
+    base_level_name = (str(getattr(config.CFG, "LOG_LEVEL", "INFO")) or "INFO").strip().upper()
+    console_level_name = (str(getattr(config.CFG, "LOG_LEVEL_CONSOLE", base_level_name)) or base_level_name).strip().upper()
+    file_level_name    = (str(getattr(config.CFG, "LOG_LEVEL_FILE",    base_level_name)) or base_level_name).strip().upper()
+
+    # root logger는 핸들러 중 "더 낮은 레벨"로 설정 (DEBUG 파일 + INFO 콘솔을 가능하게)
+    base_level = getattr(logging, base_level_name, logging.INFO)
+    console_level = getattr(logging, console_level_name, base_level)
+    file_level = getattr(logging, file_level_name, base_level)
+    root_level = min(console_level, file_level)
+    root.setLevel(root_level)
     root.propagate = False
 
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -252,6 +272,12 @@ def setup_logging(stream: Optional[TextIO] = None) -> None:
 
         def filter(self, record: logging.LogRecord) -> bool:
             msg = str(record.getMessage() or "")
+
+            # 콘솔에서 부팅/환경 배너 숨김 (파일 로그에는 그대로 남김)
+            # - app.py에서 logger.info로 찍는 시작 배너류
+            if msg.startswith(("ENV TOPIC_TITLE=", "ENV CHECK:", "[GATEKEEP]", "Application started")):
+                return False
+
             if (os.getenv("HUMAN_LOGS_STRICT","0").lower() in ("1","true","yes","on")):
                 return bool(self._pat_basic.search(msg))
             if record.name.startswith(("agent.", "tools.", "utils.")):
@@ -265,7 +291,7 @@ def setup_logging(stream: Optional[TextIO] = None) -> None:
     show_human_only = bool(getattr(config.CFG, "HUMAN_LOGS", False))
 
     ch = logging.StreamHandler(stream or sys.stdout)
-    ch.setLevel(level)
+    ch.setLevel(console_level)
     if show_human_only:
         ch.addFilter(HumanOnlyFilter())
         ch.setFormatter(logging.Formatter("%(message)s"))
@@ -293,7 +319,7 @@ def setup_logging(stream: Optional[TextIO] = None) -> None:
         os.makedirs(log_dir, exist_ok=True)
 
     fh = RotatingFileHandler(log_file, maxBytes=max_bytes, backupCount=backups, encoding="utf-8", delay=True)
-    fh.setLevel(level)
+    fh.setLevel(file_level)
     fh.setFormatter(formatter)
     root.addHandler(fh)
 
@@ -332,6 +358,7 @@ web_app.add_middleware(
 
 # 한 번에 한 요청만 그래프를 실행(상태 공유 + 안전)
 _RUN_LOCK = asyncio.Lock()
+_CANCEL_EVENT = threading.Event()
 
 # 웹 모드에서 사용할 런타임 상태(프로세스 메모리)
 _WEB_STATE: Optional[State] = None
@@ -401,14 +428,19 @@ def _artifact_dir(mode: str, slug: str) -> str:
 
 def _safe_under_artifacts(path: str) -> bool:
     """
-    sections/ 또는 chapters/ 아래만 다운로드 허용 (경로 탈출 방지)
+    sections/ 또는 chapters/ 또는 reports/ 아래만 다운로드 허용 (경로 탈출 방지)
     """
     try:
         base_sections = Path(os.path.join(str(current_path), "sections")).resolve()
         base_chapters  = Path(os.path.join(str(current_path), "chapters")).resolve()
+        base_reports   = Path(os.path.join(str(current_path), "reports")).resolve()
         target = Path(path).resolve()
         s = str(target)
-        return s.startswith(str(base_sections)) or s.startswith(str(base_chapters))
+        return (
+            s.startswith(str(base_sections)) or
+            s.startswith(str(base_chapters)) or
+            s.startswith(str(base_reports))
+        )
     except Exception:
         return False
 
@@ -462,7 +494,8 @@ def initial_state(iteration_count: int, agent_role: str | None = None) -> State:
 # ── 사용자 입력 ────────────────────────────────────────────────────────────────
 def read_user_input() -> str:
     try:
-        first = input("\nUser\t: ")
+        # first = input("\nUser\t: ")
+        first = input("\n> ")
     except (EOFError, KeyboardInterrupt):
         raise
     s = first.strip()
@@ -546,6 +579,449 @@ def _last_ai_text(state: State) -> str:
     except Exception:
         return ""
 
+def parse_command_intent(text: str) -> dict:
+    s = (text or "").strip()
+    s_l = s.lower()
+
+    # 1) force_query: inline
+    m = re.match(r"^\s*force_query\s*:\s*(.+?)\s*$", s, flags=re.IGNORECASE)
+    if m:
+        q = (m.group(1) or "").strip().strip('"').strip("'")
+        return {"type": "force_queries", "payload": {"queries": [q] if q else []}, "raw": s[:160]}
+
+    # 2) build report는 run_once에서 이미 특수처리 하므로 표시만 해도 됨(선택)
+    if s_l in ("build: report", "report build", "보고서 빌드", "최종 보고서 생성"):
+        return {"type": "build_report", "payload": {}, "raw": s[:160]}
+
+    # 3) 새 주제
+    try:
+        t = extract_new_topic_title(s)
+    except Exception:
+        t = None
+    if t:
+        return {"type": "new_topic", "payload": {"title": t}, "raw": s[:160]}
+
+    # 4) 목차 show/create
+    try:
+        if is_outline_display(s):
+            return {"type": "show_outline", "payload": {}, "raw": s[:160]}
+
+        if is_outline_creation(s):
+            return {"type": "create_outline", "payload": {}, "raw": s[:160]}
+    except Exception:
+        pass
+
+    # 5) RAG update (supervisor와 동일한 정규식)
+    _rag_re = r"(최신|업데이트|update|latest).*?(자료|리소스|레퍼런스|참고|sources|material).*?(rag|벡터|vector|임베딩|embedding|index|색인|chroma)"
+    if re.search(_rag_re, s, flags=re.IGNORECASE):
+        return {"type": "rag_update", "payload": {"mode": "auto"}, "raw": s[:160]}
+
+    # 6) write:
+    try:
+        w = extract_write_title(s)
+    except Exception:
+        w = None
+    if not w:
+        try:
+            idx = extract_section_index(s)
+        except Exception:
+            idx = None
+        if idx:
+            return {"type": "write_index", "payload": {"index": idx}, "raw": s[:160]}
+    if w:
+        return {"type": "write", "payload": {"title": w}, "raw": s[:160]}
+
+    return {"type": "none", "payload": {}, "raw": s[:160]}
+
+def _has_pending_task(state: State, agent: str, prefix: str | None = None) -> bool:
+    for t in (state.get("task_history") or []):
+        try:
+            if getattr(t, "done", False):
+                continue
+            if getattr(t, "agent", "") != agent:
+                continue
+            if prefix:
+                desc = str(getattr(t, "description", "") or "")
+                if not desc.startswith(prefix):
+                    continue
+            return True
+        except Exception:
+            continue
+    return False
+
+
+
+@dataclass(frozen=True)
+class FastResponse:
+    ok: bool
+    mode: str              # always "fast"
+    kind: str              # "outline"|"status"|...
+    message: str
+    last_saved_path: Optional[str] = None
+    state_patch: Optional[Dict[str, Any]] = None
+    artifacts: Optional[Dict[str, Any]] = None
+
+
+class FastCommandHandler:
+    """
+    Deterministic only. NEVER calls graph/supervisor/LLM/embedding/chroma.
+    """
+
+    # Natural-language aliases allowed in fast (keep small & conservative)
+    _OUTLINE_ALIASES = {"목차", "목차 보여줘", "목차보여줘", "아웃라인"}
+
+    # Slash commands
+    _RE_SLASH = re.compile(r"^\s*/(?P<cmd>[a-zA-Z0-9_-]+)(?:\s+(?P<arg>.*?))?\s*$")
+    _RE_SET = re.compile(r"^\s*(?P<key>[A-Z0-9_]+)\s*=\s*(?P<val>.+?)\s*$")
+
+    @staticmethod
+    def _topic_slug(state: MutableMapping[str, Any]) -> Optional[str]:
+        slug = state.get("topic_slug") or state.get("topic") or state.get("topicTitle")
+        if not isinstance(slug, str):
+            return None
+        slug = slug.strip()
+        return slug or None
+
+    @staticmethod
+    def _doc_mode(state: MutableMapping[str, Any]) -> str:
+        """
+        Deterministic doc mode resolver.
+        우선순위:
+          1) state["flags"]["DOC_MODE"]
+          2) state["doc_mode"]
+          3) default: "report"
+        """
+        flags = state.get("flags")
+        if isinstance(flags, dict):
+            v = flags.get("DOC_MODE")
+            if isinstance(v, str):
+                vv = v.strip().lower()
+                if vv in ("report", "book"):
+                    return vv
+
+        v2 = state.get("doc_mode")
+        if isinstance(v2, str):
+            vv2 = v2.strip().lower()
+            if vv2 in ("report", "book"):
+                return vv2
+
+        return "report"
+
+    @staticmethod
+    def DEFAULT_OUTLINE_PATH(state: MutableMapping[str, Any], topic_slug: str) -> Path:
+        """
+        ✅ 레포 규칙 기반 단일 경로 확정:
+        - filename: core.paths._default_outline_name(mode)
+        - path join: core.paths.outline_path(filename, topic_slug=..., mode=...)
+        """
+        mode = FastCommandHandler._doc_mode(state)
+        if mode not in ("report", "book"):
+            mode = "report"
+        fname = _default_outline_name(mode)
+        # outline_path는 보통 str을 반환하므로 Path로 감싼다
+        return Path(outline_path(fname, topic_slug=topic_slug, mode=mode))
+
+    @staticmethod
+    def _truncate(text: str, max_chars: int = 8000) -> str:
+        text = text.strip()
+        if len(text) <= max_chars:
+            return text
+        return text[:max_chars].rstrip() + "\n\n...(생략: 너무 길어서 일부만 표시)"
+
+    @staticmethod
+    def _apply_patch(state: MutableMapping[str, Any], patch: Dict[str, Any]) -> None:
+        """
+        Shallow apply for top-level keys and nested dict under "flags".
+        Deterministic, minimal.
+        """
+        for k, v in patch.items():
+            if k == "flags" and isinstance(v, dict):
+                flags = state.get("flags")
+                if not isinstance(flags, dict):
+                    flags = {}
+                    state["flags"] = flags
+                flags.update(v)
+            else:
+                state[k] = v
+
+    def handle(self, text: str, state: MutableMapping[str, Any]) -> Tuple[bool, Optional[FastResponse]]:
+        raw = (text or "").strip()
+        if not raw:
+            return False, None
+
+        # 1) Natural-language outline aliases -> fast outline
+        if raw in self._OUTLINE_ALIASES:
+            return True, self._handle_outline(state)
+
+        # 2) Slash commands
+        m = self._RE_SLASH.match(raw)
+        if not m:
+            return False, None
+
+        cmd = (m.group("cmd") or "").lower()
+        arg = (m.group("arg") or "").strip()
+
+        if cmd in ("outline", "ol"):
+            return True, self._handle_outline(state)
+
+        if cmd in ("status", "st"):
+            return True, self._handle_status(state)
+
+        if cmd in ("help", "h"):
+            return True, self._handle_help()
+
+        if cmd in ("new-topic", "topic", "nt"):
+            return True, self._handle_new_topic(arg, state)
+
+        if cmd in ("set",):
+            return True, self._handle_set(arg, state)
+
+        if cmd in ("write", "w"):
+            return True, self._handle_write_queue(arg, state)
+
+        # Unknown slash command -> fast help (still deterministic)
+        return True, FastResponse(
+            ok=False,
+            mode="fast",
+            kind="error",
+            message=f"알 수 없는 명령: /{cmd}\n\n/help 로 사용 가능한 명령을 확인하세요.",
+            state_patch={"execution_mode": "fast"},
+        )
+
+    def _handle_outline(self, state: MutableMapping[str, Any]) -> FastResponse:
+        slug = self._topic_slug(state)
+        if not slug:
+            patch = {"execution_mode": "fast"}
+            self._apply_patch(state, patch)
+            return FastResponse(
+                ok=False,
+                mode="fast",
+                kind="outline",
+                message="topic_slug가 설정되지 않았습니다. 먼저 /new-topic <slug> 를 실행하세요.",
+                state_patch=patch,
+            )
+
+        # ✅ core/paths.py 규칙으로 '단일 경로' 확정
+        outline_path_p = self.DEFAULT_OUTLINE_PATH(state, slug)
+
+        if not outline_path_p.exists():
+            patch = {"execution_mode": "fast", "outline_path": str(outline_path_p)}
+            self._apply_patch(state, patch)
+            return FastResponse(
+                ok=False,
+                mode="fast",
+                kind="outline",
+                message=(
+                    f"목차 파일이 없습니다.\n"
+                    f"- 기대 경로: {outline_path_p}\n\n"
+                    f"먼저 (대화형) 목차 생성 흐름을 태우거나, 위 경로에 {outline_path_p.name} 파일을 만들어 주세요."
+                ),
+                last_saved_path=None,
+                state_patch=patch,
+                artifacts={"outline_path": str(outline_path_p), "topic_slug": slug},
+            )
+
+        outline_text = outline_path_p.read_text(encoding="utf-8", errors="replace")
+        outline_text = self._truncate(outline_text, max_chars=12000)
+
+        patch = {
+            "execution_mode": "fast",
+            "outline_path": str(outline_path_p),
+            "last_saved_path": str(outline_path_p),
+            "flags": {"outline_shown": True},
+        }
+        self._apply_patch(state, patch)
+
+        return FastResponse(
+            ok=True,
+            mode="fast",
+            kind="outline",
+            message=outline_text,
+            last_saved_path=str(outline_path_p),
+            state_patch=patch,
+            artifacts={"outline_path": str(outline_path_p), "topic_slug": slug},
+        )
+
+    def _handle_status(self, state: MutableMapping[str, Any]) -> FastResponse:
+        slug = self._topic_slug(state) or "(unset)"
+        pending = state.get("pending")
+        if not isinstance(pending, list):
+            pending = []
+        last_saved = state.get("last_saved_path")
+        mode = state.get("execution_mode") or "(unset)"
+        raw_flags = state.get("flags")
+        flags: Dict[str, Any] = raw_flags if isinstance(raw_flags, dict) else {}
+
+        msg = (
+            f"✅ STATUS\n"
+            f"- topic_slug: {slug}\n"
+            f"- execution_mode: {mode}\n"
+            f"- pending: {pending}\n"
+            f"- last_saved_path: {last_saved}\n"
+            f"- flags(outline_shown): {flags.get('outline_shown')}\n"
+        )
+        patch = {"execution_mode": "fast"}
+        self._apply_patch(state, patch)
+        return FastResponse(ok=True, mode="fast", kind="status", message=msg, state_patch=patch)
+
+    def _handle_help(self) -> FastResponse:
+        msg = (
+            "✅ 사용 가능한 Fast 명령\n"
+            "- /outline : 목차 표시(LLM 0회)\n"
+            "- /new-topic <slug> : 토픽 전환/초기화(LLM 0회)\n"
+            "- /write <exact title> : 쓰기 예약만(LLM 0회)\n"
+            "- /status : 상태 요약(LLM 0회)\n"
+            "- /set KEY=VALUE : 설정 변경(LLM 0회)\n"
+            "\n"
+            "자연어 별칭(보수적): '목차', '목차 보여줘'\n"
+        )
+        return FastResponse(ok=True, mode="fast", kind="help", message=msg, state_patch={"execution_mode": "fast"})
+
+    def _handle_new_topic(self, arg: str, state: MutableMapping[str, Any]) -> FastResponse:
+        slug = (arg or "").strip()
+        if not slug:
+            patch = {"execution_mode": "fast"}
+            self._apply_patch(state, patch)
+            return FastResponse(
+                ok=False, mode="fast", kind="new_topic",
+                message="사용법: /new-topic <slug>",
+                state_patch=patch
+            )
+
+        # slug normalize (deterministic)
+        slug_norm = re.sub(r"[^a-zA-Z0-9-]+", "-", slug).strip("-").lower()
+        if not slug_norm:
+            patch = {"execution_mode": "fast"}
+            self._apply_patch(state, patch)
+            return FastResponse(
+                ok=False, mode="fast", kind="new_topic",
+                message="유효한 slug가 아닙니다. 영문/숫자/대시 조합을 권장합니다.",
+                state_patch=patch
+            )
+
+        # Minimal topic reset (keep conservative: only clearly topic-bound keys)
+        patch = {
+            "execution_mode": "fast",
+            "topic_slug": slug_norm,
+            "flags": {"outline_shown": False},
+            "pending": [],
+            "refs": [],
+        }
+        self._apply_patch(state, patch)
+
+        # ✅ core/paths.py 규칙으로 outline 경로 확정 후 디렉터리만 준비
+        outline_path_p = self.DEFAULT_OUTLINE_PATH(state, slug_norm)
+        outline_path_p.parent.mkdir(parents=True, exist_ok=True)
+
+        return FastResponse(
+            ok=True,
+            mode="fast",
+            kind="new_topic",
+            message=(
+                f"✅ 토픽 전환 완료: {slug_norm}\n"
+                f"- outline 경로: {outline_path_p}\n"
+                f"다음: /outline 또는 (대화형) '목차 생성' 입력"
+            ),
+            last_saved_path=None,
+            state_patch=patch,
+            artifacts={"topic_slug": slug_norm, "outline_path": str(outline_path_p)},
+        )
+
+    def _handle_set(self, arg: str, state: MutableMapping[str, Any]) -> FastResponse:
+        m = self._RE_SET.match(arg or "")
+        if not m:
+            patch = {"execution_mode": "fast"}
+            self._apply_patch(state, patch)
+            return FastResponse(
+                ok=False, mode="fast", kind="set",
+                message="사용법: /set KEY=VALUE (예: /set DIRECT_QA=1)",
+                state_patch=patch
+            )
+
+        key = m.group("key").strip()
+        val_raw = m.group("val").strip()
+
+        # allowlist (keep tight)
+        ALLOW = {"DIRECT_QA", "AUTO_WRITE_AFTER_RAG", "AUTO_WRITE_DURING_RESEARCH", "DOC_MODE"}
+        if key not in ALLOW:
+            patch = {"execution_mode": "fast"}
+            self._apply_patch(state, patch)
+            return FastResponse(
+                ok=False, mode="fast", kind="set",
+                message=f"허용되지 않은 KEY: {key}\n허용: {sorted(ALLOW)}",
+                state_patch=patch
+            )
+
+        # deterministic parse
+        if key in {"DIRECT_QA", "AUTO_WRITE_AFTER_RAG", "AUTO_WRITE_DURING_RESEARCH"}:
+            v = val_raw.lower()
+            if v in ("1", "true", "yes", "y", "on"):
+                val = True
+            elif v in ("0", "false", "no", "n", "off"):
+                val = False
+            else:
+                patch = {"execution_mode": "fast"}
+                self._apply_patch(state, patch)
+                return FastResponse(ok=False, mode="fast", kind="set",
+                                    message=f"값 파싱 실패: {key}={val_raw} (0/1, true/false만 허용)",
+                                    state_patch=patch)
+            patch = {"execution_mode": "fast", "flags": {key: val}}
+            self._apply_patch(state, patch)
+            return FastResponse(ok=True, mode="fast", kind="set",
+                                message=f"✅ {key}={1 if val else 0} 로 설정했습니다.",
+                                state_patch=patch)
+
+        if key == "DOC_MODE":
+            v = val_raw.lower()
+            if v not in ("report", "book"):
+                patch = {"execution_mode": "fast"}
+                self._apply_patch(state, patch)
+                return FastResponse(ok=False, mode="fast", kind="set",
+                                    message="DOC_MODE는 report 또는 book만 허용합니다.",
+                                    state_patch=patch)
+            patch = {"execution_mode": "fast", "flags": {"DOC_MODE": v}}
+            self._apply_patch(state, patch)
+            return FastResponse(ok=True, mode="fast", kind="set",
+                                message=f"✅ DOC_MODE={v} 로 설정했습니다.",
+                                state_patch=patch)
+
+        # unreachable
+        patch = {"execution_mode": "fast"}
+        self._apply_patch(state, patch)
+        return FastResponse(ok=False, mode="fast", kind="set", message="처리 불가", state_patch=patch)
+
+    def _handle_write_queue(self, arg: str, state: MutableMapping[str, Any]) -> FastResponse:
+        title = (arg or "").strip()
+        if not title:
+            patch = {"execution_mode": "fast"}
+            self._apply_patch(state, patch)
+            return FastResponse(ok=False, mode="fast", kind="write_queued",
+                                message="사용법: /write <exact title>",
+                                state_patch=patch)
+
+        # 예약만. LLM/graph 금지.
+        flags_patch = {"requested_write_title": title}
+        patch = {"execution_mode": "write", "flags": flags_patch}
+
+        # pending add (deterministic, no duplicates)
+        pending = state.get("pending")
+        if not isinstance(pending, list):
+            pending = []
+        if "section_writer" not in pending:
+            pending.append("section_writer")
+        state["pending"] = pending
+
+        self._apply_patch(state, patch)
+
+        return FastResponse(
+            ok=True,
+            mode="fast",
+            kind="write_queued",
+            message=f"✅ 쓰기 예약: {title}\n(다음 /run 호출에서 실행 흐름이 이어집니다)",
+            last_saved_path=None,
+            state_patch={**patch, "pending": pending},
+            artifacts={"pending_added": ["section_writer"], "requested_write_title": title},
+        )
 
 def run_once(state: State, user_input: str, recursion_limit: int) -> State:
     """
@@ -555,8 +1031,83 @@ def run_once(state: State, user_input: str, recursion_limit: int) -> State:
     - 결과 merge
     - save_state
     """
+
     if not str(user_input).strip():
         return state
+
+    # --- FAST COMMAND ROUTER (LLM 0회 보장) ---
+    fast = FastCommandHandler()
+
+    norm = " ".join(str(user_input).split())
+
+    # TypedDict(State)는 MutableMapping으로 간주되지 않는 타입체커가 있어
+    # Fast는 임시 dict를 mutate하고, 결과를 State에 반영한다.
+    fast_state: dict[str, Any] = dict(cast(dict[str, Any], state))
+    handled, fresp = fast.handle(user_input, fast_state)
+
+    logger.info(
+        "[RUN_ONCE_FAST] input=%r handled=%s kind=%s ok=%s",
+        user_input,
+        handled,
+        getattr(fresp, "kind", None),
+        getattr(fresp, "ok", None),
+    )
+
+    if handled and fresp is not None:
+        state.setdefault("messages", []).append(
+            HumanMessage(content=user_input, additional_kwargs={"fast_path": True})
+        )
+        # ✅ 여기서 graph/supervisor 호출하면 안 됨
+        # TypedDict(State)는 update(dict[str, Any])를 타입상 허용하지 않음(pyright).
+        # Fast가 변경할 수 있는 키만 allowlist로 안전하게 반영한다.
+        _FAST_KEYS: tuple[str, ...] = (
+            "execution_mode",
+            "outline_path",
+            "last_saved_path",
+            "topic_slug",
+            "pending",
+            "refs",
+            "flags",
+        )
+        st_any = cast(dict[str, Any], state)
+        for k in _FAST_KEYS:
+            if k in fast_state:
+                if k == "flags" and isinstance(fast_state[k], dict):
+                    # merge flags (do not clobber)
+                    existing = st_any.get("flags")
+                    if not isinstance(existing, dict):
+                        existing = {}
+                    existing.update(fast_state[k])
+                    st_any["flags"] = existing
+                else:
+                    st_any[k] = fast_state[k]
+        # Fast 응답을 "State"에 남겨 API/communicator가 그대로 전달할 수 있게 한다.
+        # (run_once는 State를 반환해야 함)
+        if fresp.last_saved_path:
+            state["last_saved_path"] = fresp.last_saved_path
+
+        # fast 응답은 LLM이 만든 게 아니므로 qa_direct_reply는 False 유지
+        state["qa_direct_reply"] = False
+        state.setdefault("messages", []).append(
+            AIMessage(
+                content=fresp.message,
+                additional_kwargs={
+                    "fast_path": True,
+                    "fast_kind": fresp.kind,
+                    "fast_ok": fresp.ok,
+                    "state_patch": fresp.state_patch or {},
+                    "artifacts": fresp.artifacts or {},
+                },
+            )
+        )
+
+        # 저장 후 즉시 리턴 (그래프 invoke 금지)
+        try:
+            save_state(current_path, state)
+        except Exception:
+            logger.exception("save_state failed (non-fatal)")
+        return state
+
 
     # build report 커맨드(콘솔에서만 쓰던 특수 명령도 웹에서 그대로 동작시키고 싶으면 여기에 둡니다)
     _u = user_input.strip().lower()
@@ -573,8 +1124,36 @@ def run_once(state: State, user_input: str, recursion_limit: int) -> State:
         state["last_saved_path"] = out_path
         # 누락 섹션은 state에 남겨두고, 텍스트는 응답에서 사용
         return state
+    
+    # ✅ CommandRouter: 이번 입력의 “명령 의도”를 1회만 파싱해 flags에 저장
+    try:
+        flags = dict(state.get("flags") or {})
+        flags["command_intent"] = parse_command_intent(user_input)
+        state["flags"] = flags
+    except Exception:
+        logger.exception("parse_command_intent failed (non-fatal)")
 
+    # fast-hit이 아닌 경우에만 user message를 그래프 입력으로 추가
     state.setdefault("messages", []).append(HumanMessage(content=user_input))
+
+    # (기존 show_outline short-circuit 블록은 PRE-FLIGHT로 대체됨)
+
+    # ✅ intent 기반 선주입: create_outline만 남긴다.
+    # show_outline은 위에서 이미 short-circuit(return) 처리하므로 여기서 또 예약할 필요가 없음.
+    try:
+        intent = ((state.get("flags") or {}).get("command_intent") or {})
+        itype = str(intent.get("type") or "")
+        if itype == "create_outline":
+            # outline 파일명은 state 기준으로 안전하게 결정
+            fname = str(state.get("outline_fname") or ("outline_report.md" if config.DOC_MODE == "report" else "outline.md"))
+            tasks = list(state.get("task_history") or [])
+            if not _has_pending_task(state, "content_strategist"):
+                tasks.append(Task(agent="content_strategist", done=False, description=f"create_outline:{fname}", done_at=""))
+            state["qa_direct_reply"] = False
+            # ✅ TypedDict 안전: task_history는 로컬 리스트로 조작 후 되돌려 넣는다
+            state["task_history"] = tasks
+    except Exception:
+        logger.exception("intent pre-inject failed (non-fatal)")
 
     # 그래프 획득(필요 시 재빌드)
     graph_obj = _get_graph_cached()
@@ -641,9 +1220,19 @@ def api_state():
         "outline": None,  # /api/outline에서 제공
         "flags": st.get("flags") or {},
         "phase": phase,
+        "cancel_requested": bool(_CANCEL_EVENT.is_set()),
         "iteration_count": iter_count,
         "updated_at": _now_str(),
     }
+
+@web_app.post("/api/cancel")
+def api_cancel():
+    """
+    실행 취소 요청 플래그를 설정합니다.
+    - 주의: run_once 내부가 이 플래그를 체크하지 않으면 즉시 중단되진 않습니다.
+    """
+    _CANCEL_EVENT.set()
+    return {"ok": True}
 
 
 @web_app.get("/api/outline")
@@ -720,8 +1309,13 @@ async def api_run(payload: Dict[str, Any]):
         return {"ok": False, "error": "state_not_initialized"}
 
     user_input = str(payload.get("input") or "").strip()
+    print("[API_RUN_PRINT] input=", repr(user_input), flush=True)  # ✅ 여기
     if not user_input:
         return {"ok": False, "error": "empty_input"}
+
+    # 새 실행 시작 시 cancel 플래그 해제
+    _CANCEL_EVENT.clear()
+
 
     # 옵션은 우선 받아두기만 하고(최소 수정),
     # 실제로 CFG/ENV 반영까지 하려면 2단계에서 확장하면 됩니다.
@@ -756,7 +1350,7 @@ def api_files(kind: str | None = None, limit: int = 200):
       - doc_mode=book   => chapters/<slug>/*.md
 
     query:
-      - kind: "artifact"(기본) | "reportlog"(추후 확장용)
+      - kind: "artifact"(기본) | "report"(=reports) | "reportlog"(호환)
       - limit: 최대 반환(기본 200, 최대 500)
 
     return:
@@ -770,12 +1364,16 @@ def api_files(kind: str | None = None, limit: int = 200):
 
     slug = _topic_slug_from_state(st)
     mode = _doc_mode_from_cfg()
-    root = _artifact_root_for_mode(mode)
+    kind_norm = (kind or "artifact").strip().lower()
+    if kind_norm in ("report", "reports", "reportlog"):
+        root = "reports"
+        adir = os.path.join(str(current_path), "reports", slug)
+    else:
+        root = _artifact_root_for_mode(mode)
+        adir = _artifact_dir(mode, slug)
 
     limit = max(1, min(int(limit or 200), 500))
 
-    # 산출물 디렉토리
-    adir = _artifact_dir(mode, slug)
     if not os.path.isdir(adir):
         return {"ok": True, "mode": mode, "slug": slug, "root": root, "files": []}
 
@@ -795,7 +1393,7 @@ def api_files(kind: str | None = None, limit: int = 200):
             mtime = 0
             size = 0
 
-        # id 형식: sections/<slug>/<name> 또는 chapters/<slug>/<name>
+        # id 형식: sections|chapters|reports/<slug>/<name>
         file_id = f"{root}/{slug}/{name}"
         files.append({"id": file_id, "name": name, "path": full, "mtime": mtime, "size": size})
 
@@ -809,8 +1407,9 @@ def api_file_download(file_id: str):
     file_id 예:
       sections/<slug>/<file>.md
       chapters/<slug>/<file>.md
+      reports/<slug>/<file>.md
 
-    sections/ 또는 chapters/ 아래만 허용.
+    sections/ 또는 chapters/ 또는 reports/ 아래만 허용.
     """
     target = os.path.join(str(current_path), file_id)
 
@@ -1064,13 +1663,14 @@ if __name__ == "__main__":
         getattr(config.CFG, "DIRECT_QA", None),
     )
 
-    human_print(
-        "┌─ Console: "
-        f"HUMAN_LOGS={int(bool(getattr(config.CFG,'HUMAN_LOGS',False)))}, "
-        f"VERBOSE={int(bool(getattr(config.CFG,'HUMAN_LOGS_VERBOSE',False))) } | "
-        f"LOG_TOPK={getattr(config.CFG,'LOG_TOPK',3)} LOG_WRAP={getattr(config.CFG,'LOG_WRAP',88)} "
-        f"LOG_DASHBOARD={int(bool(getattr(config.CFG,'LOG_DASHBOARD',True)))}"
-    )
+    if os.getenv("SHOW_CONSOLE_BANNER", "1").strip().lower() in ("1","true","yes","on"):
+        human_print(
+            "┌─ Console: "
+            f"HUMAN_LOGS={int(bool(getattr(config.CFG,'HUMAN_LOGS',False)))}, "
+            f"VERBOSE={int(bool(getattr(config.CFG,'HUMAN_LOGS_VERBOSE',False))) } | "
+            f"LOG_TOPK={getattr(config.CFG,'LOG_TOPK',3)} LOG_WRAP={getattr(config.CFG,'LOG_WRAP',88)} "
+            f"LOG_DASHBOARD={int(bool(getattr(config.CFG,'LOG_DASHBOARD',True)))}"
+        )
 
     if bool(getattr(args, "serve", False)):
         logger.info("Starting WEB server on http://%s:%s", args.host, args.port)
@@ -1084,7 +1684,6 @@ if __name__ == "__main__":
         while True:
             try:
                 user_input = read_user_input()
-                human_print(f"User    : {user_input}")
             except (EOFError, KeyboardInterrupt):
                 logger.info("Interrupt received. Attempting to save final state...")
                 try:
@@ -1151,50 +1750,17 @@ if __name__ == "__main__":
                     print(f"[REPORT][ERROR] {e}")
                 continue
 
-            state.setdefault("messages", []).append(HumanMessage(content=user_input))
+            # ✅ v2026-03-03-E: console input must go through run_once (FastCommandHandler first, LLM 0회 보장)
+            state = run_once(state, user_input, recursion_limit=args.recursion_limit)
+            human_print(_last_ai_text(state) or "OK")
 
-            # 그래프 획득(필요 시에만 재빌드)
-            graph_obj = _get_graph_cached()
-
-            # 호환 래퍼 (일부 버전은 .run/.stream만 지원)
-            def _invoke_graph(g: Any, st: Any, cfg: dict | None = None) -> Any:
-                if hasattr(g, "invoke"):
-                    return g.invoke(st, config=cfg)
-                if hasattr(g, "run"):
-                    return g.run(st, config=cfg)  
-                raise TypeError("Graph object exposes neither 'invoke' nor 'run'.")
-
-            try:
-                result = _invoke_graph(graph_obj, state, {"recursion_limit": args.recursion_limit})
-            except Exception as e:
-                logger.exception("graph.invoke failed: %s", e)
-                _cancel_fault_timers_and_close()  # ← 예외 시에도 정리
-                raise
-
-            if not isinstance(result, dict):
-                logger.error("graph.invoke returned unexpected type: %s", type(result).__name__)
-                _cancel_fault_timers_and_close()
-                raise TypeError(f"graph.invoke returned unexpected type: {type(result).__name__}")
-
-            merged = dict(state)
-            merged.update(result)
-            state = cast(State, merged)
-
-            try:
-                from langchain_core.messages import AIMessage
-                msgs = list(state.get("messages", []))
-                last_ai = next((m for m in reversed(msgs) if isinstance(m, AIMessage)), None)
-                if last_ai and bool(getattr(config.CFG, "HUMAN_LOGS", False)):
-                    print(str(getattr(last_ai, "content", "") or "").strip(), flush=True)
-            except Exception:
-                pass
-
-            logger.info("MESSAGE COUNT = %s", len(state.get("messages", [])))
-
-            tail = [(getattr(t, "agent", None), getattr(t, "done", None), getattr(t, "description", None))
-                    for t in state.get("task_history", [])][-3:]
+            # (optional) keep lightweight debug logs here (reachable)
+            logger.debug("MESSAGE COUNT = %s", len(state.get("messages", [])))
+            tail = [
+                (getattr(t, "agent", None), getattr(t, "done", None), getattr(t, "description", None))
+                for t in state.get("task_history", [])
+            ][-3:]
             logger.debug("TASKS tail = %s", tail)
-
             try:
                 flags = {
                     "agent_role": state.get("agent_role"),
@@ -1206,13 +1772,9 @@ if __name__ == "__main__":
                 logger.debug("RESEARCH flags = %s", flags)
             except Exception as e:
                 logger.exception("Failed to log research flags: %s", e)
-
-            logger.debug("last_saved_path before save: %s", state.get("last_saved_path"))
-
-            try:
-                save_state(current_path, state)
-            except Exception as e:
-                logger.exception("save_state failed: %s", e)
+            logger.debug("last_saved_path: %s", state.get("last_saved_path"))
+            # run_once 내부에서 save_state/current_path 반영까지 수행하므로 여기서 중복 저장하지 않음
+            continue
 
     except Exception:
         # 최상위 안전망

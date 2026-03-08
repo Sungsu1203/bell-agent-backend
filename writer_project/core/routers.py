@@ -265,6 +265,16 @@ def _has_qa_intent(state: State) -> bool:
     except Exception:
         return False
 
+def _is_show_outline_intent(state: State) -> bool:
+    if state.get("command_intent") == "show_outline":
+        return True
+    flags = state.get("flags") or {}
+    if bool(flags.get("show_outline")):
+        return True
+    # last resort (원하면 제거 가능)
+    last = (state.get("last_user") or "").strip()
+    return last in ("목차", "목차 보여줘", "목차 보여 줘", "outline", "show outline")
+
 def _has_writer_pending_strict(state: State) -> bool:
     """
     STRICT 모드에서의 writer pending 여부 판단.
@@ -314,6 +324,10 @@ def _has_writer_pending_strict(state: State) -> bool:
 
 def tail_task_router(state: State) -> str:
     """작성 단계(테일)에서 다음 노드를 선택."""
+    if _is_show_outline_intent(state):
+        logger.info("[router.tail] show_outline intent → communicator (hard-stop)")
+        return "communicator"
+    
     # ── STRICT WRITER GUARD: writer가 펜딩이면 최우선 라우팅
     if _has_writer_pending_strict(state):
         preferred_writer = _preferred_writer()
@@ -424,6 +438,10 @@ def after_web_search_agent(state: State) -> str:
     5) 위 모두 아니면: '단 1회' web_search_agent 재시도 (task_history로 판단)
     6) 재시도 후에도 비어있으면 tail_task_router로 위임
     """
+    if _is_show_outline_intent(state):
+        logger.info("[router.after_web] show_outline intent → communicator (hard-stop)")
+        return "communicator"
+    
     tasks = state.get("task_history", []) or []
     flags = state.get("flags") or {}
     # refs/references 혼용 흡수(merged refs는 references로 정규화도 수행)
@@ -494,7 +512,6 @@ def after_web_search_agent(state: State) -> str:
             )
             return "vector_search_agent"
 
-
     # 0) writer strict guard — 검색 이후에도 writer가 대기면 우선 라우팅
     if _has_writer_pending_strict(state):
         preferred_writer = _preferred_writer()
@@ -505,14 +522,61 @@ def after_web_search_agent(state: State) -> str:
         logger.info("[router.after_web] writer pending(strict) → %s", preferred_writer)
         return preferred_writer
 
-    # 0-b) pending 리스트로 강제 지정된 경우 우선
-    if "vector_search_agent" in (state.get("pending") or []):
-        logger.info("[router.after_web] pending contains vector_search_agent → vector_search_agent")
+    # 0-b) vector_search_agent가 대기 중이면 연구 루프보다 우선 실행
+    #     순서:
+    #       1) utils.tasks.has_pending(state, "vector_search_agent")
+    #       2) task_history 기반 펜딩 검사(튜플/딕셔너리 호환)
+    #       3) state["pending"] 리스트(구버전 호환)
+
+    # (1) 공식 헬퍼 우선
+    if has_pending(state, "vector_search_agent"):
+        logger.info("[router.after_web] has_pending(vector_search_agent)=True → vector_search_agent")
         return "vector_search_agent"
 
-    # 1) 연구 루프가 켜져 있으면 합성기로 직행
+    # (2) task_history 스캔: ('vector_search_agent', False, ...) 또는 {'task': 'vector_search_agent', 'done': False} 등
+    try:
+        for t in tasks:
+            # tuple/list 스타일: (name, done_flag, ...)
+            if isinstance(t, (tuple, list)) and len(t) >= 2:
+                name, done = t[0], t[1]
+                if name == "vector_search_agent" and not bool(done):
+                    logger.info("[router.after_web] task_history pending(vector_search_agent) → vector_search_agent")
+                    return "vector_search_agent"
+
+            # dict 스타일: {"task": "...", "done": False} 또는 {"name": "...", "completed": False}
+            if isinstance(t, dict):
+                name = t.get("task") or t.get("name")
+                done = t.get("done")
+                if done is None:
+                    done = t.get("completed")
+                if name == "vector_search_agent" and not bool(done):
+                    logger.info("[router.after_web] task_history(dict) pending(vector_search_agent) → vector_search_agent")
+                    return "vector_search_agent"
+    except Exception as e:
+        logger.warning("[router.after_web] task_history scan failed: %r", e)
+
+    # (3) 구버전/호환용: state["pending"] 직접 검사
+    if "vector_search_agent" in (state.get("pending") or []):
+        logger.info("[router.after_web] pending(list) contains vector_search_agent → vector_search_agent")
+        return "vector_search_agent"
+
+    # 1) 연구 루프가 켜져 있으면:
+    #    - 이번 웹검색/로컬 인제스트로 인덱스/refs가 갱신된 경우 → vector_search_agent 먼저
+    #    - 그렇지 않으면 → research_synthesizer
     if bool(state.get("research_loop_active")):
-        logger.info("[router.after_web] research loop active=True → research_synthesizer")
+        if rag_on_disk or new_url_count > 0 or added_chunks_total > 0 or has_docs_in_refs or has_urls_in_refs:
+            logger.info(
+                "[router.after_web] research loop active & index/refs updated "
+                "(rag_on_disk=%s, new_urls=%s, added_chunks=%s, has_docs=%s, has_urls=%s) "
+                "→ vector_search_agent",
+                rag_on_disk,
+                new_url_count,
+                added_chunks_total,
+                has_docs_in_refs,
+                has_urls_in_refs,
+            )
+            return "vector_search_agent"
+        logger.info("[router.after_web] research loop active but no index/refs update → research_synthesizer")
         return "research_synthesizer"
 
     # 2) 웹 스킵 환경이면 바로 벡터검색

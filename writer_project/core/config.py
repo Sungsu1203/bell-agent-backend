@@ -206,6 +206,8 @@ class Config:
 
     # 로깅/대시보드
     LOG_LEVEL: str
+    LOG_LEVEL_CONSOLE: str
+    LOG_LEVEL_FILE: str
     LOG_TOPK: int
     LOG_WRAP: int
     SHOW_DASHBOARD: bool
@@ -388,6 +390,15 @@ def _build_config() -> Config:
 
         # 로깅/대시보드
         LOG_LEVEL=_env_str("LOG_LEVEL", "INFO"),
+        # 콘솔/파일 레벨은 없으면 LOG_LEVEL로 폴백
+        LOG_LEVEL_CONSOLE=_env_str(
+            "LOG_LEVEL_CONSOLE",
+            _env_str("LOG_LEVEL", "INFO"),
+        ),
+        LOG_LEVEL_FILE=_env_str(
+            "LOG_LEVEL_FILE",
+            _env_str("LOG_LEVEL", "INFO"),
+        ),
         LOG_TOPK=_env_int("LOG_TOPK", 3, min_=1, max_=50),
         LOG_WRAP=_env_int("LOG_WRAP", 88, min_=40, max_=200),
         SHOW_DASHBOARD=_env_flag("SHOW_DASHBOARD", False),
