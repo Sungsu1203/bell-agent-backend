@@ -23,17 +23,25 @@ writer_project/service_account*.json
 logs/
 **/logs/
 data/
-# 생성 산출물(필요 시 좁혀도 됨)
+# 생성 산출물
 **/resources/**/*.json
 **/state/**
 **/reports/**
-# research 폴더 아래 raw 웹검색 스냅샷 (Vertex/웹 검색 결과 저장본)
+# research 폴더 아래 raw 웹검색 스냅샷
 **/research/**/resources_*.json
 
+# ── Temporary & Structure Files ──────────────────────────
+*.bak
+*.broken
+*.tmp
+# 구조 파악용으로 생성했던 텍스트 파일들 (배포 시 제외)
+*structure.txt
+folder_tree.txt
+env_text.txt
+structure_folder.txt
+
 # ── Vector DB / Chroma 산출물 ────────────────────────────
-# 폴더 통째로 무시(범용)
 **/chroma_store/
-# 다양한 포맷(구/신버전 호환)
 **/chroma.sqlite3
 **/chroma-collections.parquet
 **/chroma-embeddings.parquet
