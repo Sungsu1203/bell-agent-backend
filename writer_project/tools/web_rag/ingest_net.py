@@ -109,6 +109,12 @@ def get_requests_session() -> requests.Session:
 
 def fetch_binary(url: str, timeout: int | None = None) -> bytes | None:
     """URL에서 바이너리를 가져옵니다. 실패 시 None."""
+
+    # IPv6 URL 즉시 차단
+    if "[" in (url or "") and "]" in (url or ""):
+        logger.debug("[fetch_binary] skip IPv6 url: %s", url)
+        return None
+
     sess = get_requests_session()
     t = timeout or int(REQ_READ_TIMEOUT)
     try:
@@ -127,6 +133,16 @@ def fetch_text(
     encoding: str | None = None,
 ) -> str | None:
     """텍스트 응답을 유니코드 문자열로 반환. 실패 시 None."""
+
+    # SSL/DNS 격리된 호스트는 즉시 스킵
+    try:
+        _host = urlparse(url).netloc
+        if _host in DNS_QUARANTINE or url in SSL_QUARANTINE:
+            logger.debug("[fetch_text] skip quarantined: %s", _host)
+            return None
+    except Exception:
+        pass
+
     import chardet  # 여기서만 사용
 
     sess = get_requests_session()
@@ -141,13 +157,25 @@ def fetch_text(
             enc = guessed.get("encoding") or "utf-8"
         return data.decode(enc, errors="replace")
     except Exception as e:  # pragma: no cover
-        # requests.HTTPError 등은 e.response.status_code 를 가진다.
         status = getattr(getattr(e, "response", None), "status_code", None)
+        err_str = str(e)
+
+        # SSL 실패 호스트는 세션 전체 블랙리스트 등록
+        if "DH_KEY_TOO_SMALL" in err_str or "CERTIFICATE_VERIFY_FAILED" in err_str:
+            try:
+                import re as _re
+                _m = _re.search(r"host='([^']+)'", err_str)
+                _real_host = _m.group(1) if _m else urlparse(url).netloc
+                SSL_QUARANTINE.add(url)
+                DNS_QUARANTINE.add(_real_host)
+                logger.warning("[SSL-BLACKLIST] %s → blocked for session", _real_host)
+            except Exception:
+                pass
+            return None
+
         if status == 404:
-            # 404는 자주 나와서 DEBUG로만 기록
             logger.debug("[fetch_text] url=%s status=%s error=%s", url, status, e)
         else:
-            # 그 외(403, 5xx, 연결 문제 등)는 기존처럼 WARNING 유지
             logger.warning("[fetch_text] url=%s status=%s error=%s", url, status, e)
         return None
 
@@ -178,6 +206,11 @@ def try_fetch_pdf(url: str, timeout: int | None = None) -> bytes | None:
     """
     u = (url or "").strip()
     if not u:
+        return None
+
+    # IPv6 URL 즉시 차단 (Invalid IPv6 URL 에러 방지)
+    if "[" in u and "]" in u:
+        logger.debug("[try_fetch_pdf] skip IPv6 url: %s", u)
         return None
 
     # 이미 SSL 격리된 URL은 재시도하지 않음
