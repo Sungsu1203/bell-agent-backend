@@ -140,6 +140,19 @@ def content_strategist(state: State):
             tasks.append(Task(agent=_agent("communicator"), done=False, description=f"show_outline:{fname}", done_at=""))
 
         return {"messages": messages, "task_history": tasks}
+    
+    # ─────────────────────────────────────────────────────────
+    # objectives 추출 (state 우선 → env fallback)
+    def _format_objectives(st: State) -> str:
+        objs: list = list(st.get("research_objectives") or [])
+        if not objs:
+            try:
+                objs = config.load_research_objectives_from_env()
+            except Exception:
+                objs = []
+        if not objs:
+            return "(리서치 목표 없음 — topic_title 기반으로 자유롭게 설계)"
+        return "\n".join(f"{i+1}. {o}" for i, o in enumerate(objs))
 
     # ─────────────────────────────────────────────────────────
     # 일반 경로: 목차 생성 (LLM 호출)
@@ -153,12 +166,18 @@ def content_strategist(state: State):
              or {"queries": [], "docs": []})
     gathered = ""
     logger.info("[Content Strategist] outline generation started (fname=%s, mode=%s)", fname, MODE)
+    
+    objectives_text = _format_objectives(state)
+    logger.info("[Content Strategist] objectives %d개 주입",
+                len(state.get("research_objectives") or []))
+
     for chunk in chain.stream(
         {
             "messages": messages,
             "outline": outline_text,
             "references": _refs,
             "topic_title": state.get("topic_title") or "",
+            "objectives": objectives_text,
         }
     ):
         # 화면 실시간 출력 대신 버퍼에만 모으고, 필요 시 디버그로 일부만 남깁니다.

@@ -118,29 +118,33 @@ def get_supervisor_prompt() -> PromptTemplate:
 def get_content_strategist_prompt(mode: DocMode | str | None = None) -> PromptTemplate:
     m: DocMode = _as_doc_mode(mode if isinstance(mode, str) else None)
     if m == "report":
-        tmpl = _tmpl(
-            f"""
-            현재 주제(절대 준수): {{topic_title}}
+            tmpl = _tmpl(
+                f"""
+                현재 주제(절대 준수): {{topic_title}}
 
-            너는 **마케팅 전략 컨설턴트 및 커머스 기획자**다. 이전 대화와 참고자료를 바탕으로
-            **DB Gathering 효율화 및 신규 커머스 전략 보고서 개요**를 작성하라.
+                너는 **전략 리포트 설계 전문가**다.
+                아래 [리서치 목표]와 [참고 자료]를 바탕으로
+                주제에 최적화된 보고서 목차를 설계하라.
 
-            [필수 포함 구조]:
-            1. Executive Summary (전략 핵심 요약)
-            2. 경쟁 브랜드 DB 마케팅 분석 (아이커, 아이클타임 등 수집 프로세스 벤치마킹)
-            3. 소비자 행동 및 타겟 심층 분석 (학부모 pain 포인트 및 상담 전환 유도 요소)
-            4. 고효율 DB Gathering 채널 믹스 전략 (퍼포먼스 매체별 최적화 방안)
-            5. D2C 커머스 전환 및 옴니채널 모델 제안 (구독 경제 및 상담 결합 모델)
-            6. 실행 로드맵 및 예상 KPI (단계별 추진 계획)
+                [리서치 목표]
+                {{objectives}}
 
-            {_H2_ONLY_RULES}
+                [목차 설계 규칙]
+                1) 리서치 목표 1개당 반드시 1개 이상의 섹션을 배정한다.
+                2) 목표들을 관통하는 논리 흐름(배경 → 분석 → 전략 → 실행)을 만든다.
+                3) 첫 섹션은 반드시 Executive Summary, 마지막은 실행 로드맵/KPI로 끝낸다.
+                4) 섹션 수는 5~8개가 적절하다. 너무 세분화하지 말 것.
+                5) 각 섹션 제목은 주제와 목표를 반영한 구체적인 한국어 명칭을 사용한다.
+                (예: "소비자 행동 분석" ✗ → "학부모 키성장 고민 키워드 및 상담 전환 장벽" ✓)
 
-            --------------------------------
-            - 이전 대화: {{messages}}
-            - 기존 개요: {{outline}}
-            - 참고 자료: {{references}}
-            """
-        )
+                {_H2_ONLY_RULES}
+
+                --------------------------------
+                - 이전 대화: {{messages}}
+                - 기존 개요(수정 시 참고): {{outline}}
+                - 참고 자료: {{references}}
+                """
+            )
     else:
         tmpl = _tmpl(
             f"""
