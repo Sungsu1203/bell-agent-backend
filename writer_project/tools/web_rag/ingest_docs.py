@@ -101,25 +101,42 @@ def _pdf_bytes_to_text(data: bytes, url: str = "") -> str:
     if not data:
         return ""
 
+    # ENV 기반 제한값 읽기 (없으면 기본값)
+    _max_pages = _cfg_int("WEB_PDF_MAX_PAGES", 5)
+    _max_chars = _cfg_int("WEB_PDF_MAX_CHARS", 10000)
+
     if _pypdf2 is not None:
         try:
             reader = _pypdf2.PdfReader(io.BytesIO(data))
+            total_pages = len(reader.pages)
             texts: list[str] = []
-            for page in reader.pages:
+            char_count = 0
+            for i, page in enumerate(reader.pages):
+                # 페이지 수 제한
+                if i >= _max_pages:
+                    logger.debug("[pdf] page limit reached (%d/%d): %s", i, total_pages, url)
+                    break
                 try:
                     t = page.extract_text() or ""
                     if t:
                         texts.append(t)
+                        char_count += len(t)
+                        # 글자 수 제한
+                        if char_count >= _max_chars:
+                            logger.debug("[pdf] char limit reached (%d chars): %s", char_count, url)
+                            break
                 except Exception:
                     continue
             if texts:
-                return "\n\n".join(texts)
+                result = "\n\n".join(texts)
+                return result[:_max_chars]  # 최종 글자 수 상한
         except Exception:
             logger.debug("PyPDF2 parsing failed for %s", url, exc_info=True)
 
     if _pdfminer_extract_text is not None:
         try:
-            return _pdfminer_extract_text(io.BytesIO(data)) or ""
+            text = _pdfminer_extract_text(io.BytesIO(data)) or ""
+            return text[:_max_chars]  # pdfminer도 글자 수 상한 적용
         except Exception:
             logger.debug("pdfminer parsing failed for %s", url, exc_info=True)
 

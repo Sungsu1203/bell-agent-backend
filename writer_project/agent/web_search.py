@@ -128,6 +128,8 @@ NOISE_WEIGHTS: dict[str, int] = {
     "medium.com": -1,
     "issuu.com": -2,
     "slideshare.net": -1,
+    "smroadmap.smtech.go.kr": -10,  # 대용량 PDF 노이즈
+    "globalresearchdata.kr": -3,    # 유료 리서치 장벽
 }
 
 # 디듀프 후 최소 잔여 수(기본 4) — P1-4
