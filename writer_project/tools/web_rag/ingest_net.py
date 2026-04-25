@@ -161,7 +161,10 @@ def fetch_text(
         err_str = str(e)
 
         # SSL 실패 호스트는 세션 전체 블랙리스트 등록
-        if "DH_KEY_TOO_SMALL" in err_str or "CERTIFICATE_VERIFY_FAILED" in err_str:
+        if ("DH_KEY_TOO_SMALL" in err_str or
+            "CERTIFICATE_VERIFY_FAILED" in err_str or
+            "SSLV3_ALERT_HANDSHAKE_FAILURE" in err_str or
+            "UNEXPECTED_EOF_WHILE_READING" in err_str):
             try:
                 import re as _re
                 _m = _re.search(r"host='([^']+)'", err_str)
@@ -289,7 +292,24 @@ def try_fetch_pdf(url: str, timeout: int | None = None) -> bytes | None:
             pass
         return None
     except Exception as e:  # pragma: no cover
-        logger.warning("[try_fetch_pdf] url=%s error=%s", u, e)
+        err_str = str(e)
+        # Invalid IPv6 URL / SSL 실패 호스트 → 세션 블랙리스트
+        if ("Invalid IPv6 URL" in err_str or
+            "DH_KEY_TOO_SMALL" in err_str or
+            "CERTIFICATE_VERIFY_FAILED" in err_str or
+            "SSLV3_ALERT_HANDSHAKE_FAILURE" in err_str or
+            "UNEXPECTED_EOF_WHILE_READING" in err_str):
+            try:
+                import re as _re
+                _m = _re.search(r"host='([^']+)'", err_str)
+                _real_host = _m.group(1) if _m else urlparse(u).netloc
+                DNS_QUARANTINE.add(_real_host)
+                logger.warning("[NET-BLACKLIST] %s → blocked for session (%s)",
+                               _real_host, err_str[:50])
+            except Exception:
+                DNS_QUARANTINE.add(urlparse(u).netloc)
+        else:
+            logger.warning("[try_fetch_pdf] url=%s error=%s", u, e)
         return None
 
 
