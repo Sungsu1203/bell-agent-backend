@@ -221,7 +221,26 @@ def research_synthesizer(state: State):
     # ---- LLM 합성 ----
     synth_prompt = get_research_synthesizer_prompt()
     try:
-        findings = (synth_prompt | llm | StrOutputParser()).invoke({"snippets": snippets})
+        # objectives 추출
+        objs = list(state.get("research_objectives") or [])
+        if not objs:
+            try:
+                objs = config.load_research_objectives_from_env()
+            except Exception:
+                objs = []
+        objectives_text = "\n".join(f"{i+1}. {o}" for i, o in enumerate(objs)) \
+                        if objs else "(목표 없음)"
+        objectives_checklist = "\n".join(f"- 목표 {i+1}: {o}" for i, o in enumerate(objs)) \
+                            if objs else "- (목표 없음)"
+
+        findings = (synth_prompt | llm | StrOutputParser()).invoke({
+            "snippets": snippets,
+            "topic_title": state.get("topic_title") or "",
+            "research_round": str(rnd + 1),
+            "objectives": objectives_text,
+            "objectives_checklist": objectives_checklist,
+            "outline": get_topic_outline_text(state) or "(목차 없음)",
+        })
     except Exception as e:
         findings = f"""[Fallback Summary]
 LLM 호출 실패로 간략 요약을 제공합니다.
