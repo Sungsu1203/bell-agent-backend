@@ -101,13 +101,34 @@ _DEFAULT_PROJECT_ROOT = _HERE.parents[1]  # .../chap14_8
 
 # ── dotenv 1회 로드 ───────────────────────────────────────────
 _cfg_lock = threading.RLock()
+_dotenv_loaded = False
+
 def _load_dotenv_once() -> None:
+    global _dotenv_loaded
+    with _cfg_lock:
+        if _dotenv_loaded:
+            return
+        _dotenv_loaded = True
     if not _DOTENV_READY:
         return
+    # 1) 기본 .env 로드
     try:
         load_dotenv(find_dotenv(usecwd=True), override=False)
     except Exception:
         pass
+    # 2) TOPIC_SLUG에 맞는 토픽 프리셋 파일 추가 로드
+    try:
+        slug = os.getenv("TOPIC_SLUG", "").strip()
+        if slug:
+            root = Path(os.getenv("PROJECT_ROOT", str(_DEFAULT_PROJECT_ROOT))).resolve()
+            preset_path = root / "topics" / f"{slug}.env"
+            if preset_path.exists():
+                load_dotenv(preset_path, override=True)
+                print(f"[Config] 토픽 프리셋 로드: {preset_path}")
+            else:
+                print(f"[Config] 토픽 프리셋 없음 (기본 .env 사용): {preset_path}")
+    except Exception as e:
+        print(f"[Config] 토픽 프리셋 로드 실패 (무시): {e}")
 
 # ── 연구 목적 ENV 로더(호환 유지 + 확장) ───────────────────────
 def load_research_objectives_from_env(
@@ -335,6 +356,21 @@ class Config:
                 self.AGENT_ROLE = "research analyst"
             if not (getattr(self, "BLOCKAGI_AGENT_ROLE", "") or "").strip():
                 self.BLOCKAGI_AGENT_ROLE = self.AGENT_ROLE
+            # ── CHROMA_NAMESPACE 자동 파생 ──────────────────────────
+            # TOPIC_SLUG 기반으로 비어있는 NS를 자동 생성
+            def _ns(s: str) -> str:
+                s = (s or "").strip().lower()
+                s = re.sub(r"[^a-z0-9\-]+", "-", s)
+                s = re.sub(r"-{2,}", "-", s).strip("-")
+                return s or "default"
+
+            slug = _ns(self.TOPIC_SLUG or "default")
+            if not (self.CHROMA_NAMESPACE or "").strip():
+                self.CHROMA_NAMESPACE = f"kr-{slug}"
+            if not (self.CHROMA_NAMESPACE_WEB or "").strip():
+                self.CHROMA_NAMESPACE_WEB = f"kr-{slug}-web"
+            if not (self.CHROMA_NAMESPACE_LOCAL or "").strip():
+                self.CHROMA_NAMESPACE_LOCAL = f"kr-{slug}-local"
 
 # ── 구성 빌더 ────────────────────────────────────────────────
 def _build_config() -> Config:
