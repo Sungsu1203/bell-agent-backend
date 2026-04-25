@@ -129,7 +129,7 @@ def _ensure_chroma_ns(state: MutableMapping[str, Any]) -> None:
     ns_loc_raw     = _cfg_str("CHROMA_NAMESPACE_LOCAL", "")
 
     topic_slug = _ns_sanitize(topic_slug_raw)
-    ns = _ns_sanitize(env_ns_raw) if env_ns_raw.strip() else _ns_sanitize(f"{topic_slug}-default")
+    ns = _ns_sanitize(env_ns_raw) if env_ns_raw.strip() else topic_slug
     persist_dir = _default_chroma_dir(ns)
 
     chroma.update({"ns": ns, "dir": persist_dir})

@@ -214,7 +214,7 @@ def web_search_agent(state: State):
     env_ns_raw     = (getattr(config.CFG, "CHROMA_NAMESPACE", "") or "").strip()
     topic_slug     = _wr_sanitize_ns(topic_slug_raw)
     env_ns         = _wr_sanitize_ns(env_ns_raw) if env_ns_raw else ""
-    ns             = env_ns or _wr_sanitize_ns(f"{topic_slug}-default")
+    ns             = env_ns or topic_slug
     persist_dir    = _wr_resolve_persist_dir(ns, _default_chroma_dir(ns))
 
     # Record in state (TypedDict 안전화): 전체 state를 가변 매핑으로 확장 후 보장

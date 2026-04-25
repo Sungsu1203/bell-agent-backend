@@ -368,11 +368,11 @@ class Config:
 
         slug = _ns(self.TOPIC_SLUG or "default")
         if not (self.CHROMA_NAMESPACE or "").strip():
-            self.CHROMA_NAMESPACE = f"{slug}-default"
+            self.CHROMA_NAMESPACE = slug
         if not (self.CHROMA_NAMESPACE_WEB or "").strip():
-            self.CHROMA_NAMESPACE_WEB = f"{slug}-default-web"
+            self.CHROMA_NAMESPACE_WEB = f"{slug}-web"
         if not (self.CHROMA_NAMESPACE_LOCAL or "").strip():
-            self.CHROMA_NAMESPACE_LOCAL = f"{slug}-default-local"
+            self.CHROMA_NAMESPACE_LOCAL = f"{slug}-local"
 
 # ── 구성 빌더 ────────────────────────────────────────────────
 def _build_config() -> Config:
