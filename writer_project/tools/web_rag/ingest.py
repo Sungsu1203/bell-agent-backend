@@ -182,6 +182,26 @@ def _session_get(session: requests.Session, url: str, kwargs: Mapping[str, Any])
                     _mark_host_fail(_host)
                 except NameError:
                     pass
+            # DH_KEY_TOO_SMALL / CERTIFICATE_VERIFY_FAILED 사이트는
+            # 세션 전체에서 완전 차단 (매 쿼리 재시도 방지)
+            if ("DH_KEY_TOO_SMALL" in str(e) or
+                "CERTIFICATE_VERIFY_FAILED" in str(e)):
+                import re as _re  # ← 이 줄 추가
+                # 원래 URL 호스트도 등록
+                _DNS_BAD_HOSTS.add(_host)
+                # 에러 메시지에서 실제 실패 호스트 추출 (리다이렉트 경유 시)
+                try:
+                    _err_str = str(e)
+                    _m = _re.search(r"host='([^']+)'", _err_str)
+                    if _m:
+                        _real_host = _m.group(1)
+                        _DNS_BAD_HOSTS.add(_real_host)
+                        logger.warning("[SSL-BLACKLIST] %s + %s → blocked for session",
+                                       _host, _real_host)
+                    else:
+                        logger.warning("[SSL-BLACKLIST] %s → blocked for session", _host)
+                except Exception:
+                    logger.warning("[SSL-BLACKLIST] %s → blocked for session", _host)
         finally:
             raise
 
