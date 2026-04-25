@@ -1260,7 +1260,14 @@ def build_webjson_from_local(
 
     for fi, f in enumerate(files, start=1):
         try:
-            file_items = _to_webjson_items(f, max_pages_per_file=max_pages_per_file or None)
+            # 파일별 파싱 캐시: mtime+size가 같으면 재파싱 스킵
+            cached = _cache_load(f)
+            if cached is not None:
+                file_items = cached
+            else:
+                file_items = _to_webjson_items(f, max_pages_per_file=max_pages_per_file or None)
+                if file_items:
+                    _cache_save(f, file_items)
         except Exception as e:
             logger.warning("[LOCAL RAG] local ingest 실패: %s -> %s", f, e)
             file_items = []
@@ -1339,8 +1346,16 @@ def build_webjson_from_local(
         logger.debug("[LOCAL RAG] sample sources: %s", sample_sources)
         logger.debug("[LOCAL RAG] sample urls   : %s", sample_urls)
 
-    # 헬스체크: 아이템 0개면 파이프라인 중지
+    # 헬스체크: 아이템 0개면 설정에 따라 중지 또는 경고
     if not items:
+        if _cfg_bool("LOCAL_RAG_ALLOW_EMPTY", False):
+            logger.warning("[LOCAL RAG] 0 items produced — continuing (LOCAL_RAG_ALLOW_EMPTY=1)")
+            from datetime import datetime as _dt
+            _ts = _dt.now().strftime("%Y_%m_%d_%H%M%S")
+            out_path = os.path.join(out_dir, f"local_{_ts}.json")
+            with open(out_path, "w", encoding="utf-8") as fp:
+                json.dump([], fp)
+            return out_path
         raise RuntimeError("LOCAL RAG produced 0 items after extraction/filters; aborting to prevent empty index.")
 
     ts = datetime.now().strftime("%Y_%m_%d_%H%M%S")
