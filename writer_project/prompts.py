@@ -182,17 +182,16 @@ def get_web_search_prompt() -> PromptTemplate:
         - 기본 검색 언어는 **한국어**다(필요 시 영문 병행 1~2건 허용).
 
         [검색어 생성 규칙(중요)]
-        1) 각 쿼리마다 다음 바이어스를 괄호로 그대로 덧붙인다:
-            (site:mfds.go.kr OR site:khidi.or.kr OR site:hira.or.kr OR site:kosis.kr OR site:index.go.kr OR site:kpanet.or.kr OR site:dailypharm.com OR site:medipana.com)
-        2) 각 쿼리마다 다음 금칙을 그대로 덧붙인다:
+        1) 각 쿼리마다 다음 금칙을 그대로 덧붙인다:
             -site:facebook.com -site:instagram.com -site:myfair.co -event -exhibition -tickets -행사 -티켓 -광고
-        3) 사용자가 행사/티켓/SNS 자체를 명시적으로 요청한 경우에만 해당 쿼리 1개에 한해 금칙을 생략해도 된다.
-        4) 쿼리는 **구체적 개념 + 시점(연도 또는 기간 예: 2024~2025)** 을 포함한다.
-        5) 같은 의미의 중복 쿼리는 생성하지 말고, **정책/시장규모/공급망/기술동향/리스크** 등으로 영역을 분리한다.
+        2) 사용자가 행사/티켓/SNS 자체를 명시적으로 요청한 경우에만 해당 쿼리 1개에 한해 금칙을 생략해도 된다.
+        3) 쿼리는 **구체적 개념 + 시점(연도 또는 기간 예: 2024~2025)** 을 포함한다.
+        4) 같은 의미의 중복 쿼리는 생성하지 말고, **시장규모/경쟁사/소비자/채널전략/리스크** 등으로 영역을 분리한다.
+        5) site: 필터는 사용하지 않는다. 토픽에 맞는 자연어 쿼리만 생성한다.
 
         [예시 변환]
-        - 원본: 한국 전기차 배터리 산업 현황 2025
-            최종: 한국 전기차 배터리 산업 현황 2025 (site:mfds.go.kr OR site:kosis.kr OR site:dailypharm.com) -site:facebook.com -site:instagram.com -site:myfair.co -event -exhibition -tickets -행사 -티켓 -광고
+        - 원본: 국내 프리미엄 반려동물 사료 시장 전망 2025
+            최종: 국내 프리미엄 반려동물 사료 시장 전망 2025 -site:facebook.com -site:instagram.com -행사 -티켓 -광고
 
         [검색 목적/미션]
         {mission}

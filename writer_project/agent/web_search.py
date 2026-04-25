@@ -118,13 +118,12 @@ YEAR_FLOOR: int = _cfg_int("WEB_URL_YEAR_FLOOR", 2019)
 
 # 권위/잡음 도메인 가중치(필요 시 CFG/ENV에서 확장)
 AUTH_WEIGHTS: dict[str, int] = {
-    "khidi.or.kr": 2,
-    "kosis.kr": 2,
-    "mfds.go.kr": 2,
-    # 준권위 예시
+    # 토픽 중립 권위 도메인만 유지
+    "kosis.kr": 2,      # 통계청 (모든 토픽 공통)
     "korea.kr": 1,
     "stat.go.kr": 1,
 }
+
 NOISE_WEIGHTS: dict[str, int] = {
     "medium.com": -1,
     "issuu.com": -2,
@@ -734,7 +733,7 @@ def web_search_agent(state: State):
                 # -----------------------------------------
                 # 1-1. Vertex 우선 시도 (attempt==0에서 한 번만)
                 # -----------------------------------------
-                if attempt == 0 and query:
+                if attempt == 0 and query and not _cfg_bool("SKIP_VERTEX_SEARCH", False):
                     try:
                         vertex_result = vertex_web_search(query)
                         v_urls = list(vertex_result.get("urls") or [])
@@ -745,6 +744,8 @@ def web_search_agent(state: State):
                             )
                     except Exception as e:
                         logger.warning("[web_search] Vertex failed: %s", e)
+                elif attempt == 0 and _cfg_bool("SKIP_VERTEX_SEARCH", False):
+                    logger.info("[web_search] Vertex skipped (SKIP_VERTEX_SEARCH=1)")
 
                 # -----------------------------------------
                 # 1-2. legacy 멀티엔진 검색(Tavily+Naver 등)도 항상 시도

@@ -164,6 +164,10 @@ def _session_get(session: requests.Session, url: str, kwargs: Mapping[str, Any])
                 _mark_host_fail(_host)
             except NameError:
                 pass
+            # 403은 크롤링 차단 사이트 → 세션 전체 블랙리스트 즉시 등록
+            if resp.status_code == 403:
+                _DNS_BAD_HOSTS.add(_host)
+                logger.warning("[403-BLACKLIST] %s → blocked for session", _host)
         return resp
     except Exception as e:
         # DNS 실패는 재시도 가치 낮음 → 블랙리스트 등록

@@ -195,9 +195,11 @@ class Config:
     SEARCH_MIN_OK: int
     SEARCH_TOPN: int
     SKIP_WEB_SEARCH: bool
+    SKIP_VERTEX_SEARCH: bool
     LOCAL_RAG_GLOBS: str
     CHROMA_NAMESPACE: str
     CHROMA_NAMESPACE_WEB: str
+    SKIP_VERTEX_SEARCH: bool
     CHROMA_NAMESPACE_LOCAL: str
     CLEAR_CHROMA_ON_START: bool
     CHROMA_INCLUDE_BASE: bool
@@ -364,13 +366,13 @@ class Config:
                 s = re.sub(r"-{2,}", "-", s).strip("-")
                 return s or "default"
 
-            slug = _ns(self.TOPIC_SLUG or "default")
-            if not (self.CHROMA_NAMESPACE or "").strip():
-                self.CHROMA_NAMESPACE = f"kr-{slug}"
-            if not (self.CHROMA_NAMESPACE_WEB or "").strip():
-                self.CHROMA_NAMESPACE_WEB = f"kr-{slug}-web"
-            if not (self.CHROMA_NAMESPACE_LOCAL or "").strip():
-                self.CHROMA_NAMESPACE_LOCAL = f"kr-{slug}-local"
+        slug = _ns(self.TOPIC_SLUG or "default")
+        if not (self.CHROMA_NAMESPACE or "").strip():
+            self.CHROMA_NAMESPACE = f"{slug}-default"
+        if not (self.CHROMA_NAMESPACE_WEB or "").strip():
+            self.CHROMA_NAMESPACE_WEB = f"{slug}-default-web"
+        if not (self.CHROMA_NAMESPACE_LOCAL or "").strip():
+            self.CHROMA_NAMESPACE_LOCAL = f"{slug}-default-local"
 
 # ── 구성 빌더 ────────────────────────────────────────────────
 def _build_config() -> Config:
@@ -394,6 +396,7 @@ def _build_config() -> Config:
         SEARCH_MIN_OK=_env_int("SEARCH_MIN_OK", 1, min_=1, max_=5),
         SEARCH_TOPN=_env_int("SEARCH_TOPN", 10, min_=1, max_=50),
         SKIP_WEB_SEARCH=_env_flag("SKIP_WEB_SEARCH", False),
+        SKIP_VERTEX_SEARCH=_env_flag("SKIP_VERTEX_SEARCH", False),
         LOCAL_RAG_GLOBS=_env_str("LOCAL_RAG_GLOBS", ""),
         CHROMA_NAMESPACE=_env_str("CHROMA_NAMESPACE", ""),
         CHROMA_NAMESPACE_WEB=_env_str("CHROMA_NAMESPACE_WEB", ""),
