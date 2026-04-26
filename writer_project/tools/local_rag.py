@@ -810,8 +810,9 @@ def _type_chunk_params(ext: str) -> tuple[int, int, int, str]:
         mn, mx = around(max(800, size))
         return mn, max(mx, 1200), max(overlap, 100), "paragraph"
     if e == ".pptx":
-        mn, mx = 100, 900   # 슬라이드별 텍스트가 짧으므로 min 대폭 낮춤
-        return mn, mx, min(overlap, 100), "lines"
+        mn = _cfg_int("MIN_CHUNK_PPTX", 80)
+        mx = 1200
+        return mn, mx, 0, "paragraph"  # lines → paragraph, overlap=0
     if e in (".xlsx", ".csv"):
         mn, mx = 100, 1100  # 표/셀 데이터 특성상 짧을 수 있음
         return mn, mx, max(80, min(overlap, 120)), "paragraph"
