@@ -1334,8 +1334,9 @@ def documents_to_chroma(
         # ─────────────────────────────────────────────────────────────
         # [HEALTHCHECK] 단일 파티션 모드에서도 0 추가 시 즉시 중단
         # ─────────────────────────────────────────────────────────────
-        if pre_docs_count > 0 and total_added <= 0:
-            raise RuntimeError("No chunks added for base")
+    # 수정 — 이미 인덱싱된 경우는 정상 처리
+    if pre_docs_count > 0 and total_added <= 0 and new_docs_count > 0:
+        raise RuntimeError("No chunks added for base")
 
     # 5) 최종 요약
     logger.info(

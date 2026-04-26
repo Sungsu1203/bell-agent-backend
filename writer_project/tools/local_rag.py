@@ -807,20 +807,18 @@ def _type_chunk_params(ext: str) -> tuple[int, int, int, str]:
 
     # 타입별 튜닝
     if e == ".pdf":
-        mn, mx = around(max(1100, size))
-        return mn, max(mx, 1500), max(overlap, 160), "paragraph"
+        mn, mx = around(max(800, size))
+        return mn, max(mx, 1200), max(overlap, 100), "paragraph"
     if e == ".pptx":
-        # 불릿/노트/표 혼합 → 라인 기반, 덩어리 작게
-        mn, mx = 600, 900
+        mn, mx = 100, 900   # 슬라이드별 텍스트가 짧으므로 min 대폭 낮춤
         return mn, mx, min(overlap, 100), "lines"
     if e in (".xlsx", ".csv"):
-        mn, mx = 800, 1100
+        mn, mx = 100, 1100  # 표/셀 데이터 특성상 짧을 수 있음
         return mn, mx, max(80, min(overlap, 120)), "paragraph"
     if e in (".md", ".markdown"):
-        mn, mx = 900, 1300
+        mn, mx = 100, 1300
         return mn, mx, max(overlap, 120), "paragraph"
-    # txt/html/docx 등 일반 텍스트
-    mn, mx = 900, 1300
+    mn, mx = 100, 1300     # txt/html/docx 등
     return mn, mx, max(overlap, 120), "paragraph"
 
 def _split_text_generic(

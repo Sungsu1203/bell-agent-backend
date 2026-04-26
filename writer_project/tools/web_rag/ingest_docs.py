@@ -258,12 +258,14 @@ def web_results_to_documents(results: Sequence[Dict[str, Any]]) -> List[Document
         ext = Path(path).suffix.lower()
         if ext == ".pdf": return "application/pdf"
         if ext in (".html", ".htm"): return "text/html"
-        if ext in (".pptx", ".xlsx", ".docx"): return "application/vnd.openxmlformats-officedocument"
+        if ext == ".pptx": return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        if ext == ".xlsx": return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if ext == ".docx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         if ext in (".txt", ".md", ".markdown"): return "text/plain"
         return default
 
     for item in results or []:
-        url: str = (item.get("url") or item.get("source") or "").strip()
+        url: str = (item.get("source") or item.get("url") or "").strip()
         title: str = (item.get("title") or "").strip()
         item_content: str = (item.get("content") or "").strip()
         raw_content: str = (item.get("raw_content") or "").strip()
@@ -322,13 +324,17 @@ def web_results_to_documents(results: Sequence[Dict[str, Any]]) -> List[Document
             if parsed.path:
                 lp = parsed.path.lower()
                 if lp.endswith(".pdf") or lp.endswith(".pptx"):
-                    if _ingest_mod is not None:
-                        base_key = _ingest_mod._base_file_key(url_no_frag)
+                    # fragment가 있으면 local_rag 청크 → 청크별 고유 URL 사용
+                    if parsed.fragment:
+                        dedup_key = url
                     else:
-                        base_key = url_no_frag
-                    if base_key in _seen_files:
+                        if _ingest_mod is not None:
+                            dedup_key = _ingest_mod._base_file_key(url_no_frag)
+                        else:
+                            dedup_key = url_no_frag
+                    if dedup_key in _seen_files:
                         continue
-                    _seen_files.add(base_key)
+                    _seen_files.add(dedup_key)
 
             # 1) file:// — content만 사용
             if scheme == "file":

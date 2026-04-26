@@ -328,7 +328,16 @@ class Config:
 
     REPORT_SOURCES: str
 
-    # ── post init: 경로/파생값 정규화 ─────────────────────────
+    WEB_PDF_MAX_PAGES: int
+    # 청크 필터 설정
+    RAG_MIN_DOC_CHARS: int
+    RAG_MIN_DOC_TOKENS: int
+    MIN_CHUNK_CHARS: int
+    MIN_CHUNK_PPTX: int
+    MIN_CHUNK_PDF: int
+    WEB_PDF_MAX_CHARS: int
+    WEB_FETCH_MAX_BYTES: int
+
     def __post_init__(self) -> None:
         # PROJECT_ROOT: 환경변수로 오버라이드 허용
         env_root = _env_str("PROJECT_ROOT", "")
@@ -338,7 +347,7 @@ class Config:
             except Exception:
                 self.PROJECT_ROOT = _DEFAULT_PROJECT_ROOT
 
-        # REPORT_OUT_DIR / RESEARCH_OUT_DIR 기본값(비어있으면 프로젝트 루트 기준)
+        # REPORT_OUT_DIR / RESEARCH_OUT_DIR 기본값
         if not (self.REPORT_OUT_DIR or "").strip():
             self.REPORT_OUT_DIR = str(self.PROJECT_ROOT / "reports")
         if not (self.RESEARCH_OUT_DIR or "").strip():
@@ -353,20 +362,19 @@ class Config:
             elif ar and not br:
                 self.BLOCKAGI_AGENT_ROLE = ar
         except Exception:
-            # 안전 폴백: 둘 다 비면 기본값
             if not (getattr(self, "AGENT_ROLE", "") or "").strip():
                 self.AGENT_ROLE = "research analyst"
             if not (getattr(self, "BLOCKAGI_AGENT_ROLE", "") or "").strip():
                 self.BLOCKAGI_AGENT_ROLE = self.AGENT_ROLE
-            # ── CHROMA_NAMESPACE 자동 파생 ──────────────────────────
-            # TOPIC_SLUG 기반으로 비어있는 NS를 자동 생성
-            def _ns(s: str) -> str:
-                s = (s or "").strip().lower()
-                s = re.sub(r"[^a-z0-9\-]+", "-", s)
-                s = re.sub(r"-{2,}", "-", s).strip("-")
-                return s or "default"
 
-        slug = _ns(self.TOPIC_SLUG or "default")
+        # ── CHROMA_NAMESPACE 자동 파생 ──────────────────────────
+        def _sanitize_ns(s: str) -> str:
+            s = (s or "").strip().lower()
+            s = re.sub(r"[^a-z0-9\-]+", "-", s)
+            s = re.sub(r"-{2,}", "-", s).strip("-")
+            return s or "default"
+
+        slug = _sanitize_ns(self.TOPIC_SLUG or "default")
         if not (self.CHROMA_NAMESPACE or "").strip():
             self.CHROMA_NAMESPACE = slug
         if not (self.CHROMA_NAMESPACE_WEB or "").strip():
@@ -475,8 +483,16 @@ def _build_config() -> Config:
         HAS_SERPAPI=bool(_env_str("SERPAPI_API_KEY")),
         HAS_TAVILY=bool(_env_str("TAVILY_API_KEY")),
         MAX_INDEXED_PER_ROUND=_env_int("MAX_INDEXED_PER_ROUND", 0, min_=0),
+        WEB_PDF_MAX_PAGES=_env_int("WEB_PDF_MAX_PAGES", 5),
+        WEB_PDF_MAX_CHARS=_env_int("WEB_PDF_MAX_CHARS", 10000),
+        WEB_FETCH_MAX_BYTES=_env_int("WEB_FETCH_MAX_BYTES", 500000),
         MAX_SEARCH_QUERIES_PER_ROUND=_env_int("MAX_SEARCH_QUERIES_PER_ROUND", 6, min_=0, max_=50),
         LOCAL_RAG_ALLOW=_env_str("LOCAL_RAG_ALLOW", ""),
+        RAG_MIN_DOC_CHARS=_env_int("RAG_MIN_DOC_CHARS", 200),
+        RAG_MIN_DOC_TOKENS=_env_int("RAG_MIN_DOC_TOKENS", 30),
+        MIN_CHUNK_CHARS=_env_int("MIN_CHUNK_CHARS", 120),
+        MIN_CHUNK_PPTX=_env_int("MIN_CHUNK_PPTX", 40),
+        MIN_CHUNK_PDF=_env_int("MIN_CHUNK_PDF", 80),
 
         # 운영 편의
         GOOGLEISH_HINTS=_parse_hints(_env_str("GOOGLEISH_HINTS", "")) or ["site:", " OR ", " AND ", "(", ")"],
