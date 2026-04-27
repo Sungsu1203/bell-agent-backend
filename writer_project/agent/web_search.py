@@ -594,10 +594,21 @@ def web_search_agent(state: State):
     # --- Content quality quick filter ---------------------------------------
     def _is_bad_doc(d) -> bool:
         txt = ((getattr(d, "page_content", None) or "")[:2000]).lower()
-        return any(k in txt for k in [
+        # 기술적 오류 필터
+        if any(k in txt for k in [
             "access denied", "enable javascript", "just a moment",
             "security controls triggered", "captcha"
-        ])
+        ]):
+            return True
+        # 관련성 없는 도메인 필터
+        bad_domains_str = (os.environ.get("FILTER_BAD_DOMAINS", "") or "").strip()
+        if bad_domains_str:
+            meta = getattr(d, "metadata", {}) or {}
+            url = (meta.get("source") or meta.get("url") or "").lower()
+            bad_domains = [bd.strip() for bd in bad_domains_str.split(",") if bd.strip()]
+            if any(bd in url for bd in bad_domains):
+                return True
+        return False
 
     # --- Normalize query -----------------------------------------------------
     def _normalize_query(q: str) -> str:

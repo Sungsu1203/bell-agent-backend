@@ -344,6 +344,8 @@ class Config:
     LOCAL_MIN_CHARS_XLSX: int
     PPTX_MIN_MERGED_CHARS: int
 
+    FILTER_BAD_DOMAINS: str
+
     def __post_init__(self) -> None:
         # PROJECT_ROOT: 환경변수로 오버라이드 허용
         env_root = _env_str("PROJECT_ROOT", "")
@@ -561,6 +563,8 @@ def _build_config() -> Config:
         ALLOW_SUBDOMAINS=_env_flag("ALLOW_SUBDOMAINS", False),
 
         REPORT_SOURCES=_env_str("REPORT_SOURCES", ""),
+
+        FILTER_BAD_DOMAINS=_env_str("FILTER_BAD_DOMAINS", ""),
     )
 
 # ── 싱글턴 구성 객체 ─────────────────────────────────────────
