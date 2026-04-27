@@ -338,6 +338,12 @@ class Config:
     WEB_PDF_MAX_CHARS: int
     WEB_FETCH_MAX_BYTES: int
 
+    LOCAL_MIN_CHARS_GLOBAL: int
+    LOCAL_MIN_CHARS_PDF: int
+    LOCAL_MIN_CHARS_PPTX: int
+    LOCAL_MIN_CHARS_XLSX: int
+    PPTX_MIN_MERGED_CHARS: int
+
     def __post_init__(self) -> None:
         # PROJECT_ROOT: 환경변수로 오버라이드 허용
         env_root = _env_str("PROJECT_ROOT", "")
@@ -493,6 +499,11 @@ def _build_config() -> Config:
         MIN_CHUNK_CHARS=_env_int("MIN_CHUNK_CHARS", 120),
         MIN_CHUNK_PPTX=_env_int("MIN_CHUNK_PPTX", 40),
         MIN_CHUNK_PDF=_env_int("MIN_CHUNK_PDF", 80),
+        LOCAL_MIN_CHARS_GLOBAL=_env_int("LOCAL_MIN_CHARS_GLOBAL", 80),
+        LOCAL_MIN_CHARS_PDF=_env_int("LOCAL_MIN_CHARS_PDF", 60),
+        LOCAL_MIN_CHARS_PPTX=_env_int("LOCAL_MIN_CHARS_PPTX", 30),
+        LOCAL_MIN_CHARS_XLSX=_env_int("LOCAL_MIN_CHARS_XLSX", 1),
+        PPTX_MIN_MERGED_CHARS=_env_int("PPTX_MIN_MERGED_CHARS", 160),
 
         # 운영 편의
         GOOGLEISH_HINTS=_parse_hints(_env_str("GOOGLEISH_HINTS", "")) or ["site:", " OR ", " AND ", "(", ")"],
