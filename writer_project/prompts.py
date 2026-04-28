@@ -424,7 +424,8 @@ def get_section_writer_prompt() -> PromptTemplate:
 
         [Executive Summary 규칙 - {target_title}에 Executive Summary가 포함된 경우]
         - 시장 규모 및 성장률 수치 반드시 포함
-        - 주요 경쟁 브랜드 현황 언급
+        - 참고 자료에 언급된 주요 경쟁 브랜드명을 반드시 구체적으로 명시할 것
+        - 로컬 파일(XLSX/PPTX) 참고 자료에 KPI 수치가 있으면 반드시 본문에 인용할 것
         - 핵심 KPI 수치는 참고 자료에서 확인된 것만 인용하고 반드시 출처 표기
         - 전략적 방향 및 기대 효과를 명확히 제시
                  

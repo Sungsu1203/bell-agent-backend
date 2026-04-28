@@ -1133,7 +1133,22 @@ def vector_search_agent(state: State):
     skip_direct_qa = _looks_like_research_mode(state) and (not _direct_qa_on)
     user_q = "" if skip_direct_qa else _extract_user_query(last_human.content) if (last_human and isinstance(last_human.content, str)) else ""
     user_q = _clean_seed(user_q)
+
+    # write 명령이거나 task_history에 section_writer pending이 있으면 topic_title 추가
+    _has_writer_task = any(
+        not getattr(t, "done", False) and getattr(t, "agent", "") in ("section_writer", "chapter_writer")
+        for t in (state.get("task_history") or [])
+    )
+    _is_write = bool(last_human and isinstance(last_human.content, str) and last_human.content.lower().strip().startswith("write:"))
+    logger.debug("[vector_search] _is_write=%s _has_writer_task=%s last_human=%s", _is_write, _has_writer_task, getattr(last_human, "content", None))
+    if user_q and (_is_write or _has_writer_task):
+        _topic = (state.get("topic_title") or (state.get("flags") or {}).get("topic_title") or "").strip()
+        logger.debug("[vector_search] _topic=%s", _topic)
+        if _topic and _topic not in user_q:
+            user_q = f"{user_q} {_topic}"
+    logger.debug("[vector_search] user_q after topic append: %s", user_q)
     user_q_clean = _strip_web_filters(user_q)
+    logger.debug("[vector_search] user_q_clean: %s", user_q_clean)
     user_key = user_q_clean.strip().lower()
 
     # 유저 질의가 비고, 강제시드 허용 상태면 시드 사용

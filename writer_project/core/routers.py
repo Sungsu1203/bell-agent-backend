@@ -516,7 +516,12 @@ def after_web_search_agent(state: State) -> str:
     if _has_writer_pending_strict(state):
         preferred_writer = _preferred_writer()
         refs_empty = not ((state.get("references") or {}).get("docs") or [])
-        if refs_empty and not _skip_web_search(state):
+        # rag_on_disk면 refs가 비어있어도 웹 검색 건너뛰기
+        _last_msg = next((m for m in reversed(state.get("messages", [])) if hasattr(m, "content")), None)
+        _last_txt = (str(getattr(_last_msg, "content", "") or "")).strip().lower()
+        _is_write = _last_txt.startswith("write:")
+        _has_rag = bool(state.get("rag_on_disk") or (int((state.get("rag_stats") or {}).get("ns_web_count") or 0) > 0))
+        if refs_empty and not _skip_web_search(state) and not (_is_write and _has_rag):
             logger.debug("[router.after_web] writer pending but refs empty → web_search_agent")
             return "web_search_agent"
         logger.info("[router.after_web] writer pending(strict) → %s", preferred_writer)

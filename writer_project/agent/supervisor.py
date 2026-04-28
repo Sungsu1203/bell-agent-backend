@@ -389,6 +389,8 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
         or ns_local_count > 0
         or doc_total > 0
     )
+    if has_on_disk:
+        mstate["rag_on_disk"] = True
 
     logger.warning(
         "DEBUG: research_round=%d, has_refs=%s, has_plan=%s, rag_on_disk=%s, "
@@ -594,9 +596,11 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
     if _is_write_cmd and has_on_disk:
         if not _safe_has_pending(tasks, "section_writer"):
             tasks.append(Task(agent="section_writer", done=False, description=last_text, done_at=""))
-        logger.info("[Supervisor fast-path] write + rag_on_disk → section_writer (skip research)")
-        _dash_emit(state, where="supervisor", picked="section_writer", reason="write_rag_fastpath")
-        return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
+        if not _safe_has_pending(tasks, "vector_search_agent"):
+            tasks.append(Task(agent="vector_search_agent", done=False, description=f"qa_query:{last_text}", done_at=""))
+        logger.info("[Supervisor fast-path] write + rag_on_disk → vector_search → section_writer")
+        _dash_emit(state, where="supervisor", picked="vector_search_agent", reason="write_rag_fastpath_with_vector")
+        return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {}), "rag_on_disk": True, "topic_title": state.get("topic_title")}
 
     if _is_research_mode_local(state):
         research_agents = ("research_planner","web_search_agent","vector_search_agent","research_synthesizer")
@@ -910,9 +914,12 @@ def supervisor_router(state: Mapping[str, Any]) -> str:
         if idx_fallback:
             write_title = _title_by_index(get_topic_outline_text(state), idx_fallback)
     if write_title:
-        if refs_empty:
+        _has_rag_on_disk = bool(state.get("rag_on_disk"))
+        if refs_empty and not _has_rag_on_disk:
             ret = "web_search_agent"; _dash_emit(state, where="router", picked=ret, reason="write_refs_empty"); return ret
-        ret = preferred; _dash_emit(state, where="router", picked=ret, reason="write_refs_present"); return ret
+        if _has("vector_search_agent"):
+            ret = "vector_search_agent"; _dash_emit(state, where="router", picked=ret, reason="write_vector_pending"); return ret
+        ret = preferred; _dash_emit(state, where="router", picked=ret, reason="write_refs_present_or_rag"); return ret
 
     if _is_research_mode_local(state):
         if _has(preferred, prefix="write:") or _has(alt, prefix="write:"):
