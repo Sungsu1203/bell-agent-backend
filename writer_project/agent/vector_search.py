@@ -1087,8 +1087,9 @@ def vector_search_agent(state: State):
         s = re.sub(r"^write\s*:\s*", "", s, flags=re.I).strip()
         s = re.sub(r"(요약해줘|요약|정리해줘|정리)\s*[\.\!\?…]*\s*$", "", s).strip()
         s = re.sub(r"[\.\!\?…]+$", "", s).strip()
-        m = re.search(r"[A-Za-z0-9_]{6,}", s)
-        return (m.group(0) if m else s) if len(s) >= 2 else ""
+        # ## 번호. 제목 형식에서 제목만 추출
+        s = re.sub(r"^#+\s*\d*[\.\s]*", "", s).strip()
+        return s if len(s) >= 2 else ""
 
     def _was_research_token(s: str) -> bool:
         if not isinstance(s, str):

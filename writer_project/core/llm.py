@@ -109,8 +109,6 @@ def _load_provider() -> dict[str, Any]:
             from langchain_google_vertexai import VertexAIEmbeddings as _VertexAIEmbeddings
             def _strip_kwargs_for_vertex(ctor):
                 def _wrapped(**kw):
-                    for k in ("timeout", "request_timeout"):
-                        kw.pop(k, None)
                     for k in ("api_key", "base_url", "organization", "max_retries"):
                         kw.pop(k, None)
                     return ctor(**kw)
@@ -223,9 +221,11 @@ else:
         m: str, temp: float, extra: dict
     ) -> list[dict]:
         """Vertex AI용 파라미터 스타일 후보 kwargs."""
+        rt = getattr(config.CFG, "VERTEX_REQUEST_TIMEOUT", 120)
+        extra_clean = {k: v for k, v in extra.items() if k != "timeout"}
         return [
-            dict(model=m, temperature=temp, project=_gcp_project(), location=_gcp_region(), **extra),
-            dict(model=m, temperature=temp, **extra),  # project/location 미지정 폴백
+            dict(model=m, temperature=temp, project=_gcp_project(), location=_gcp_region(), timeout=rt, **extra_clean),
+            dict(model=m, temperature=temp, timeout=rt, **extra_clean),
         ]
 
     def get_llm(

@@ -366,14 +366,23 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
     plan = state.get("research_plan") or {}
     has_plan = bool((plan.get("queries") or []))
     rag_meta = state.get("rag_stats") or {}
-
-    # rag_on_disk 판정:
-    #   기존: base ns(doc_count)만 보고 판단 → base=0, web/local>0 인 상황에서 False로 남는 문제
-    #   변경: base/web/local 셋 중 어느 하나라도 청크가 있으면 True 로 인식
     ns_base_count = int(rag_meta.get("ns_base_count") or 0)
     ns_web_count = int(rag_meta.get("ns_web_count") or 0)
     ns_local_count = int(rag_meta.get("ns_local_count") or 0)
     doc_total = int(rag_meta.get("doc_count") or 0)
+    # rag_stats가 없으면 Chroma DB 직접 조회
+    if not (ns_base_count or ns_web_count or ns_local_count or doc_total):
+        try:
+            from tools.web_rag.ingest_vector import get_collection_count
+            slug = state.get("topic_slug") or "default"
+            from core.paths import current_path
+            base = str(current_path() if callable(current_path) else current_path)
+            import os as _os
+            chroma_base = _os.path.join(base, "data", "chroma_store")
+            ns_web_count = get_collection_count(f"{slug}-web", _os.path.join(chroma_base, f"{slug}-web"))
+            ns_local_count = get_collection_count(f"{slug}-local", _os.path.join(chroma_base, f"{slug}-local"))
+        except Exception as _e:
+            logger.debug("[Supervisor] chroma direct count failed: %s", _e)
     has_on_disk = (
         ns_base_count > 0
         or ns_web_count > 0
@@ -579,6 +588,16 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
 
     # 연구 라운드 부트스트랩
     def _is_research_mode_local(st: Mapping[str, Any]) -> bool: return _is_research_mode(st)
+
+    # write 명령 + RAG 있으면 리서치 건너뛰고 바로 section_writer로
+    _is_write_cmd = last_text.lower().startswith("write:")
+    if _is_write_cmd and has_on_disk:
+        if not _safe_has_pending(tasks, "section_writer"):
+            tasks.append(Task(agent="section_writer", done=False, description=last_text, done_at=""))
+        logger.info("[Supervisor fast-path] write + rag_on_disk → section_writer (skip research)")
+        _dash_emit(state, where="supervisor", picked="section_writer", reason="write_rag_fastpath")
+        return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
+
     if _is_research_mode_local(state):
         research_agents = ("research_planner","web_search_agent","vector_search_agent","research_synthesizer")
         has_research_pending = any(_safe_has_pending(tasks, a) for a in research_agents)
