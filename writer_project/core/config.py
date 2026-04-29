@@ -346,6 +346,8 @@ class Config:
 
     FILTER_BAD_DOMAINS: str
 
+    VERTEX_REQUEST_TIMEOUT: int
+
     def __post_init__(self) -> None:
         # PROJECT_ROOT: 환경변수로 오버라이드 허용
         env_root = _env_str("PROJECT_ROOT", "")
@@ -565,6 +567,7 @@ def _build_config() -> Config:
         REPORT_SOURCES=_env_str("REPORT_SOURCES", ""),
 
         FILTER_BAD_DOMAINS=_env_str("FILTER_BAD_DOMAINS", ""),
+        VERTEX_REQUEST_TIMEOUT=_env_int("VERTEX_REQUEST_TIMEOUT", 120),
     )
 
 # ── 싱글턴 구성 객체 ─────────────────────────────────────────

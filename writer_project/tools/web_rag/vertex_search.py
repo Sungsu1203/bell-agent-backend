@@ -38,7 +38,7 @@ def _build_client() -> genai.Client:
         project=project,
         location=location,
         # v1 API 사용 (Vertex AI Search / Grounding 최신 규격)
-        http_options=HttpOptions(api_version="v1"),
+        http_options=HttpOptions(api_version="v1"),  # type: ignore
     )
 
 def _resolve_vertex_redirect(url: str, timeout: float = 5.0) -> str:
