@@ -438,6 +438,45 @@ def attach_auto_citations(gathered: str, state: Mapping[str, Any] | None = None)
     footnotes_lines, index_by_key, url_by_key = _collect_footnotes_from_refs(refs, max_n=max_n)
     if not footnotes_lines:
         return gathered
+    # ── 참고문헌 자동 검증: 본문에서 실제 인용된 문서만 각주에 포함 ──
+    _verify = bool(getattr(getattr(__import__("core.config", fromlist=["CFG"]), "CFG", None), "AUTO_FOOTNOTE_VERIFY", True))
+    if _verify:
+        text_lower = text.lower()
+        verified_lines = []
+        verified_index = {}
+        verified_url = {}
+        new_idx = 1
+        for key, idx in index_by_key.items():
+            url = url_by_key.get(key, "")
+            # 1) 로컬 파일은 무조건 포함
+            if url.startswith("file://"):
+                verified_lines.append(footnotes_lines[idx - 1].replace(f"[^{idx}]", f"[^{new_idx}]"))
+                verified_index[key] = new_idx
+                verified_url[key] = url
+                new_idx += 1
+                continue
+            # 2) 도메인이 본문에 언급된 경우 포함
+            domain = _netloc(url).lower()
+            if domain and domain in text_lower:
+                verified_lines.append(footnotes_lines[idx - 1].replace(f"[^{idx}]", f"[^{new_idx}]"))
+                verified_index[key] = new_idx
+                verified_url[key] = url
+                new_idx += 1
+                continue
+            # 3) 제목/레이블이 본문에 언급된 경우 포함
+            label = _auto_footnote_label(_extract_meta(next((d for d in refs if (_canonicalize_src_for_dedup((getattr(d, "metadata", {}) or {}).get("source") or "") == key)), {})), url).lower()
+            if label and len(label) > 5 and label[:20] in text_lower:
+                verified_lines.append(footnotes_lines[idx - 1].replace(f"[^{idx}]", f"[^{new_idx}]"))
+                verified_index[key] = new_idx
+                verified_url[key] = url
+                new_idx += 1
+                continue
+            logger.debug("[attach_auto_citations] skip unverified ref: %s", url)
+        footnotes_lines = verified_lines
+        index_by_key = verified_index
+        url_by_key = verified_url
+    if not footnotes_lines:
+        return text
 
     if _cfg_str("AUTO_FOOTNOTE_INLINE", "AUTO_FOOTNOTE_INLINE", "0").lower() in {"1", "true", "yes"}:
         domain_by_key = {k: _netloc(u) for k, u in url_by_key.items()}

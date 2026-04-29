@@ -218,6 +218,7 @@ class Config:
     DIRECT_QA: bool
     REQUIRE_EXPLICIT_WRITE_TITLE: bool
     AUTO_FOOTNOTE: bool
+    AUTO_FOOTNOTE_VERIFY: bool
     ECHO_SECTIONS: bool
     ECHO_CHAPTERS: bool
     CHAPTERS_TOTAL_DEFAULT: int
@@ -436,6 +437,7 @@ def _build_config() -> Config:
         DIRECT_QA=_env_flag("DIRECT_QA", False),
         REQUIRE_EXPLICIT_WRITE_TITLE=_env_flag("REQUIRE_EXPLICIT_WRITE_TITLE", True),
         AUTO_FOOTNOTE=_env_flag("AUTO_FOOTNOTE", True),         # 기본 켜짐(과거 호환)
+        AUTO_FOOTNOTE_VERIFY=_env_flag("AUTO_FOOTNOTE_VERIFY", True),  # 본문 인용 검증
         ECHO_SECTIONS=_env_flag("ECHO_SECTIONS", False),
         ECHO_CHAPTERS=_env_flag("ECHO_CHAPTERS", False),
         CHAPTERS_TOTAL_DEFAULT=_env_int("CHAPTERS_TOTAL_DEFAULT", 12, min_=1),

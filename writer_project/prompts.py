@@ -415,7 +415,9 @@ def get_section_writer_prompt() -> PromptTemplate:
         - 길이: 800~1,500 단어(요약은 400~800)
         - 마지막: **Actionable Recommendations** 3~5개
                    일반적인 경영 이론은 배제하고 {topic_title} 주제에 직접 관련된 실제 집행 가능한 전술을 제안할 것.
-        - 인용은 재서술, 출처명은 대괄호(예: [DailyPharm]), 수치/통계에는 반드시 출처를 표기할 것.
+        - 인용은 재서술, 출처명은 반드시 짧은 이름만 대괄호로 표기할 것(예: [아이커_운영제안.pptx], [foodtoday.or.kr]).
+        - 절대로 file:// 또는 http:// 로 시작하는 URL을 본문에 직접 삽입하지 말 것.
+        - 출처 표기는 파일명 또는 도메인명만 사용할 것(예: [아이커_1월효율자료.xlsx], [khff.or.kr]).
 
         [참고 자료 활용 규칙]
         - {topic_title}과 직접 관련 없는 출처는 인용하지 말 것
