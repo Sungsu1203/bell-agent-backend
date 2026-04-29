@@ -894,7 +894,22 @@ def documents_to_chroma(
 
     pre_docs = filtered_docs
     pre_docs_count2 = len(pre_docs)  # (옵션) 로그용
-
+    # 1.6) bad_domains 필터 (인덱싱 단계에서 무관 도메인 차단)
+    _bad_domains_str = (os.environ.get("FILTER_BAD_DOMAINS", "") or "").strip()
+    _bad_domains = [bd.strip() for bd in _bad_domains_str.split(",") if bd.strip()]
+    if _bad_domains:
+        _before = len(pre_docs)
+        pre_docs = [
+            d for d in pre_docs
+            if not any(
+                bd in str((getattr(d, "metadata", {}) or {}).get("source") or
+                          (getattr(d, "metadata", {}) or {}).get("url") or "").lower()
+                for bd in _bad_domains
+            )
+        ]
+        _blocked = _before - len(pre_docs)
+        if _blocked:
+            logger.info("[ingest] bad_domains filtered: %d docs blocked", _blocked)
     # 2) 웹/로컬/기타 파티션
     web_docs, loc_docs, oth_docs = [], [], []
     for d in pre_docs:
@@ -1565,7 +1580,7 @@ def retrieve(
         res = vs._collection.query(
             query_embeddings=[q_emb],
             n_results=n,
-            include=cast(Include, ["documents", "metadatas"]),
+            include=cast(Include, ["documents", "metadatas", "distances"]),
         )
 
         docs_out: list[Document] = []
@@ -1580,9 +1595,21 @@ def retrieve(
         except Exception:
             pass
 
+        _distance_threshold = float(os.environ.get("RAG_DISTANCE_THRESHOLD", "1.2"))
+        _bad_domains_str = (os.environ.get("FILTER_BAD_DOMAINS", "") or "").strip()
+        _bad_domains = [bd.strip() for bd in _bad_domains_str.split(",") if bd.strip()]
+        distances = (res or {}).get("distances") or []
+        dist_list = distances[0] if (distances and isinstance(distances, list)) else []
         if docs and isinstance(docs, list):
-            rows = zip(docs[0] if docs else [], metas[0] if metas else [])
-            for doc_text, meta in rows:
+            rows = zip(docs[0] if docs else [], metas[0] if metas else [], dist_list or [None]*n)
+            for doc_text, meta, dist in rows:
+                if dist is not None and dist > _distance_threshold:
+                    logger.debug("[retrieve] skip low-relevance doc (distance=%.3f > %.3f): %s", dist, _distance_threshold, (meta or {}).get("source", ""))
+                    continue
+                _src_url = str((meta or {}).get("source") or (meta or {}).get("url") or "").lower()
+                if _bad_domains and any(bd in _src_url for bd in _bad_domains):
+                    logger.debug("[retrieve] skip bad-domain doc: %s", _src_url)
+                    continue
                 text = (doc_text or "")
                 if len(text) > 19000:
                     text = text[:19000]
