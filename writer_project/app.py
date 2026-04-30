@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import re
 from rag_expression import (
     extract_new_topic_title,
@@ -22,6 +23,8 @@ from collections.abc import MutableMapping
 # ✅ repo rule 기반 outline 경로 생성 함수
 from core.paths import outline_path, _default_outline_name
 
+from fastapi import HTTPException
+from fastapi.responses import StreamingResponse
 
 # ── Fault handler (deadlock/멈춤 추적) ──────────────────────────────────────────
 import faulthandler, sys, time
@@ -99,6 +102,8 @@ from logging.handlers import RotatingFileHandler
 import json
 
 import certifi
+
+from pydantic import BaseModel
 
 os.environ["SSL_CERT_FILE"] = certifi.where()
 os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
@@ -354,6 +359,7 @@ web_app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],   # ← 이 줄 추가
 )
 
 # 한 번에 한 요청만 그래프를 실행(상태 공유 + 안전)
@@ -1194,22 +1200,22 @@ def api_state():
     if st is None:
         return {"ok": False, "error": "state_not_initialized"}
     
-    # phase: 최소 구현(현재 실행중인지 표시)
-    # - asyncio.Lock는 locked() 제공
     phase = "running" if _RUN_LOCK.locked() else "idle"
-
-    # iteration_count: flags 값이 아니라 루트 state 값을 신뢰
     iter_count = int(st.get("iteration_count") or 0)
 
-    # flags에 미러링(프런트가 flags.*로 읽더라도 정확히)
-    # 허용 키만 반영되도록 update_flags 사용
     try:
         update_flags(st, iteration_count=iter_count)
     except Exception:
         pass
 
+    # ── 토픽 미션 (BLOCKAGI_OBJECTIVE_1/2/3) 수집 ──
+    # 비어있지 않은 것만 배열에 담음. 환경변수가 없으면 빈 배열.
+    objectives = []
+    for i in range(1, 11):  # 1~10까지 여유있게 스캔
+        val = os.environ.get(f"BLOCKAGI_OBJECTIVE_{i}", "").strip()
+        if val:
+            objectives.append(val)
 
-    # Next.js에 필요한 핵심만 요약
     return {
         "ok": True,
         "doc_mode": getattr(config.CFG, "DOC_MODE", None),
@@ -1217,8 +1223,9 @@ def api_state():
         "pending": len(st.get("task_history", []) or []),
         "refs": len(((st.get("references") or {}).get("docs") or [])),
         "last_saved_path": st.get("last_saved_path"),
-        "outline": None,  # /api/outline에서 제공
+        "outline": None,
         "flags": st.get("flags") or {},
+        "objectives": objectives,   # ← 새 필드 추가
         "phase": phase,
         "cancel_requested": bool(_CANCEL_EVENT.is_set()),
         "iteration_count": iter_count,
@@ -1339,6 +1346,350 @@ async def api_run(payload: Dict[str, Any]):
         except Exception as e:
             logger.exception("api_run failed: %s", e)
             return {"ok": False, "error": str(e)}
+        
+# ═══════════════════════════════════════════════════════════
+# Export 엔드포인트 — 마크다운 → docx 변환
+# ═══════════════════════════════════════════════════════════
+
+class ExportRequest(BaseModel):
+    kind: str  # "section" | "report"
+    section_id: Optional[int] = None
+    format: str = "docx"
+
+
+def _read_section_file(section_id: int) -> tuple[str, str]:
+    """
+    sections/<slug>/N-*.md 파일을 읽어서 (제목, 본문) 반환.
+    """
+    sections_dir = os.path.join(str(current_path), "sections")
+    if not os.path.isdir(sections_dir):
+        raise HTTPException(404, "sections directory not found")
+
+    # slug 폴더 찾기 (보통 하나만 있음 — 현재 활성 토픽)
+    slug_dirs = [
+        d for d in os.listdir(sections_dir)
+        if os.path.isdir(os.path.join(sections_dir, d))
+    ]
+    if not slug_dirs:
+        raise HTTPException(404, "no slug directory")
+
+    # 활성 slug — 가장 최근 수정된 폴더를 기본으로
+    target_slug = sorted(
+        slug_dirs,
+        key=lambda d: os.path.getmtime(os.path.join(sections_dir, d)),
+        reverse=True,
+    )[0]
+    slug_dir = os.path.join(sections_dir, target_slug)
+
+    # N-*.md 파일 찾기
+    for fname in os.listdir(slug_dir):
+        if fname.startswith(f"{section_id}-") and fname.endswith(".md"):
+            fpath = os.path.join(slug_dir, fname)
+            with open(fpath, "r", encoding="utf-8") as f:
+                content = f.read()
+            # 제목: 본문 첫 ## 헤딩에서 추출
+            title_match = re.search(r"^##\s+(.+)$", content, re.MULTILINE)
+            if title_match:
+                title = title_match.group(1).strip()
+                # "3. 학부모 키성장..." → "학부모 키성장..." (앞 번호 제거)
+                title = re.sub(r"^\d+[.)]\s*", "", title)
+            else:
+                title = fname
+            return title, content
+
+    raise HTTPException(404, f"section {section_id} not found")
+
+
+def _read_all_sections() -> list[tuple[int, str, str]]:
+    """
+    모든 섹션을 (id, title, content) 리스트로 반환 (번호 순 정렬).
+    """
+    sections_dir = os.path.join(str(current_path), "sections")
+    if not os.path.isdir(sections_dir):
+        return []
+
+    slug_dirs = [
+        d for d in os.listdir(sections_dir)
+        if os.path.isdir(os.path.join(sections_dir, d))
+    ]
+    if not slug_dirs:
+        return []
+
+    target_slug = sorted(
+        slug_dirs,
+        key=lambda d: os.path.getmtime(os.path.join(sections_dir, d)),
+        reverse=True,
+    )[0]
+    slug_dir = os.path.join(sections_dir, target_slug)
+
+    results = []
+    for fname in os.listdir(slug_dir):
+        if not fname.endswith(".md"):
+            continue
+        m = re.match(r"^(\d+)-", fname)
+        if not m:
+            continue
+        sid = int(m.group(1))
+        fpath = os.path.join(slug_dir, fname)
+        with open(fpath, "r", encoding="utf-8") as f:
+            content = f.read()
+        title_match = re.search(r"^##\s+(.+)$", content, re.MULTILINE)
+        if title_match:
+            title = title_match.group(1).strip()
+            # "3. 학부모 키성장..." → "학부모 키성장..." (앞 번호 제거)
+            title = re.sub(r"^\d+[.)]\s*", "", title)
+        else:
+            title = fname
+        results.append((sid, title, content))
+
+    results.sort(key=lambda x: x[0])
+    return results
+
+
+def _markdown_to_docx(blocks: list[tuple[int, str, str]], doc_title: str) -> bytes:
+    """
+    여러 섹션을 받아 하나의 docx로 변환.
+    blocks: [(section_id, section_title, markdown_content), ...]
+    반환: docx 바이트
+    """
+    from docx import Document
+    from docx.shared import Pt, RGBColor, Cm
+    from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+
+    doc = Document()
+
+    # 기본 폰트 설정 (한글 호환)
+    style = doc.styles["Normal"]
+    style.font.name = "맑은 고딕"   # type: ignore[attr-defined]
+    style.font.size = Pt(11)    # type: ignore[attr-defined]
+
+    # 문서 제목
+    title_para = doc.add_heading(doc_title, level=0)
+    title_para.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
+
+    for sid, stitle, content in blocks:
+        # 섹션 제목
+        doc.add_heading(f"{sid}. {stitle}", level=1)
+
+        # 본문/footnote 분리
+        body_text, footnotes = _split_body_footnotes(content)
+
+        # 본문 렌더링
+        _render_markdown_to_docx(doc, body_text)
+
+        # footnote 영역
+        if footnotes:
+            doc.add_paragraph()
+            fn_heading = doc.add_heading("참고 문헌", level=3)
+            for fn_marker, fn_text in footnotes:
+                p = doc.add_paragraph()
+                p.add_run(f"[{fn_marker}] ").bold = True
+                p.add_run(fn_text)
+
+    # 바이트로 반환
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+def _split_body_footnotes(content: str) -> tuple[str, list[tuple[str, str]]]:
+    """
+    마크다운에서 본문과 footnote 분리.
+    반환: (본문 텍스트, [(marker, decoded_text), ...])
+    """
+    lines = content.split("\n")
+    fn_start = -1
+    for i, line in enumerate(lines):
+        if line.strip() == "---":
+            for j in range(i + 1, len(lines)):
+                next_line = lines[j].strip()
+                if not next_line:
+                    continue
+                if re.match(r"^#{2,4}\s*(참고\s*문헌|각주)", next_line):
+                    fn_start = i
+                break
+            if fn_start != -1:
+                break
+
+    if fn_start == -1:
+        return content, []
+
+    body = "\n".join(lines[:fn_start])
+    fn_lines = lines[fn_start + 1:]
+
+    footnotes = []
+    for line in fn_lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = re.match(r"^\[\^([^\]]+)\]:\s*(.+)$", line)
+        if m:
+            marker = m.group(1)
+            text = m.group(2).strip()
+            # URL 디코딩 (file://%EC%95%84... → 한글)
+            try:
+                from urllib.parse import unquote
+                # 라벨 뒤에 (...) 부분만 추출하면 깔끔
+                label_match = re.match(r"^.+?\s+\((.+)\)\s*$", text)
+                if label_match:
+                    text = label_match.group(1).strip()
+                else:
+                    text = unquote(text)
+            except Exception:
+                pass
+            footnotes.append((marker, text))
+
+    return body, footnotes
+
+
+def _render_markdown_to_docx(doc, markdown: str):
+    """
+    간이 마크다운 → docx 렌더링.
+    지원: ## 헤딩, ### 헤딩, **bold**, [파일명] 인용 (파란색), 1. 리스트, - 리스트
+    """
+    from docx.shared import Pt, RGBColor
+
+    lines = markdown.split("\n")
+    paragraph_buffer = []
+
+    def flush_paragraph():
+        if not paragraph_buffer:
+            return
+        text = " ".join(paragraph_buffer)
+        p = doc.add_paragraph()
+        _add_inline_runs(p, text)
+        paragraph_buffer.clear()
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            flush_paragraph()
+            continue
+
+        # 첫 헤딩(## N. ...)은 이미 추가했으니 스킵
+        if re.match(r"^##\s+\d+\.\s+", stripped):
+            continue
+
+        if stripped == "---":
+            flush_paragraph()
+            continue
+
+        # 헤딩
+        h_match = re.match(r"^(#{1,6})\s+(.+)$", stripped)
+        if h_match:
+            flush_paragraph()
+            level = min(len(h_match.group(1)) + 1, 4)
+            doc.add_heading(h_match.group(2).strip(), level=level)
+            continue
+
+        # 순서있는 리스트
+        ol_match = re.match(r"^\s*(\d+)[.)]\s+(.+)$", line)
+        if ol_match:
+            flush_paragraph()
+            p = doc.add_paragraph(style="List Number")
+            _add_inline_runs(p, ol_match.group(2))
+            continue
+
+        # 순서없는 리스트
+        ul_match = re.match(r"^\s*[-*]\s+(.+)$", line)
+        if ul_match:
+            flush_paragraph()
+            p = doc.add_paragraph(style="List Bullet")
+            _add_inline_runs(p, ul_match.group(1))
+            continue
+
+        paragraph_buffer.append(stripped)
+
+    flush_paragraph()
+
+
+def _add_inline_runs(paragraph, text: str):
+    """
+    단락 내 인라인 마크업 처리.
+    **bold** → 굵게
+    [파일명.확장자] → 파란색 칩처럼
+    그 외 → 일반 텍스트
+    """
+    from docx.shared import RGBColor
+
+    pattern = re.compile(
+        r"(\*\*[^*]+\*\*)|(\[[^\]\n]*\.[a-zA-Z0-9가-힣_-]+[^\]\n]*\])"
+    )
+    last_idx = 0
+    for m in pattern.finditer(text):
+        if m.start() > last_idx:
+            paragraph.add_run(text[last_idx:m.start()])
+
+        token = m.group(0)
+        if token.startswith("**"):
+            run = paragraph.add_run(token[2:-2])
+            run.bold = True
+        elif token.startswith("["):
+            inner = token[1:-1]
+            run = paragraph.add_run(f"[{inner}]")
+            run.font.color.rgb = RGBColor(0x18, 0x5F, 0xA5)  # 인용 칩 파란색
+            run.font.size = None  # 그대로
+        last_idx = m.end()
+
+    if last_idx < len(text):
+        paragraph.add_run(text[last_idx:])
+
+
+@web_app.post("/api/export")
+def api_export(req: ExportRequest):
+    """
+    Word(.docx) 다운로드.
+    payload: { kind: "section"|"report", section_id?: int, format: "docx" }
+    """
+    if req.format != "docx":
+        raise HTTPException(400, f"unsupported format: {req.format}")
+
+    topic_title = os.environ.get("TOPIC_TITLE", "보고서")
+
+    if req.kind == "section":
+        if req.section_id is None:
+            raise HTTPException(400, "section_id required for kind=section")
+        title, content = _read_section_file(req.section_id)
+        blocks = [(req.section_id, title, content)]
+        doc_title = f"{topic_title} — {req.section_id}. {title}"
+        filename = f"{req.section_id}-{_safe_filename(title)}.docx"
+    elif req.kind == "report":
+        all_sections = _read_all_sections()
+        if not all_sections:
+            raise HTTPException(404, "no sections found")
+        blocks = all_sections
+        doc_title = topic_title
+        filename = f"{_safe_filename(topic_title)}.docx"
+    else:
+        raise HTTPException(400, f"invalid kind: {req.kind}")
+
+    docx_bytes = _markdown_to_docx(blocks, doc_title)
+
+    from urllib.parse import quote
+    
+    # 한글 파일명을 위한 RFC 5987 인코딩
+    # ASCII fallback (filename=) + UTF-8 (filename*=) 둘 다 제공
+    encoded_filename = quote(filename, safe="")
+    ascii_fallback = filename.encode("ascii", errors="ignore").decode("ascii") or "report.docx"
+    
+    return StreamingResponse(
+        io.BytesIO(docx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{ascii_fallback}"; '
+                f"filename*=UTF-8''{encoded_filename}"
+            ),
+        },
+    )
+
+
+def _safe_filename(s: str) -> str:
+    """파일명에 부적합한 문자 제거"""
+    s = re.sub(r'[\\/:*?"<>|]', "_", s)
+    s = s.strip().replace(" ", "_")
+    return s[:80]
 
 @web_app.get("/api/files")
 def api_files(kind: str | None = None, limit: int = 200):
@@ -1419,11 +1770,24 @@ def api_file_download(file_id: str):
     if not os.path.exists(target) or not os.path.isfile(target):
         return {"ok": False, "error": "not_found"}
 
-    return FileResponse(
-        target,
-        media_type="text/markdown; charset=utf-8",
-        filename=os.path.basename(target),
-    )
+    # 마크다운/텍스트 파일은 JSON으로 감싸서 반환 (브라우저 fetch 호환)
+    try:
+        with open(target, "r", encoding="utf-8") as f:
+            content = f.read()
+        return {
+            "ok": True,
+            "id": file_id,
+            "name": os.path.basename(target),
+            "content": content,
+            "size": os.path.getsize(target),
+        }
+    except UnicodeDecodeError:
+        # 텍스트로 읽을 수 없는 바이너리 파일은 기존대로 FileResponse
+        return FileResponse(
+            target,
+            media_type="application/octet-stream",
+            filename=os.path.basename(target),
+        )
 
 
 @web_app.get("/api/logs")
