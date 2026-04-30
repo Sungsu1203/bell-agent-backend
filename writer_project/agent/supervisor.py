@@ -528,6 +528,19 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
         if "?" in s:
             return True
         return any(k in s for k in qa_signals)
+    
+    # fast-path: RAG update
+    _rag_re = r"(최신|업데이트|update|latest).*?(자료|리소스|레퍼런스|참고|sources|material).*?(rag|벡터|vector|임베딩|embedding|index|색인|chroma)"
+    if re.search(_rag_re, last_text, flags=re.IGNORECASE):
+        now = _now_str()
+        for t in tasks:
+            if (not t.done) and t.agent in ("chapter_writer", "section_writer"):
+                t.done, t.done_at = True, now
+        messages.append(AIMessage(content="[Supervisor fast-path] 기존 writer 태스크 정리 후 RAG 업데이트 시작."))
+        tasks.append(Task(agent="web_search_agent", done=False, description="rag_update:auto", done_at=""))
+        messages.append(AIMessage(content="[Supervisor fast-path] → web_search_agent (RAG 업데이트 착수)"))
+        _dash_emit(state, where="supervisor", picked="web_search_agent", reason="rag_update_fastpath")
+        return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
 
     if last_text and _is_qa_like(last_text):
         if not _safe_has_pending(tasks, "vector_search_agent"):
@@ -657,20 +670,6 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
         if not _safe_has_pending(tasks, "content_strategist"):
             tasks.append(Task(agent="content_strategist", done=False, description=f"create_outline:{fname}", done_at=""))
         messages.append(AIMessage(content=f"[Supervisor fast-path] → content_strategist (target={fname})"))
-        return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
-
-
-    # fast-path: RAG update
-    _rag_re = r"(최신|업데이트|update|latest).*?(자료|리소스|레퍼런스|참고|sources|material).*?(rag|벡터|vector|임베딩|embedding|index|색인|chroma)"
-    if re.search(_rag_re, last_text, flags=re.IGNORECASE):
-        now = _now_str()
-        for t in tasks:
-            if (not t.done) and t.agent in ("chapter_writer", "section_writer"):
-                t.done, t.done_at = True, now
-        messages.append(AIMessage(content="[Supervisor fast-path] 기존 writer 태스크 정리 후 RAG 업데이트 시작."))
-        tasks.append(Task(agent="web_search_agent", done=False, description="rag_update:auto", done_at=""))
-        messages.append(AIMessage(content="[Supervisor fast-path] → web_search_agent (RAG 업데이트 착수)"))
-        _dash_emit(state, where="supervisor", picked="web_search_agent", reason="rag_update_fastpath")
         return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
 
     # fast-path: write:

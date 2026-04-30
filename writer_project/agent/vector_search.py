@@ -1084,6 +1084,11 @@ def vector_search_agent(state: State):
            re.search(r"(작성|집필)\s*해\s*줘", s) or \
            re.search(r"섹션을\s*작성", s):
             return ""
+        # RAG 갱신/업데이트 류 명령은 검색 쿼리로 부적합 → 빈 문자열
+        if re.search(r"(최신|업데이트|update|latest).*?(자료|리소스|레퍼런스|참고|sources|material).*?(rag|벡터|vector|임베딩|embedding|index|색인|chroma)", s, re.I) or \
+           re.search(r"(rag|벡터).*?(업데이트|갱신|새로고침|refresh|update)", s, re.I) or \
+           re.search(r"(자료|레퍼런스|참고).*?(업데이트|갱신|새로고침)", s, re.I):
+            return ""
         s = re.sub(r"^write\s*:\s*", "", s, flags=re.I).strip()
         s = re.sub(r"(요약해줘|요약|정리해줘|정리)\s*[\.\!\?…]*\s*$", "", s).strip()
         s = re.sub(r"[\.\!\?…]+$", "", s).strip()
