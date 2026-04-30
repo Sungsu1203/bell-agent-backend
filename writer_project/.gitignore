@@ -7,3 +7,44 @@ chap14-6-legacy/docu/
 *.pptx
 chap14-6/refs/
 *.pptx
+
+# ─── 환경변수/시크릿 (절대 커밋 금지) ───
+.env
+env_raw.txt
+*.env.local
+
+# ─── 작업 산출물 (AI 생성 결과) ───
+outlines/
+research/
+sections/
+reports/
+resources/
+
+# ─── 데이터/캐시 ───
+data/chroma_store/
+data/.cache/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+
+# ─── IDE/에디터 ───
+.vscode/
+.idea/
+*.swp
+.DS_Store
+desktop.ini
+
+# ─── 가상환경 ───
+.venv/
+.venv_vertex/
+venv/
+
+# ─── 임시/메모 ───
+개선 작업/
+*.bak
+*.backup
+*.tmp
+
+# ─── 실행 스크립트 ───
+start_bell.bat
+*.local.bat
