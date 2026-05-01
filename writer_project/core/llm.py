@@ -11,6 +11,8 @@ _LLM: Any | None = None
 _EMB: Any = None
 _LOADED: dict[str, Any] = {}  # provider별 ctor/기본값 캐시
 
+import os
+
 def _mask(v: Optional[str]) -> str:
     """민감 값 로깅용 마스킹."""
     if not v:
@@ -411,13 +413,38 @@ else:
                         logger.error("[Embeddings] Fatal API Key/Credentials Error: %s", e)
                         raise RuntimeError(f"Embedding model construction failed due to credentials: {e}") from e
 
-        # 6) 폴백: 더미
+        # 6) 모든 ctor 시도가 실패한 경우의 처리
+        #    기본은 fail-fast (조용한 인덱스 오염 방지).
+        #    의도적으로 더미가 필요한 경우(예: 오프라인 점검)에만 ALLOW_DUMMY_EMBEDDINGS=1로 opt-in.
+        allow_dummy = (
+            bool(getattr(config.CFG, "ALLOW_DUMMY_EMBEDDINGS", False))
+            or os.getenv("ALLOW_DUMMY_EMBEDDINGS", "").strip().lower() in {"1", "true", "yes", "on"}
+        )
+
+        if not allow_dummy:
+            msg = (
+                f"[Embeddings] Provider '{prov}' embedding model construction failed for "
+                f"model='{model_name}'. Refusing to fall back to DummyEmbeddings "
+                f"because ALLOW_DUMMY_EMBEDDINGS is not set. "
+                f"This protects the vector index from being silently polluted with "
+                f"zero-vectors. To allow dummy embeddings (e.g. for offline tests), "
+                f"set ALLOW_DUMMY_EMBEDDINGS=1."
+            )
+            logger.error(msg)
+            raise RuntimeError(msg)
+
+        # opt-in 경로: 강한 경고와 함께 더미 사용
         class _DummyEmbeddings:
             def embed_query(self, text: str): return [0.0]
             def embed_documents(self, texts): return [[0.0] for _ in texts]
 
         _EMB = _DummyEmbeddings()
-        logger.warning("[Embeddings] Provider Embeddings unavailable → using DummyEmbeddings")
+        logger.error(
+            "[Embeddings] !!! USING DUMMY EMBEDDINGS (ALLOW_DUMMY_EMBEDDINGS=1) !!! "
+            "All vectors will be 1-D zero. Any index built in this state is INVALID. "
+            "provider=%s model=%s",
+            prov, model_name,
+        )
         return _EMB
 
     # --- Reset 및 Export ---
