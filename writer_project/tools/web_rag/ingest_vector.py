@@ -81,6 +81,7 @@ from .utils import (
     _is_block_page,
     _looks_like_pdf_bytes,
     _looks_like_serialized_blob,
+    _looks_like_garbled,
     _clean_text,
     _resolve_persist_dir,
     _FRESH_KEYS,
@@ -858,7 +859,7 @@ def documents_to_chroma(
     skipped_block = 0
     for d in (documents or []):
         txt = getattr(d, "page_content", "") or ""
-        if (not txt) or _is_block_page(txt) or _looks_like_pdf_bytes(txt) or _looks_like_serialized_blob(txt):
+        if (not txt) or _is_block_page(txt) or _looks_like_pdf_bytes(txt) or _looks_like_serialized_blob(txt) or _looks_like_garbled(txt):
             skipped_block += 1
             continue
         d.page_content = _clean_text(txt)
