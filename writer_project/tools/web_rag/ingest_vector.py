@@ -92,6 +92,7 @@ from .utils import (
     delete_seen_source_hashes,
 )
 
+from tools.topic_config import get_xlsx_keyword_groups
 
 # ─────────────────────────────────────────────────────────────────────────────
 # stored_urls cache helpers (ingest.py와 경로 규칙을 동일하게 유지)
@@ -481,8 +482,7 @@ def _xlsx_sheet_summaries(
 
     year_pat = _re.compile(r"^(20\d{2}|19\d{2})$")
     month_pat = _re.compile(r"^(1[0-2]|0?[1-9])$")
-    cost_like = ("광고비", "비용", "집행", "지출", "총액", "합계", "total", "sum", "spend", "cost")
-    channel_like = ("디지털", "digital", "tv", "지상파", "케이블", "소셜", "search", "display", "youtube")
+    keyword_groups = get_xlsx_keyword_groups()
 
     for sheet in xls.sheet_names[: max_docs * 2]:
         try:
@@ -500,10 +500,14 @@ def _xlsx_sheet_summaries(
         def _score_col(name: str) -> int:
             n = name.lower()
             s = 0
-            if any(k in n for k in (k.lower() for k in cost_like)): s += 3
-            if any(k in n for k in (k.lower() for k in channel_like)): s += 2
-            if "합계" in name or "총" in name: s += 2
-            if "금액" in name or "원" in name: s += 1
+            for grp in keyword_groups.values():
+                try:
+                    score = int(grp.get("score", 0))
+                except (TypeError, ValueError):
+                    continue
+                keywords = grp.get("keywords") or []
+                if any(kw.lower() in n for kw in keywords):
+                    s += score
             return s
 
         scored = sorted([(c, _score_col(c)) for c in num_df.columns], key=lambda x: x[1], reverse=True)
@@ -525,10 +529,13 @@ def _xlsx_sheet_summaries(
             if len(cand_m) >= 2 and not month:
                 month = cand_m[0].lstrip("0")
 
+        # 채널별 합계 추출: keyword_groups["channel"]에 정의된 키워드와 매칭되는 컬럼들의 합계
+        channel_keywords = (keyword_groups.get("channel") or {}).get("keywords") or []
+        channel_keywords_lower = [kw.lower() for kw in channel_keywords]
         brk_parts: list[str] = []
         for c in df.columns:
             lc = str(c).lower()
-            if any(k in lc for k in (k.lower() for k in channel_like)):
+            if any(kw in lc for kw in channel_keywords_lower):
                 try:
                     s = _pd.to_numeric(df[c], errors="coerce").fillna(0).sum()
                     if s and s > 0:

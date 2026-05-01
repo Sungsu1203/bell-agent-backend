@@ -39,6 +39,8 @@ from tools.web_rag import (
     _default_chroma_dir,
 )
 
+from tools.topic_config import get_domain_bonus_groups
+
 from typing import Any, Sequence
 
 # URL/NS/경로 유틸(공식)
@@ -236,40 +238,40 @@ def _doc_score(d: Any):
 
 def _domain_bonus(url: str) -> float:
     """
-    도메인별 가중치:
-    - LOCAL(file://)      : 강한 가중치 +
-    - 약업/의약 전문 매체 : 중간 가중치 +
-    - 공공 통계/규제 기관 : 약한 가중치 +
-    - KRX/KIND, 해외 재무 : 감점
+    도메인별 가중치. 토픽 설정 파일(topics/<slug>.config.json) 또는
+    코드 기본값 사용. 그룹 정의는 tools.topic_config 참조.
+
+    그룹 매칭 우선순위:
+    - "match": "file_protocol" 인 그룹은 url.startswith("file://") 검사
+    - 그 외 그룹은 hosts 리스트와 호스트 endswith 매칭
+    - 첫 매칭의 score 반환
     """
     if not url:
         return 0.0
-    if url.startswith("file://"):
-        return 1.5
 
+    groups = get_domain_bonus_groups()
     h = _host(url).lower()
-    if not h:
-        return 0.0
 
-    # 약업/의약 전문 매체
-    pharma_hosts = (
-        "dailypharm.com", "medipana.com", "kpanews.co.kr",
-        "yakup.com", "pharmnews.com", "medicopharma.co.kr",
-        "healtho.co.kr",
-    )
-    # 공공 통계/규제/공시
-    public_hosts = (
-        "kosis.kr", "index.go.kr", "data.go.kr", "moef.go.kr",
-        "mfds.go.kr", "hira.or.kr", "khidi.or.kr", "law.go.kr",
-        "dart.fss.or.kr",
-    )
+    for grp in groups:
+        match = grp.get("match")
+        if match == "file_protocol":
+            if url.startswith("file://"):
+                try:
+                    return float(grp.get("score", 0.0))
+                except (TypeError, ValueError):
+                    return 0.0
+            continue
 
-    if any(h.endswith(p) for p in pharma_hosts):
-        return 1.0
-    if any(h.endswith(p) for p in public_hosts):
-        return 0.8
-    if h.endswith("krx.co.kr") or "financialreports.eu" in h:
-        return -0.5
+        # 기본: hosts 매칭
+        if not h:
+            continue
+        hosts = grp.get("hosts") or []
+        if any(h.endswith(p) for p in hosts):
+            try:
+                return float(grp.get("score", 0.0))
+            except (TypeError, ValueError):
+                return 0.0
+
     return 0.0
 
 

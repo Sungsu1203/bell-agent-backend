@@ -1,0 +1,51 @@
+{
+  "_comment": "Example topic config. Copy to topics/<your-slug>.config.json and customize for your topic. If a key is omitted, the code default (defined in tools/topic_config.py) is used.",
+
+  "domain_bonus": {
+    "groups": [
+      {
+        "name": "local",
+        "score": 1.5,
+        "match": "file_protocol"
+      },
+      {
+        "name": "trusted_industry_media",
+        "score": 1.0,
+        "hosts": [
+          "example-industry-news.com",
+          "example-trade-mag.co.kr"
+        ]
+      },
+      {
+        "name": "public_stats",
+        "score": 0.8,
+        "hosts": [
+          "kosis.kr",
+          "data.go.kr"
+        ]
+      },
+      {
+        "name": "penalties",
+        "score": -0.5,
+        "hosts": [
+          "example-noisy-aggregator.com"
+        ]
+      }
+    ]
+  },
+
+  "xlsx_keywords": {
+    "primary_metric": {
+      "score": 3,
+      "keywords": ["매출", "판매", "revenue", "sales"]
+    },
+    "category": {
+      "score": 2,
+      "keywords": ["카테고리", "분류", "category", "type"]
+    },
+    "currency": {
+      "score": 1,
+      "keywords": ["금액", "원", "$"]
+    }
+  }
+}
