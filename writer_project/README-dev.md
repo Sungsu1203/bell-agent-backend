@@ -345,7 +345,7 @@ python tools\diagnose_chunks_deep.py
 
 1. **메타데이터 풍부화** — `published_date`, `language` 추가 시 시간 가중치/언어 필터 가능
 2. **distance threshold 튜닝** — 현재 1.2는 다소 느슨할 수 있음. 데이터 분포 보고 조정
-3. **`tools/web_rag/vertex_search.py` 정리** — Vertex AI Vector Search 통합 시도 흔적. dead code 여부 확인 필요
+3. **Vertex AI grounded search 운영** — `tools/web_rag/vertex_search.py`는 살아있는 기능 모듈로 `SKIP_VERTEX_SEARCH` 토글로 제어됨 (현재 비활성). 활성화 시 `agent/web_search.py:749`에서 호출. 비용/품질 영향 검토 후 활성 여부 재평가 가능.
 4. **LangChain deprecation 대응**: `VertexAIEmbeddings`, `Chroma` 클래스가 4.0에서 제거 예정
 5. **VertexAIEmbeddings lazy validation 보강** — ctor는 통과하지만 첫 호출 시 인증 에러 가능. 그 시점 처리
 6. **BM25 키워드 검색 보강** — 정확 매칭(제품명, 회사명) 약한 부분 보완
@@ -370,9 +370,7 @@ $PSDefaultParameterValues['Add-Content:Encoding'] = 'UTF8'
 
 **가상환경 다중 존재**: 프로젝트 루트(`D:\GPT_AGENT`)에 `.venv_lcl`, `.venv_vertex`, `venv` 세 개의 가상환경이 있음. 현재는 `.venv_vertex`(Vertex AI 통합용) 사용 중.
 
-**`agent/supervisor.py.broken`**: 이전 리팩토링 흔적. dead 파일이면 제거 검토.
-
-**`tools/web_rag/vertex_search.py`**: Vertex AI Vector Search 통합 시도 흔적. 현재 활성 사용 여부 불명확 — 후속 후보로 메모.
+**`tools/web_rag/vertex_search.py`**: Vertex AI **grounded search** 모듈. 현재 `SKIP_VERTEX_SEARCH=1`로 비활성. dead code 아님 — 토글 끄고 보존된 기능.
 
 ---
 
