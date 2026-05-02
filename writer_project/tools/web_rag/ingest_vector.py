@@ -1603,7 +1603,7 @@ def retrieve(
         except Exception:
             pass
 
-        _distance_threshold = float(os.environ.get("RAG_DISTANCE_THRESHOLD", "1.2"))
+        _distance_threshold = float(os.environ.get("RAG_DISTANCE_THRESHOLD", "0.65"))
         _bad_domains_str = (os.environ.get("FILTER_BAD_DOMAINS", "") or "").strip()
         _bad_domains = [bd.strip() for bd in _bad_domains_str.split(",") if bd.strip()]
         distances = (res or {}).get("distances") or []

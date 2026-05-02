@@ -139,11 +139,17 @@ SKIP_PPTX=0
 RAG_MIN_DOC_CHARS=30
 RAG_MIN_DOC_TOKENS=5
 
-RAG_DISTANCE_THRESHOLD=1.2
+# 임베딩 (Vertex AI 권장)
 
 # 임베딩 (Vertex AI 권장)
 GEMINI_EMBEDDING_MODEL=text-multilingual-embedding-002
 RAG_EMBEDDING_MODEL=text-multilingual-embedding-002
+
+# RAG retrieval distance threshold (cosine distance, lower = more similar)
+# Tuned for text-multilingual-embedding-002 (distance scale ~0.27-0.72)
+# topics/{TOPIC_SLUG}.env can override this per topic.
+# Old text-embedding-004 used 1.2 — do NOT use that scale here.
+RAG_DISTANCE_THRESHOLD=0.65
 
 RAG_ID_INCLUDE_MTIME=1
 RAG_DELETE_OLD_ON_VERSION_MISMATCH=1
