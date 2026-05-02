@@ -1,13 +1,98 @@
-# 개발자 가이드 (chap14_8 · GPT Agent RAG 시스템)
+# 개발자 가이드 (Bell Agent · writer_project)
+
+이 문서는 `writer_project` 백엔드의 RAG 파이프라인 작업 시 알아야 할
+구조·관습·운영 노하우를 정리합니다.
+
+---
 
 ## 1) 폴더 구조 & 의존 규칙
 ```
-agent/                # supervisor, communicator, content_strategist, web_search, vector_search, writers, planner, synthesizer
-tools/                # web_rag(검색/로더/인덱싱 파사드), local_rag, loaders, chroma_io
-core/                 # config(Env/Flags), llm, routers, state_types, state_io, paths
-utils/                # sanitize, outline/text utils, refs, rag_utils(merge/dedupe), writer_scheduler
-settings/             # gatekeep 등 정책/화이트리스트
-data/, resources/     # 산출물·임시 저장
+D:\GPT_AGENT\writer_project
+│
+├─ app.py                    # FastAPI 서버 진입점 (StreamingResponse 기반)
+├─ graph.py                  # LangGraph 그래프 정의 (StateGraph 노드 토글)
+├─ prompts.py                # LLM 프롬프트 템플릿 모음
+├─ report_builder.py         # outline → 섹션 조립, 보고서 빌드
+├─ rag_expression.py         # 자연어 명령 파싱 (outline 생성/표시, 새 토픽 등)
+├─ content_utils.py          # 섹션 콘텐츠 헬퍼 (slug, 경로 탐색)
+├─ settings_gatekeep.py      # gatekeep 정책 (도메인 화이트/블랙리스트)
+├─ debug_docid.py            # doc_id 검증 디버그 도구
+│
+├─ agent/                    # LangGraph 노드 (각 파일 = 노드 함수)
+│   ├─ supervisor.py             # 라우팅 슈퍼바이저
+│   ├─ communicator.py           # 사용자 응답/Direct QA
+│   ├─ content_strategist.py     # outline/전략 결정
+│   ├─ research_planner.py       # 검색 쿼리 설계
+│   ├─ research_synthesizer.py   # 검색 결과 종합
+│   ├─ web_search.py             # 웹 검색 노드
+│   ├─ vector_search.py          # RAG 검색 노드
+│   ├─ section_writer.py         # 섹션 작성
+│   └─ chapter_writer.py         # 챕터 작성
+│
+├─ core/                     # 공통 인프라 (설정·타입·라우팅)
+│   ├─ config.py                 # ENV 단일화 (CFG dataclass)
+│   ├─ llm.py                    # LLM/임베딩 모델 팩토리
+│   ├─ models.py                 # Task 등 도메인 모델
+│   ├─ paths.py                  # 출력 경로/파일명 규칙
+│   ├─ routers.py                # LangGraph 분기 함수
+│   ├─ state_io.py               # state 직렬화/저장
+│   ├─ state_types.py            # State, DocMode 타입
+│   └─ topic.py                  # 토픽 컨텍스트 로더
+│
+├─ tools/                    # 외부 I/O & 인덱싱 도구
+│   ├─ web_rag/                  # 웹 검색/수집/임베딩 (패키지)
+│   │   ├─ __init__.py               # 외부 공개 API (web_search, retrieve, …)
+│   │   ├─ ingest.py                 # PDF/HTML 로더, 5단계 fetch 폴백
+│   │   ├─ ingest_docs.py            # web.json/검색결과 → Document 변환
+│   │   ├─ ingest_vector.py          # Chroma 인덱싱/검색 본체, 임베딩
+│   │   ├─ ingest_net.py             # HTTP 세션, fetch
+│   │   ├─ ingest_config.py          # ENV 헬퍼 (_cfg_str/_cfg_int/_cfg_bool)
+│   │   ├─ search.py                 # 웹 검색 백엔드 (Naver, Tavily 등)
+│   │   ├─ utils.py                  # URL 정규화, 텍스트 가드 (_looks_like_*)
+│   │   └─ vertex_search.py          # ⚠ Vertex AI Vector Search 시도 흔적
+│   ├─ local_rag.py              # 로컬 파일(.pdf/.pptx/.xlsx) 인제스트
+│   ├─ topic_config.py           # 토픽별 설정 로더 (도메인 가중치, XLSX 키워드)
+│   ├─ metrics.py                # 메트릭 수집
+│   ├─ diagnose_embeddings.py    # 임베딩/NS 진단 (운영 도구)
+│   └─ diagnose_chunks_deep.py   # 인덱스 청크 분포 진단 (운영 도구)
+│
+├─ utils/                    # 공용 헬퍼 (순수 유틸, 외부 I/O 없음)
+│   ├─ sanitize.py               # state 정제 (sanitize_state, as_int)
+│   ├─ rag_utils.py              # RAG 유틸 (merge_refs, is_qa_like 등)
+│   ├─ query_filters.py          # 쿼리 필터링/정제
+│   ├─ outline.py                # outline 텍스트 헬퍼
+│   ├─ text_utils.py             # plain_snip, slugify 등
+│   ├─ refs.py                   # 레퍼런스 데이터 처리
+│   ├─ ref_format.py             # 레퍼런스 출력 포맷
+│   ├─ tasks.py                  # 메시지/태스크 (HumanMessage 등)
+│   ├─ writer_scheduler.py       # writer 스케줄링
+│   └─ forced_queries.py         # 강제 쿼리 보정
+│
+├─ topics/                   # 토픽별 프리셋
+│   ├─ _template.env                # 새 토픽용 ENV 템플릿
+│   ├─ _example.config.json         # 새 토픽용 JSON 템플릿
+│   ├─ height-growth-supplement.env # 토픽 ENV
+│   └─ pet-food-premium.env
+│
+├─ tests/                    # 단위/회귀 테스트
+│   ├─ test_communicator_direct_qa.py
+│   ├─ test_local_docid_stability.py
+│   ├─ test_local_source_stability.py
+│   ├─ test_domain_bonus_compat.py     # 도메인 가중치 외부화 회귀
+│   ├─ test_xlsx_score_compat.py       # XLSX 키워드 외부화 회귀
+│   └─ test_garbled_detection.py       # 깨진 바이너리 검출 검증
+│
+├─ data/chroma_store/        # 벡터 인덱스 (NS 별 디렉토리)
+├─ refs/                     # 회사 자료 (xlsx/pptx/docx) — 로컬 RAG 소스
+├─ local/                    # 토픽별 로컬 자료 (md 등)
+├─ reports/, outlines/       # 산출물
+├─ chapters/, sections/      # 챕터/섹션별 작업물
+├─ content/                  # 콘텐츠 빌드 모듈 (api 등)
+├─ research/                 # 리서치 산출물
+├─ resources/, safe_code/    # 보조 자료/안전 코드 보관
+├─ state/                    # 세션 상태 직렬화
+└─ logs/                     # 로그 파일
+
 ```
 의존 방향(순환 금지):
 ```
@@ -15,66 +100,270 @@ utils → tools → agent
         ↑       │
         └── core┘   # core는 설정·타입·라우팅만 제공
 ```
-- `agent/*` ↔ `agent/*` 직접 import 금지(라우팅은 `core/routers.py`에서).
-- `tools/*`는 `utils/*`와 `core.config`만 참조.
-
-## 2) 환경변수 단일화 (`core/config.py`)
-- 모든 ENV는 `core/config.py`에서 파싱/검증:  
-  `DOC_MODE, AUTO_WRITE_AFTER_RAG, AUTO_WRITE_DURING_RESEARCH, SEARCH_POLICY, SEARCH_MIN_OK, SEARCH_TOPN, CHROMA_NAMESPACE_WEB/LOCAL, GATE_KEEP_SOURCES, ALLOWED_DOMAINS ...`
-- 다른 모듈에서 `os.getenv` 직접 호출 금지 → `from core.config import ...`만 사용.
-
-## 3) 공개 API(파사드)만 사용
-- `tools/web_rag.py`: `run_search_chain()`, `web_results_to_documents()`, `documents_to_chroma()`만 공개.
-- `utils/rag_utils.py`: URL 정규화·디듀프·`merge_refs()` 단일 구현.
-- `utils/writer_scheduler.py`: `schedule_writer_if_needed()` 단일 진입.
-- 라우팅 분기는 `core/routers.py`에서만.
-
-## 4) 공통 타입/시그니처
-- `DocMode = Literal["report","book"]` (`core/state_types.py`)
-- `coerce_doc_mode(x) -> DocMode`는 반드시 DocMode 리터럴 반환(문자열 그대로 반환 금지).
-- 검색: `run_search_chain(query: str, *, topn: int, policy: str, min_ok: int, gatekeep: bool) -> list[dict]`
-- 벡터검색: `retrieve(query: str, *, namespace: str, persist_dir: str, top_k: int) -> list[Document]`
-- 병합: `merge_refs(existing: dict|None, new_queries: list[str]|None, new_docs: list|None) -> dict`
-
-## 5) 코드 품질 가드
-- pre-commit: Ruff(포맷/심플리파이/정렬), Mypy(타입), Pytest(스모크) 묶기.
-- Deptry(의존성 누락/미사용), Radon(복잡도), Vulture(데드 코드) 권장.
-
-## 6) 파일 트리 덤프 & 코드맵 생성
-### PowerShell 원클릭 스크립트
-```
-./make_chap14_8_artifacts.ps1 -RepoRoot "D:\gpt_agent_2025_book"
-```
-- 산출물:
-  - `chap14_8_tree.txt` (UTF-8 BOM)
-  - `code_map.svg` (의존 그래프)
-
-### 수동 실행 명령
-```powershell
-# 트리 덤프
-tree .\chap14_8 /f | Out-File -FilePath .\chap14_8_tree.txt -Encoding utf8BOM
-
-# 코드맵 (Graphviz/pydeps 필요)
-$env:PYTHONPATH = (Get-Location).Path
-python -m pydeps .\chap14_8pp.py --max-bacon 3 -T svg -o .\code_map.svg --noshow `
-  --exclude '\.venv|tests|logs|__pycache__|build|dist'
-```
-
-## 7) 트러블슈팅
-- 폴더명에 `-`(하이픈) 금지 → `chap14_8`처럼 언더스코어 사용(또는 Junction 우회).
-- 패키지 인식 안 되면 `__init__.py` 생성.
-- `pydeps`가 경로를 모듈로 못 바꾸면: 시작점을 `.\chap14_8pp.py`처럼 **파일 경로**로 지정.
-- 브라우저가 SVG를 XML로만 보여주면 VS Code 미리보기로 확인하거나 PNG로 생성:
-  `python -m pydeps .\chap14_8pp.py -T png -o code_map.png --noshow`
-
-## 8) PR 운영 순서(권장)
-1) config 통합 + import 규칙 강제
-2) web_rag 파사드 도입 & 호출부 교체
-3) rag_utils 통합(정규화/디듀프/merge_refs 단일 구현)
-4) writer_scheduler 단일화
-5) routers 가드 정리 & 순환 제거
-6) deprecated API 제거
+- `agent/*` ↔ `agent/*` 직접 import 금지 (라우팅은 `core/routers.py`)
+- `tools/*`는 `utils/*`와 `core.config`만 참조
+- `tools/web_rag/*` 내부 모듈끼리는 지연 import로 순환 회피 (예: `ingest_docs.py` → `tools.web_rag.ingest`은 함수 안에서 import)
 
 ---
 
-© chap14_8 — Developer Guide
+## 2) 환경변수 단일화
+
+모든 ENV는 `core/config.py`(`CFG` dataclass)와 `tools/web_rag/ingest_config.py`(`_cfg_*` 헬퍼)에서 파싱.
+
+핵심 변수 그룹:
+
+**LLM/임베딩**
+- `LLM_PROVIDER` (vertexai/gemini/openai)
+- `LLM_MODEL`, `GEMINI_EMBEDDING_MODEL`, `RAG_EMBEDDING_MODEL`
+- `GCP_PROJECT_ID`, `GCP_REGION`
+- `GOOGLE_APPLICATION_CREDENTIALS`
+- `ALLOW_DUMMY_EMBEDDINGS` (기본 0; opt-in 시 더미 폴백 허용 — 프로덕션 비권장)
+
+**노드 토글** (`graph.py`에서 사용)
+- `ENABLE_COMMUNICATOR`, `ENABLE_CONTENT_STRATEGIST`
+- `ENABLE_VECTOR_SEARCH`, `ENABLE_WEB_SEARCH`
+- `ENABLE_CHAPTER_WRITER`
+
+**RAG 청킹/검색**
+- `RAG_CHUNK_CHARS=2400`, `RAG_CHUNK_OVERLAP=150`
+- `RAG_DISTANCE_THRESHOLD=1.2`
+- `RAG_TOP_K`, `RETRIEVE_WEB_RATIO`, `MERGE_RETRIEVE_MODE`
+- `MIN_CHUNK_CHARS`, `MIN_CHUNK_PPTX`, `MIN_CHUNK_PDF` (코드 기본 80)
+
+**Chroma 컬렉션**
+- `CHROMA_NAMESPACE_WEB`, `CHROMA_NAMESPACE_LOCAL` (둘 다 설정 시 split mode)
+- `CHROMA_INCLUDE_BASE`
+- `CLEAR_CHROMA_ON_START`, `CLEAR_ON_FIRST_VECTOR`
+
+**웹 PDF (보수적)** vs **로컬 PDF (적극적)**
+- 웹: `WEB_PDF_MAX_PAGES=5`, `WEB_PDF_MAX_CHARS=10000`
+- 로컬: `LOCAL_RAG_PDF_MAX_PAGES=50`, `LOCAL_RAG_MIN_CHARS`
+- 의도된 분업: 웹은 잘 모르는 출처 보수적, 로컬은 회사 신뢰 자료
+
+**도메인 필터** (`settings_gatekeep.py` + `tools/web_rag/utils.py`)
+- `FILTER_BAD_DOMAINS` — 검색 시 제외할 호스트 (substring 매칭)
+- `GATE_KEEP_SOURCES`, `ALLOWED_DOMAINS`
+
+**규칙:**
+- 다른 모듈에서 `os.getenv` 직접 호출 금지 → `from core.config import CFG` 또는 동적 접근 헬퍼 사용
+- 토픽별 오버라이드: `topics/<slug>.env`로 자동 로드
+
+---
+
+## 3) RAG 파이프라인 그림
+
+**[수집] → [변환] → [인덱싱]**
+
+```
+URL/web.json/refs    →   ingest_docs           →   ingest_vector
+  • web_search           • web_results_to_doc      • split_documents (2400/150)
+  • local_rag            • PDF: PyPDF2 → pdfminer  • 콘텐츠별 최소 길이 필터
+  • findings (자기참조)   • HTML: BeautifulSoup     • PPTX 인접 슬라이드 병합
+                         • 5단계 fetch 폴백        • XLSX 메타 요약 자동 생성
+                         • source+version 중복 검사
+                                                   • Vertex AI text-embedding-004
+                                                     (768d, RETRIEVAL_DOCUMENT)
+                                                   • Chroma 3-tier (web/local/base)
+```
+
+**[검색] (`agent/vector_search.py`)**
+
+```
+- 스모크 테스트 (인덱스 동작 확인)
+- Direct QA 게이트 (점수 ≥0.35 즉시 답변)
+- 웹/로컬 비율 분배 (RETRIEVE_WEB_RATIO=0.5)
+- 도메인 가중치 재랭킹 (topic_config.py)
+- Chroma fast-path (embed_query, RETRIEVAL_QUERY)
+- bad_domains 필터, distance threshold
+- 무조건 base 폴백 (0-hit 방지)
+```
+
+**[드롭 필터] (인덱싱 전 체크)**
+
+```
+- _is_block_page          (CAPTCHA, 차단 페이지)
+- _looks_like_pdf_bytes   (PDF 매직 넘버)
+- _looks_like_serialized_blob  (React/Next.js JSON blob)
+- _looks_like_garbled (★) (디코딩 깨진 바이너리)
+```
+
+★ `_looks_like_garbled`: 한국식 바이너리 파일 (.hwp, .xlsx)이 HTML로 잘못 분류되어 깨진 텍스트로 인덱싱되는 것을 방지. U+FFFD 비율 1% 초과 시 드롭. 기준 데이터: 정상 0%, 깨진 텍스트 40~50%.
+
+---
+
+## 4) 공개 API(파사드)만 사용
+
+- **`tools/web_rag/__init__.py`**: 외부에서는 이 파사드만 사용
+  - `web_search()` — 웹 검색 (Naver/Tavily 등 백엔드 통합)
+  - `retrieve()` — 벡터 검색 (Chroma 컬렉션 RAG 검색)
+  - `web_results_to_documents()`, `web_page_json_to_documents()`
+  - `documents_to_chroma()`, `add_web_pages_json_to_chroma()`
+  - `clear_vector_store()`, `ensure_vector_store_cleared_once()`
+- **`tools/topic_config.py`**: 토픽별 설정
+  - `get_domain_bonus_groups()`, `get_xlsx_keyword_groups()`
+- **`utils/rag_utils.py`**: URL 정규화·디듀프·`merge_refs()` 단일 구현
+- **`utils/writer_scheduler.py`**: `schedule_writer_if_needed()` 단일 진입
+- 라우팅 분기는 **`core/routers.py`**에서만
+
+내부 모듈 (`tools/web_rag/ingest*.py`)을 직접 import하지 마세요. 파사드를 통해서만.
+
+---
+
+## 5) 공통 타입/시그니처
+
+- `DocMode = Literal["report", "book"]` (`core/state_types.py`)
+- `coerce_doc_mode(x) -> DocMode`는 반드시 DocMode 리터럴 반환 (문자열 그대로 반환 금지)
+- 웹 검색: `web_search(query: str, **kwargs) -> list[dict]`
+- 벡터 검색: `retrieve(query: str, *, top_k: int = 5, namespace: str | None, persist_directory: str | None, embedding=None) -> list[Document]`
+- 병합: `merge_refs(existing: dict | None, new_queries: list[str] | None, new_docs: list | None) -> dict`
+
+---
+
+## 6) 임베딩 안전망 (중요)
+
+`core/llm.py`의 `get_embedding_model()` 동작:
+
+- **기본**: ctor 실패 시 `RuntimeError` raise (fail-fast)
+- **opt-in**: `ALLOW_DUMMY_EMBEDDINGS=1` 설정 시에만 더미(1차원 0벡터) 폴백
+- **이유**: 더미 폴백을 조용히 허용하면 인덱스가 0벡터로 오염되어 알아차리기 어려움. 실패가 명확해야 함.
+
+opt-in 사용 시 `logger.error`로 강한 경고. 프로덕션에서는 절대 켜지 마세요.
+
+---
+
+## 7) 토픽별 설정 외부화
+
+새 토픽 추가 시 코드 수정 없이 다음 두 파일로 설정:
+
+**`topics/<slug>.env`** — 환경변수 (`TOPIC_SLUG`, `LOCAL_RAG_GLOBS`, `BLOCKAGI_OBJECTIVE_*`, …)
+- 템플릿: `topics/_template.env` 참고
+
+**`topics/<slug>.config.json`** (선택) — 도메인 가중치/키워드:
+```json
+{
+  "domain_bonus": {
+    "groups": [
+      {"name": "local", "score": 1.5, "match": "file_protocol"},
+      {"name": "trusted_industry_media", "score": 1.0,
+       "hosts": ["example-trusted.com"]},
+      {"name": "penalties", "score": -0.5,
+       "hosts": ["example-noisy.com"]}
+    ]
+  },
+  "xlsx_keywords": {
+    "primary_metric": {"score": 3, "keywords": ["매출", "판매", "revenue"]},
+    "category": {"score": 2, "keywords": ["카테고리", "분류"]}
+  }
+}
+```
+- 템플릿: `topics/_example.config.json` 참고
+- 설정 파일이 없거나 특정 키가 비어있으면 `tools/topic_config.py`의 코드 기본값을 사용 (호환 유지).
+
+---
+
+## 8) 진단 도구
+
+운영 중 인덱스 상태/품질을 점검할 때:
+
+**`tools/diagnose_embeddings.py`** — 임베딩 모델 + NS별 검색 동작 확인
+```powershell
+python tools\diagnose_embeddings.py
+```
+- 현재 임베딩 클래스(`VertexAIEmbeddings` 등) 확인
+- 768차원 정상 여부
+- 각 NS의 청크 수 + 샘플 검색 distance
+
+**`tools/diagnose_chunks_deep.py`** — 인덱스 청크 분포 심층 진단
+```powershell
+python tools\diagnose_chunks_deep.py
+```
+- 콘텐츠 타입별 비율 (html/pdf/pptx/xlsx)
+- 콘텐츠 타입별 길이 분포
+- PDF/전체 출처 호스트 top
+- **새 토픽 인덱싱 후 한 번 돌려보면 노이즈 발견 가능**
+
+언제 사용?
+- 검색 품질이 떨어진다고 느낄 때
+- 새 토픽을 처음 인덱싱한 후
+- `_looks_like_garbled` 외 다른 노이즈 패턴 의심 시
+- 도메인 분포가 한쪽 호스트에 쏠려있는지 확인
+
+---
+
+## 9) 데이터 품질 운영 노하우
+
+**경험적으로 발견한 노이즈 패턴들:**
+
+- **HWP 파일** (`.hwp`): 한국 학교/공공기관에서 흔함. PyPDF2도 pdfminer도 못 읽음. HTML로 잘못 분류돼 깨진 텍스트로 인덱싱되는 사례 발견 (`bomun.gen.hs.kr`, `ildong.gen.es.kr`, `sobo112.or.kr`).
+- **이벤트/광고 페이지**: 쇼핑몰 도메인 (`eventimg.auction.co.kr` 등)이 검색에 잡히는 경우. xlsx 분류 미스로 깨진 텍스트 들어옴.
+- **글로벌 시장 리포트 사이트**: `gminsights.com`, `mordorintelligence.kr`, `fortunebusinessinsights.com` 등은 본문이 거의 없는 SEO 페이지가 많음. `FILTER_BAD_DOMAINS`에 후보.
+
+**대응 전략:**
+
+1. **새 토픽 인덱싱 후 즉시 진단** (`diagnose_chunks_deep.py`)
+2. **호스트별 청크 수 확인** — 단일 호스트가 인덱스의 50% 이상이면 의심
+3. **샘플 텍스트 확인** — 깨진 인코딩(`�`, Greek 문자)이 보이면 `_looks_like_garbled`가 잡고 있는지 확인. 빠진 패턴이면 임계값 조정 또는 새 필터 추가
+4. **`FILTER_BAD_DOMAINS` 업데이트** — 발견된 노이즈 호스트 추가 (`.env`)
+5. **인덱스 재빌드 (선택)** — 기존 오염 청크를 물리적으로 제거하려면 `CLEAR_CHROMA_ON_START=1` + 재인제스트
+
+**`.env`는 git에 안 올라감** (시크릿 + 개별 환경 의존). 다른 환경/머신으로 옮길 때는 `env_raw.txt` 참고하여 따로 구성.
+
+---
+
+## 10) 코드 품질 가드
+
+- pre-commit: Ruff(포맷/심플리파이/정렬), Mypy(타입), Pytest(스모크) 묶기
+- Deptry(의존성 누락/미사용), Radon(복잡도), Vulture(데드 코드) 권장
+- `tests/` 디렉토리에 단위/회귀 테스트 모음
+
+**현재 테스트 커버리지:**
+- `test_communicator_direct_qa.py` — Direct QA 동작
+- `test_local_docid_stability.py` — 로컬 doc_id 안정성
+- `test_local_source_stability.py` — 로컬 source 안정성
+- `test_domain_bonus_compat.py` — 도메인 가중치 외부화 회귀 (13 cases)
+- `test_xlsx_score_compat.py` — XLSX 키워드 외부화 회귀 (29 cases)
+- `test_garbled_detection.py` — 깨진 바이너리 검출 (9 cases)
+
+---
+
+## 11) PR 운영 순서(권장)
+
+1. **config 통합 & import 규칙 강제** (`core.config` 외 `os.getenv` 금지)
+2. **`tools/web_rag` 파사드 사용** & 내부 모듈 직접 import 제거
+3. **`utils/rag_utils` 통합** (정규화/디듀프/merge_refs 단일 구현)
+4. **`writer_scheduler` 단일화** (`schedule_writer_if_needed`만 사용)
+5. **routers 가드 정리 & 순환 제거**
+6. **토픽별 설정 외부화** (`topics/<slug>.config.json`)
+7. **데이터 품질 가드 추가** (`_looks_like_*` 류, 도메인 필터)
+8. **deprecated API 제거**
+
+---
+
+## 12) 알려진 후속 후보
+
+코드 워크스루 중 발견된 개선 후보 (우선순위 순):
+
+1. **메타데이터 풍부화** — `published_date`, `language` 추가 시 시간 가중치/언어 필터 가능
+2. **distance threshold 튜닝** — 현재 1.2는 다소 느슨할 수 있음. 데이터 분포 보고 조정
+3. **`tools/web_rag/vertex_search.py` 정리** — Vertex AI Vector Search 통합 시도 흔적. dead code 여부 확인 필요
+4. **LangChain deprecation 대응**: `VertexAIEmbeddings`, `Chroma` 클래스가 4.0에서 제거 예정
+5. **VertexAIEmbeddings lazy validation 보강** — ctor는 통과하지만 첫 호출 시 인증 에러 가능. 그 시점 처리
+6. **BM25 키워드 검색 보강** — 정확 매칭(제품명, 회사명) 약한 부분 보완
+7. **HWP 파일 읽기 지원** — 현재는 `_looks_like_garbled`로 드롭만. 파서 통합 시 회사 자료 활용도 증대
+8. **백업 파일 정리** — `agent/supervisor.py.bak`, `agent/supervisor.py.broken`, `requirements_vertex.txt.bak` 등 git tracked 백업이 있다면 정리 검토
+
+---
+
+## 13) 알려진 이슈/주의사항
+
+**한글 주석 인코딩**: 일부 파일의 한글 주석이 cp949로 저장되어 있어 UTF-8 도구에서 깨져 보일 수 있음. 코드 동작에는 영향 없음. 점진적으로 UTF-8로 통일 권장.
+
+**가상환경 다중 존재**: 프로젝트 루트(`D:\GPT_AGENT`)에 `.venv_lcl`, `.venv_vertex`, `venv` 세 개의 가상환경이 있음. 현재는 `.venv_vertex`(Vertex AI 통합용) 사용 중.
+
+**`agent/supervisor.py.broken`**: 이전 리팩토링 흔적. dead 파일이면 제거 검토.
+
+**`tools/web_rag/vertex_search.py`**: Vertex AI Vector Search 통합 시도 흔적. 현재 활성 사용 여부 불명확 — 후속 후보로 메모.
+
+---
+
+© Bell Agent · writer_project — Developer Guide
