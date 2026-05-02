@@ -351,6 +351,7 @@ python tools\diagnose_chunks_deep.py
 6. **BM25 키워드 검색 보강** — 정확 매칭(제품명, 회사명) 약한 부분 보완
 7. ~~**HWP 파일 읽기 지원**~~ — 보류 (회사 자료 0개, 외부 HWP는 노이즈 위주). 재검토 조건: 회사가 HWP 자료 도입 시
 8. **백업 파일 정리** — `agent/supervisor.py.bak`, `agent/supervisor.py.broken`, `requirements_vertex.txt.bak` 등 git tracked 백업이 있다면 정리 검토
+9. **`CLEAR_CHROMA_ON_START` 메커니즘 개선** — 현재는 vector_search 노드 진입 시 발동하는 늦은 청소. 임베딩 모델 변경 같은 큰 작업에는 부족 (web_search ingest 단계에서 이미 옛 인덱스에 새 청크 추가됨). 디스크 직접 삭제로 우회. 향후 app.py 시작 즉시 청소되도록 메커니즘 옮기기 검토.
 
 ---
 
@@ -371,6 +372,8 @@ $PSDefaultParameterValues['Add-Content:Encoding'] = 'UTF8'
 **가상환경 다중 존재**: 프로젝트 루트(`D:\GPT_AGENT`)에 `.venv_lcl`, `.venv_vertex`, `venv` 세 개의 가상환경이 있음. 현재는 `.venv_vertex`(Vertex AI 통합용) 사용 중.
 
 **`tools/web_rag/vertex_search.py`**: Vertex AI **grounded search** 모듈. 현재 `SKIP_VERTEX_SEARCH=1`로 비활성. dead code 아님 — 토글 끄고 보존된 기능.
+
+**임베딩 모델 선택**: `text-embedding-004`는 짧은 한국어 query에 사실상 같은 벡터를 반환 (cos≈1.0). 한국어 RAG는 반드시 `text-multilingual-embedding-002`를 사용해야 함. `.env`의 `RAG_EMBEDDING_MODEL`로 설정. 모델 변경 시 인덱스 재빌드 필수 (벡터 공간 다름).
 
 ---
 

@@ -10,7 +10,6 @@ chap14-6/refs/
 
 # ─── 환경변수/시크릿 (절대 커밋 금지) ───
 .env
-env_raw.txt
 *.env.local
 
 # ─── 작업 산출물 (AI 생성 결과) ───

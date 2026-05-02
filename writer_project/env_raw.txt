@@ -1,0 +1,210 @@
+# ────────────────────────── Core (LLM) ──────────────────────────
+LLM_PROVIDER=vertexai
+LLM_MODEL=gemini-2.5-flash
+# Vertex AI 사용 시 GEMINI_API_KEY 불필요 (Google AI Studio 경로 아님)
+# GEMINI_API_KEY=                     # ← 사용 안함: 주석 처리
+GCP_PROJECT_ID=<your-gcp-project-id>
+GCP_REGION=us-central1
+GOOGLE_APPLICATION_CREDENTIALS=<absolute-path-to-service-account-json>
+
+# (OpenAI 경로를 일시 차단하고 싶으면 유지해도 무방)
+OPENAI_REQUEST_TIMEOUT=10
+OPENAI_MAX_RETRIES=1
+# OPENAI_API_KEY=                     # ← 실키 노출 금지
+
+# Vertex AI 웹 검색 비활성화
+SKIP_VERTEX_SEARCH=1
+
+# ────────────────────────── Logging / Console ───────────────────
+LOG_LEVEL=DEBUG
+LOG_LEVEL_CONSOLE=INFO
+LOG_LEVEL_FILE=DEBUG
+SHOW_CONSOLE_BANNER=0
+LOG_FMT=%(asctime)s %(levelname)s [%(name)s] %(message)s
+LOG_DATEFMT=%Y-%m-%d %H:%M:%S
+LOG_MAX_BYTES=1048576
+LOG_BACKUP_COUNT=3
+
+LOG_TOPK=3
+LOG_WRAP=88
+
+LOG_JSON=0
+HUMAN_LOGS=1
+HUMAN_LOGS_VERBOSE=0
+HUMAN_LOGS_STRICT=0
+LOG_DASHBOARD=0
+DASH_SIMPLE=1
+PYTHONUNBUFFERED=1
+DASH_RATE_SEC=8
+
+# ────────────────────────── Project / Topic ─────────────────────
+PROJECT_ROOT=<absolute-path-to-writer_project>
+# 아래는 topics/{TOPIC_SLUG}.env 프리셋에서 자동 로드됨
+# 프리셋 없을 때 폴백용으로만 유지
+# TOPIC_TITLE=국내 프리미엄 반려동물 사료 시장 분석 2025~2026
+TOPIC_SLUG=<your-topic-slug>
+# TOPIC_SLUG 기반 자동 파생으로 대체 (config.py __post_init__)
+
+
+# ────────────────────────── Writer / Flow ───────────────────────
+DOC_MODE=report
+AUTO_WRITE_AFTER_RAG=1
+AUTO_WRITE_DURING_RESEARCH=1
+REQUIRE_EXPLICIT_WRITE_TITLE=0
+AUTO_FOOTNOTE=1
+ECHO_SECTIONS=1
+ECHO_OUTLINE=1
+COMMUNICATOR_ECHO=1
+ECHO_QA=1
+
+# ────────────────────────── Research Mode ───────────────────────
+BLOCKAGI_AGENT_ROLE=research analyst
+ITERATION_COUNT=1
+# BLOCKAGI_OBJECTIVE_1~3 → topics/{TOPIC_SLUG}.env 에서 로드
+BLOCKAGI_LANG=ko
+
+RESEARCH_PLANNER_MAX_Q=2
+
+USER_AGENT=blockagi/1.0 (+https://www.bellcomm.co.kr/m/contact)
+
+# ────────────────────────── Search / Web ────────────────────────
+WEB_SEARCH_ENGINE=auto
+SEARCH_BACKENDS=naver_direct,tavily        # serpapi_naver 미사용 시
+SEARCH_POLICY=best_of_chain
+SEARCH_MIN_OK=1
+SEARCH_TOPN=40
+SEARCH_TIME_BUDGET_SEC=15
+BACKEND_TIMEOUT_SEC=4
+GOOGLE_TIMEOUT_SEC=6
+SEARCH_PREFLIGHT_PING=1
+
+# 한국 쿼리일 때 여유 필요 → tavily 1회 재시도 + timeout 상향과 맞물려 효과
+TAVILY_TIMEOUT_SEC=8
+TAVILY_RETRY_ON_TIMEOUT=1
+
+# 기본 네거티브 (코드에서 사용)
+WEB_DEFAULT_NEGATIVES=-행사 -세미나
+WEB_APPLY_DEFAULT_NEGATIVES=1
+
+# Tavily / Google CSE
+TAVILY_API_KEY=
+
+# NAVER Direct API
+NAVER_CLIENT_ID=
+NAVER_CLIENT_SECRET=
+
+
+# Naver 쿼리 정책(코드가 참조)
+NAVER_NEGATIVE_CAP=3        # 토큰 허용 개수를 0에서 3으로 늘려, 네거티브 키워드(예: -행사) 강제 제거를 막는다.
+NAVER_TRIM_OPERATORS=0      # 쿼리 연산자 강제 제거 비활성화 (핵심)
+NAVER_MAX_LEN=200           # 네이버 쿼리 최대 길이 확장 (Skip 방지)
+NAVER_MAX_TOKENS=15         # 네이버 쿼리 최대 토큰 수 확장 (Skip 방지)
+
+# ────────────────────────── Fetch / Budget ──────────────────────
+WEB_SEARCH_RAW_FETCH_TOP=2
+WEB_FETCH_BUDGET_SECONDS=12
+WEB_FETCH_TIMEOUT_CONNECT=5
+WEB_FETCH_TIMEOUT_READ=8
+WEB_FETCH_MAX_BYTES=500000
+WEB_PDF_MAX_PAGES=5
+WEB_PDF_MAX_CHARS=10000
+ALLOW_GLOBAL_CLEAR=1
+INDEX_TIMEOUT_SEC=300
+LOCAL_RAG_ALLOW_EMPTY=1
+
+# ────────────────────────── Vector / RAG ────────────────────────
+CHROMA_DIR=data/chroma_store
+#CHROMA_NAMESPACE=kr-pet-food-premium
+#CHROMA_NAMESPACE_WEB=kr-pet-food-premium-web
+#CHROMA_NAMESPACE_LOCAL=kr-pet-food-premium-local
+CLEAR_CHROMA_ON_START=0
+CLEAR_GUARD_DISABLE=0
+CLEAR_ON_FIRST_VECTOR=0
+
+RAG_CHUNK_CHARS=2400
+MAX_CHUNKS_PER_DOC=30
+RAG_CHUNK_OVERLAP=150
+LOCAL_RAG_MIN_CHARS=30
+LOCAL_RAG_MIN_CHUNK_CHARS=50
+LOCAL_RAG_KEEP_SHORT=1
+LOCAL_RAG_PRIORITY="pdf>xlsx>pptx"
+LOCAL_RAG_MAX_TEXT_CHARS=800
+LOCAL_RAG_SPLIT_ROUNDS=3
+LOCAL_RAG_CHUNK_MODE=paragraph
+LOCAL_RAG_MAX_DOCS=1500
+LOCAL_RAG_MAX_PAGES_PER_FILE=50
+LOCAL_RAG_PDF_MAX_PAGES=50
+LOCAL_RAG_SAMPLE_LARGE=1
+SKIP_PPTX=0
+RAG_MIN_DOC_CHARS=30
+RAG_MIN_DOC_TOKENS=5
+
+RAG_DISTANCE_THRESHOLD=1.2
+
+# 임베딩 (Vertex AI 권장)
+GEMINI_EMBEDDING_MODEL=text-multilingual-embedding-002
+RAG_EMBEDDING_MODEL=text-multilingual-embedding-002
+
+RAG_ID_INCLUDE_MTIME=1
+RAG_DELETE_OLD_ON_VERSION_MISMATCH=1
+RAG_TOKEN_BUDGET_PER_REQ=80000
+CHROMA_MAX_BATCH=64
+RAG_EMBED_BATCH=32
+
+ENABLE_XLSX_META_SUMMARY=1
+XLSX_SCAN_MAX_ROWS=200
+XLSX_SCAN_MAX_COLS=20
+XLSX_META_MAX_DOCS=5
+
+MIN_CHUNK_PPTX=20
+
+# 인덱싱
+MAX_INDEXED_PER_ROUND=60  # 0 → 20 권장(바로 임베딩/검색 가능해짐)
+MAX_LOCAL_DOCS_PER_ROUND=1200
+
+MIN_CHUNK_CHARS=50
+
+DIRECT_QA=1
+ALLOW_SUMMARY=1
+ALLOW_LOCAL_SUMMARY=1        # 근거가 적어도 최소 요약 허용(임시)
+# 로컬 RAG 소스
+LOCAL_RAG_GLOBS=refs/**/*.pdf,refs/**/*.pptx,refs/**/*.xlsx
+INCLUDE_FINDINGS_IN_VECTOR=0
+
+# 최소 하한(게이트)
+LOCAL_MIN_CHARS_GLOBAL=80
+LOCAL_MIN_CHARS_PDF=30
+LOCAL_MIN_CHARS_PPTX=30
+LOCAL_MIN_CHARS_XLSX=1
+
+# XLSX 행 제한(시트당)
+LOCAL_RAG_XLSX_MAX_ROWS=500
+
+# PPTX 슬림 사용 강제하려면(대용량일 때만 자동 슬림/샘플링됨)
+# LOCAL_RAG_PPTX_SLIM=1
+
+CHROMA_INCLUDE_BASE=1
+CHROMA_INCLUDE_WEB=1
+CHROMA_INCLUDE_LOCAL=1
+CHROMA_NS_POLICY=merge   # local_first 대신 merge 권고
+
+AUTO_FOOTNOTE_VERIFY=1
+
+
+# ────────────────────────── Gatekeep ────────────────────────────
+SKIP_WEB_SEARCH=0
+
+GATE_KEEP_SOURCES=0
+ALLOW_SUBDOMAINS=1
+URL_TREAT_WWW_EQUIV=1
+URL_NORMALIZE_MOBILE_TO_WWW=1
+
+# 중복/트레일링 제거, 핵심 도메인만 정리
+ALLOWED_DOMAINS=
+FILTER_BAD_DOMAINS=vietnam.vn,gminsights.com,fundamentalbusinessinsights.com,daegucidcp.kr,hanaw.com,businessresearchinsights.com,globalresearch.co.kr,mordorintelligence.kr,researchnester.com,kocham.org,consegicbusinessintelligence.com,repository.kihasa.re.kr,school.cbe.go.kr,hnews.kr,t.me,v.daum.net,fortunebusinessinsights.com,bomun.gen.hs.kr,ildong.gen.es.kr,eventimg.auction.co.kr,sobo112.or.kr
+
+# smroadmap.smtech.go.kr removed 2026-05-02 (data review showed clean PDFs)
+# ────────────────────────── Metrics/Telemetry ───────────────────
+METRICS_ENABLED=0
+POSTHOG_DISABLED=1
+# POSTHOG_DISABLE=1   # ← 중복이므로 제거(한 가지만 유지)

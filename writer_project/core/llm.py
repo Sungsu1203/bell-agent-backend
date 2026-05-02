@@ -86,7 +86,7 @@ def _load_provider() -> dict[str, Any]:
         out["EmbModelKey"]  = "GEMINI_EMBEDDING_MODEL"
         out["APIKeyName"]   = "GEMINI_API_KEY"
         out["DefaultChatModel"] = "gemini-2.5-pro"
-        out["DefaultEmbedModel"] = "text-embedding-004"
+        out["DefaultEmbedModel"] = "text-multilingual-embedding-002"
         try:
             from langchain_google_genai import ChatGoogleGenerativeAI as _ChatGemini
             from langchain_google_genai import GoogleGenerativeAIEmbeddings as _EmbedGemini
@@ -101,7 +101,7 @@ def _load_provider() -> dict[str, Any]:
         out["EmbModelKey"]  = "GEMINI_EMBEDDING_MODEL"
         out["APIKeyName"]   = ""  # 키 불필요
         out["DefaultChatModel"]  = "gemini-2.5-flash"
-        out["DefaultEmbedModel"] = "text-embedding-004"
+        out["DefaultEmbedModel"] = "text-multilingual-embedding-002"
         try:
             try:
                 from google.cloud import aiplatform  # noqa: F401
