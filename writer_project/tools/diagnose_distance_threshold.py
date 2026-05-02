@@ -1,15 +1,19 @@
 """distance threshold 분포 진단.
-
 여러 토픽 관련 쿼리에 대해 top-K 검색 결과의 distance 분포를 측정한다.
-이번 세션에서 깨진 바이너리 청크 1,074개가 검색에서 제외되었으므로,
-distance 분포가 이전과 어떻게 달라졌는지 + 현재 threshold(1.2)가 적절한지 평가.
+text-multilingual-embedding-002 마이그레이션 후, distance 분포에 맞춘
+threshold 후보(0.45~0.80)에서 cut %를 평가한다.
+현재 운영 threshold는 .env의 RAG_DISTANCE_THRESHOLD 값을 따른다.
 """
+import os
 import sys
 from pathlib import Path
 import statistics
 
+from dotenv import load_dotenv
+
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
+load_dotenv(ROOT / ".env")  # 운영 코드와 동일한 .env 로드
 
 from tools.web_rag.ingest_vector import _get_vs, _default_chroma_dir
 
@@ -39,7 +43,8 @@ TARGETS = [
 ]
 
 TOP_K = 10
-THRESHOLD_CANDIDATES = [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.5]
+THRESHOLD_CANDIDATES = [0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.80]
+CURRENT_THRESHOLD = float(os.environ.get("RAG_DISTANCE_THRESHOLD", "0.65"))
 
 
 for ns, queries in TARGETS:
@@ -104,7 +109,7 @@ for ns, queries in TARGETS:
         kept = sum(1 for d in all_distances if d < t)
         cut = n - kept
         cut_pct = cut * 100 / n
-        marker = "  ← current" if abs(t - 1.2) < 0.001 else ""
+        marker = "  ← current" if abs(t - CURRENT_THRESHOLD) < 0.001 else ""
         print(f"    {t:<12.2f} {kept:<10d} {cut:<10d} {cut_pct:<8.1f}%{marker}")
 
 print(f"\n{'=' * 70}")
