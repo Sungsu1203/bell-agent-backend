@@ -349,14 +349,24 @@ python tools\diagnose_chunks_deep.py
 4. **LangChain deprecation 대응**: `VertexAIEmbeddings`, `Chroma` 클래스가 4.0에서 제거 예정
 5. **VertexAIEmbeddings lazy validation 보강** — ctor는 통과하지만 첫 호출 시 인증 에러 가능. 그 시점 처리
 6. **BM25 키워드 검색 보강** — 정확 매칭(제품명, 회사명) 약한 부분 보완
-7. **HWP 파일 읽기 지원** — 현재는 `_looks_like_garbled`로 드롭만. 파서 통합 시 회사 자료 활용도 증대
+7. ~~**HWP 파일 읽기 지원**~~ — 보류 (회사 자료 0개, 외부 HWP는 노이즈 위주). 재검토 조건: 회사가 HWP 자료 도입 시
 8. **백업 파일 정리** — `agent/supervisor.py.bak`, `agent/supervisor.py.broken`, `requirements_vertex.txt.bak` 등 git tracked 백업이 있다면 정리 검토
 
 ---
 
 ## 13) 알려진 이슈/주의사항
 
-**한글 주석 인코딩**: 일부 파일의 한글 주석이 cp949로 저장되어 있어 UTF-8 도구에서 깨져 보일 수 있음. 코드 동작에는 영향 없음. 점진적으로 UTF-8로 통일 권장.
+**PowerShell 인코딩 설정**: 모든 소스 파일은 UTF-8로 저장되어 있음. PowerShell의 `Get-Content` 등은 기본적으로 시스템 로케일(CP949)로 읽어서 한글이 깨져 보일 수 있음. `$PROFILE`에 다음 추가 권장:
+
+```powershell
+$OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+chcp 65001 | Out-Null
+$PSDefaultParameterValues['Get-Content:Encoding'] = 'UTF8'
+$PSDefaultParameterValues['Out-File:Encoding'] = 'UTF8'
+$PSDefaultParameterValues['Set-Content:Encoding'] = 'UTF8'
+$PSDefaultParameterValues['Add-Content:Encoding'] = 'UTF8'
+```
 
 **가상환경 다중 존재**: 프로젝트 루트(`D:\GPT_AGENT`)에 `.venv_lcl`, `.venv_vertex`, `venv` 세 개의 가상환경이 있음. 현재는 `.venv_vertex`(Vertex AI 통합용) 사용 중.
 
