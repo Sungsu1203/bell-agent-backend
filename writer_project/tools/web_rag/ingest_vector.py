@@ -176,16 +176,9 @@ try:
 except Exception:
     _pd = None  # pandas 미설치 시 비활성화
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    # mypy는 항상 community 경로의 Chroma 타입으로 고정
-    from langchain_community.vectorstores.chroma import Chroma as Chroma
-else:
-    # 런타임에서는 langchain_chroma 우선, 없으면 community로 폴백
-    try:
-        from langchain_chroma import Chroma as Chroma
-    except Exception:  # pragma: no cover
-        from langchain_community.vectorstores.chroma import Chroma as Chroma
+# Chroma: langchain-chroma 1.0.0 (requirements.txt) 단일 경로.
+# langchain_community.vectorstores.chroma는 LangChain 4.0에서 제거 예정.
+from langchain_chroma import Chroma
 
 
 # ─────────────────────────────────────────────────────────────────────────────
