@@ -39,6 +39,7 @@ data/
 folder_tree.txt
 env_text.txt
 structure_folder.txt
+start_bell.bat
 
 # ── Vector DB / Chroma 산출물 ────────────────────────────
 **/chroma_store/

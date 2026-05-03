@@ -45,7 +45,6 @@ venv/
 *.tmp
 
 # ─── 실행 스크립트 ───
-start_bell.bat
 *.local.bat
 # Backup/broken file patterns
 *.broken
