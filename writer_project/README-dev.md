@@ -346,7 +346,7 @@ python tools\diagnose_chunks_deep.py
 1. **메타데이터 풍부화** — `published_date`, `language` 추가 시 시간 가중치/언어 필터 가능
 2. **distance threshold 재튜닝 절차** — 현재값: 글로벌 0.65, pet-food-premium 0.60 (text-multilingual-embedding-002 기준). 새 토픽 추가 시 `tools/diagnose_distance_threshold.py`로 분포 측정 후 절벽 직전 값 선택. 임베딩 모델 변경 시 재튜닝 필수.
 3. **Vertex AI grounded search 운영** — `tools/web_rag/vertex_search.py`는 살아있는 기능 모듈로 `SKIP_VERTEX_SEARCH` 토글로 제어됨. 한국어 자료는 Naver/Tavily로 충분하고 Vertex 호출 시 대기 시간이 길어 현재 비활성 (`SKIP_VERTEX_SEARCH=1`). 그러나 영어 자료(글로벌 시장 리포트 등)에서는 커버리지를 보강하는 효과가 있어, **영어 자료 위주 토픽은 `topics/<slug>.env`에서 `SKIP_VERTEX_SEARCH=0`으로 오버라이드** 권장. Vertex 결과는 Naver/Tavily 결과에 추가되는 augmentation 형태 (`agent/web_search.py:745` 참조).
-4. **LangChain deprecation 대응**: `VertexAIEmbeddings`, `Chroma` 클래스가 4.0에서 제거 예정
+4. **`VertexAIEmbeddings` deprecation 대응** — LangChain 4.0에서 제거 예정. `langchain-google-genai`의 `GoogleGenerativeAIEmbeddings`로 마이그레이션 필요. 현재 `core/llm.py:404`에서 deprecation warning 발생 (실행에는 지장 없음). 임베딩 백엔드 변경이라 기존 Chroma 인덱스의 차원/모델 호환성 확인 필요 — 다음 세션에서 영향도 평가 후 진행. Chroma 자체는 `langchain-chroma` 1.0.0으로 마이그레이션 완료 (commit 172c004), retrieve fallback 경로의 distance/bad_domains 필터 일관성도 함께 정리됨 (commit 4c14430).
 5. **VertexAIEmbeddings lazy validation 보강** — ctor는 통과하지만 첫 호출 시 인증 에러 가능. 그 시점 처리
 6. **BM25 키워드 검색 보강** — 정확 매칭(제품명, 회사명) 약한 부분 보완
 7. ~~**HWP 파일 읽기 지원**~~ — 보류 (회사 자료 0개, 외부 HWP는 노이즈 위주). 재검토 조건: 회사가 HWP 자료 도입 시
