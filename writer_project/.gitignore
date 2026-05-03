@@ -51,3 +51,25 @@ start_bell.bat
 *.broken
 *.orig
 *.old
+
+# ── Secrets / credentials ────────────────────────────────
+service_account*.json
+
+# ── Logs ────────────────────────────────────────────────
+logs/
+**/logs/
+
+# ── Vector DB 산출물 (추가) ──────────────────────────────
+**/chroma.sqlite3
+**/chroma-collections.parquet
+**/chroma-embeddings.parquet
+**/data_level*.bin
+**/header.bin
+**/length.bin
+**/link_lists.bin
+**/index_metadata.pickle
+
+# ── Structure files ──────────────────────────────────────
+*structure.txt
+folder_tree.txt
+env_text.txt
