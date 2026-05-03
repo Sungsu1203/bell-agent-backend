@@ -1567,6 +1567,12 @@ def retrieve(
 
     emb_fn = getattr(vs, "_embedding_function", None) or embedding or _get_embeddings(embedding)
 
+    # fast/fallback 경로 모두에서 사용되므로 try 블록 밖에서 미리 정의.
+    # TOPIC_SLUG 프리셋(.env override)이 글로벌 env를 덮어쓴 결과를 그대로 읽음.
+    _distance_threshold = float(os.environ.get("RAG_DISTANCE_THRESHOLD", "0.65"))
+    _bad_domains_str = (os.environ.get("FILTER_BAD_DOMAINS", "") or "").strip()
+    _bad_domains = [bd.strip() for bd in _bad_domains_str.split(",") if bd.strip()]
+
     try:
         q_emb = emb_fn.embed_query(q) if hasattr(emb_fn, "embed_query") else emb_fn(q)
         n = max(1, int(top_k or 5))
@@ -1596,9 +1602,6 @@ def retrieve(
         except Exception:
             pass
 
-        _distance_threshold = float(os.environ.get("RAG_DISTANCE_THRESHOLD", "0.65"))
-        _bad_domains_str = (os.environ.get("FILTER_BAD_DOMAINS", "") or "").strip()
-        _bad_domains = [bd.strip() for bd in _bad_domains_str.split(",") if bd.strip()]
         distances = (res or {}).get("distances") or []
         dist_list = distances[0] if (distances and isinstance(distances, list)) else []
         if docs and isinstance(docs, list):
@@ -1638,16 +1641,34 @@ def retrieve(
 
         logger.debug("[retrieve-fast] direct query failed; falling back to retriever: %s", e)
 
-    retriever = vs.as_retriever(search_kwargs={"k": max(1, int(top_k or 5))})
-    results = retriever.invoke(q)
-    out = []
-    for d in (results or []):
+    # fast path와 동일한 distance/bad_domains 컷을 적용 (일관성 확보).
+    # as_retriever()는 score를 반환하지 않으므로 similarity_search_with_score 사용.
+    n = max(1, int(top_k or 5))
+    try:
+        scored = vs.similarity_search_with_score(q, k=n)
+    except Exception as e2:
+        logger.warning("[retrieve-fallback] similarity_search_with_score failed: %s", e2)
+        scored = []
+
+    out: list[Document] = []
+    for d, dist in scored:
+        if dist is not None and dist > _distance_threshold:
+            logger.debug(
+                "[retrieve-fallback] skip low-relevance doc (distance=%.3f > %.3f): %s",
+                dist, _distance_threshold, (d.metadata or {}).get("source", "")
+            )
+            continue
+        _src_url = str((d.metadata or {}).get("source") or (d.metadata or {}).get("url") or "").lower()
+        if _bad_domains and any(bd in _src_url for bd in _bad_domains):
+            logger.debug("[retrieve-fallback] skip bad-domain doc: %s", _src_url)
+            continue
         text = d.page_content or ""
         if len(text) > 19000:
             text = text[:19000]
         d.page_content = text
         out.append(d)
-    logger.debug("[retrieve-fallback] ns=%s dir=%s k=%d → %d docs", ns, pd, top_k, len(out))
+
+    logger.debug("[retrieve-fallback] ns=%s dir=%s k=%d → %d docs (filtered)", ns, pd, n, len(out))
     return out
 
 
