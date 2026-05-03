@@ -364,11 +364,41 @@ python tools\diagnose_chunks_deep.py
    - (c) deprecation warning suppress (filterwarnings) — 임시방편.
    
    Chroma는 `langchain-chroma` 1.0.0으로 마이그레이션 완료 (commit 172c004), retrieve fallback 경로의 distance/bad_domains 필터 일관성도 함께 정리됨 (commit 4c14430).
+
+   **(a) 1차 시도 (진행 중, 데이터 오염으로 중단)**
+
+   환경 검증 통과 후 평가 진입했으나, 평가 대상 토픽의 인덱스 오염으로 의미 있는 측정 불가. 평가 자체는 다음 세션에서 검증된 토픽으로 재개.
+
+   *환경 검증 통과 사항:*
+   - `VertexAIEmbeddings(model="gemini-embedding-001", project=..., location=...)` 호출 정상 (dim=3072 확인). `text-multilingual-embedding-002`도 동일 경로로 768d 확인. 두 모델 모두 ADC 인증 + Vertex 경로로 호출 가능.
+   - 운영 `core/llm.py:386-399`의 `kwargs_list` 폴백 패턴 확인: `model_name=` 첫 시도 → `model_name=`(기본값) → `model=` 폴백. `langchain-google-vertexai` 3.2.2 기준 `model_name`은 deprecated alias이므로 **첫 시도 → `model=` 우선으로 순서 뒤집기 cleanup 후보** (동작 변화 없음).
+   - 운영 Chroma store collection name 규칙: store 디렉토리 이름과 동일 (예: `<slug>-web/` → collection `<slug>-web`). langchain-chroma 기본값 `"langchain"` 아님 → 평가 스크립트에서 `collection_name=` 명시 필수.
+   - 운영 `_dual_retrieve` 흐름 (`agent/vector_search.py:390`): `{slug}-web`/`{slug}-local` 두 NS만 사용 (통합 store는 `CHROMA_INCLUDE_BASE=False` 디폴트로 미사용). 평가 설계 = 층위 1 (각 store 내부) + 층위 2 (web+local 통합) 둘 다 산출.
+
+   *사전 가설 박제 (결과 보기 전):*
+   - `gap_ratio` (TGT/REF) ≥ 1.3× **AND** top-1 Δ ≥ +5%p → 마이그레이션 가치 있음
+   - 미만 → §12-4 결론 "보류 유지"
+   (계산 정의: `gap = irrelevant.median - relevant.median`. 코사인 distance 기준.)
+
+   *중단 사유 — 평가 대상 토픽 인덱스 오염:*
+   - **height-growth-supplement**: local 12개 청크가 광고 운영 제안서로 100% 오염 (CPA/LMS/매체 전략 등, 키성장 영양제 토픽과 무관). web 85개 중 `seoul.co.kr` 34개(40%) + `greened.kr` 15개(18%)가 한 페이지에서 다중 청크화돼 있고, `seoul.co.kr` 내용은 부동산/쿠팡/메르스 기사 등 토픽 외 ~40% 오염 추정.
+   - 이 인덱스로 평가하면 "도메인 다른 텍스트 분리"를 재는 것이 되어 한국어 단문 retrieval 변별력 측정으로서 무의미.
+
+   *다음 세션 시작점:*
+   - 권장 = **pet-food-premium으로 (a) 평가 재개**. 검증된 인덱스 (median 0.410/p95 0.618, fast path 분포 안정). 평가 절차/스크립트는 토픽 슬러그 변경만으로 재사용 가능.
+   - 산출물 (commit 포함): `tools/sanity_check_gemini_embedding.py`, `tools/sample_chunks_for_eval.py`, `tools/eval_embedding_models.py`, `eval/goldset/<slug>/README.md`.
+   - height 오염은 별도 작업 후보로 박제 (아래 신설 §12-N 또는 별도 절 참조 — ingest 큐레이션 점검 + GATE_KEEP_SOURCES 적용 검토).
+
 5. **VertexAIEmbeddings lazy validation 보강** — ctor는 통과하지만 첫 호출 시 인증 에러 가능. 그 시점 처리
 6. **BM25 키워드 검색 보강** — 정확 매칭(제품명, 회사명) 약한 부분 보완
 7. ~~**HWP 파일 읽기 지원**~~ — 보류 (회사 자료 0개, 외부 HWP는 노이즈 위주). 재검토 조건: 회사가 HWP 자료 도입 시
 8. **백업 파일 정리** — `agent/supervisor.py.bak`, `agent/supervisor.py.broken`, `requirements_vertex.txt.bak` 등 git tracked 백업이 있다면 정리 검토
 9. **`CLEAR_CHROMA_ON_START` 메커니즘 개선** — 현재는 vector_search 노드 진입 시 발동하는 늦은 청소. 임베딩 모델 변경 같은 큰 작업에는 부족 (web_search ingest 단계에서 이미 옛 인덱스에 새 청크 추가됨). 디스크 직접 삭제로 우회. 향후 app.py 시작 즉시 청소되도록 메커니즘 옮기기 검토.
+10. **ingest 큐레이션 점검 (height-growth-supplement 사례)** — height-growth-supplement 토픽 인덱스에서 토픽 외 콘텐츠가 다량 적재된 사례 발견. local store 100% 오염(광고 운영 제안서), web store ~40% 오염(`seoul.co.kr` 검색결과 페이지가 다중 청크화). 원인 추정: `GATE_KEEP_SOURCES` 미적용 상태에서 supervisor 자동 web seeding 진행 (베이스 화이트리스트 17개 도메인 미적용). 점검 항목:
+    - 토픽 .env에 `GATE_KEEP_SOURCES=1` 명시 의무화 검토
+    - local store ingest 경로 추적 (refs 폴더는 운영 ingest 파이프라인이 자동으로 읽지 않음 — `refs/`는 LangGraph state 키와 무관한 너 작업용 raw 폴더)
+    - 다중 청크화된 단일 페이지(seoul.co.kr 패턴) 차단 휴리스틱 검토 (한 source당 청크 상한)
+    - 별도 세션 권장.
 
 ---
 
