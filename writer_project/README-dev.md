@@ -126,7 +126,7 @@ utils → tools → agent
 
 **RAG 청킹/검색**
 - `RAG_CHUNK_CHARS=2400`, `RAG_CHUNK_OVERLAP=150`
-- `RAG_DISTANCE_THRESHOLD=1.2`
+- `RAG_DISTANCE_THRESHOLD=0.65` (글로벌 default; pet-food-premium은 `topics/<slug>.env`에서 0.60 override)
 - `RAG_TOP_K`, `RETRIEVE_WEB_RATIO`, `MERGE_RETRIEVE_MODE`
 - `MIN_CHUNK_CHARS`, `MIN_CHUNK_PPTX`, `MIN_CHUNK_PDF` (코드 기본 80)
 
@@ -161,7 +161,7 @@ URL/web.json/refs    →   ingest_docs           →   ingest_vector
   • findings (자기참조)   • HTML: BeautifulSoup     • PPTX 인접 슬라이드 병합
                          • 5단계 fetch 폴백        • XLSX 메타 요약 자동 생성
                          • source+version 중복 검사
-                                                   • Vertex AI text-embedding-004
+                                                   • Vertex AI text-multilingual-embedding-002 (한국어 최적화)
                                                      (768d, RETRIEVAL_DOCUMENT)
                                                    • Chroma 3-tier (web/local/base)
 ```
@@ -344,7 +344,7 @@ python tools\diagnose_chunks_deep.py
 코드 워크스루 중 발견된 개선 후보 (우선순위 순):
 
 1. **메타데이터 풍부화** — `published_date`, `language` 추가 시 시간 가중치/언어 필터 가능
-2. **distance threshold 튜닝** — 현재 1.2는 다소 느슨할 수 있음. 데이터 분포 보고 조정
+2. **distance threshold 재튜닝 절차** — 현재값: 글로벌 0.65, pet-food-premium 0.60 (text-multilingual-embedding-002 기준). 새 토픽 추가 시 `tools/diagnose_distance_threshold.py`로 분포 측정 후 절벽 직전 값 선택. 임베딩 모델 변경 시 재튜닝 필수.
 3. **Vertex AI grounded search 운영** — `tools/web_rag/vertex_search.py`는 살아있는 기능 모듈로 `SKIP_VERTEX_SEARCH` 토글로 제어됨. 한국어 자료는 Naver/Tavily로 충분하고 Vertex 호출 시 대기 시간이 길어 현재 비활성 (`SKIP_VERTEX_SEARCH=1`). 그러나 영어 자료(글로벌 시장 리포트 등)에서는 커버리지를 보강하는 효과가 있어, **영어 자료 위주 토픽은 `topics/<slug>.env`에서 `SKIP_VERTEX_SEARCH=0`으로 오버라이드** 권장. Vertex 결과는 Naver/Tavily 결과에 추가되는 augmentation 형태 (`agent/web_search.py:745` 참조).
 4. **LangChain deprecation 대응**: `VertexAIEmbeddings`, `Chroma` 클래스가 4.0에서 제거 예정
 5. **VertexAIEmbeddings lazy validation 보강** — ctor는 통과하지만 첫 호출 시 인증 에러 가능. 그 시점 처리
