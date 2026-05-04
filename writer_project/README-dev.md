@@ -612,7 +612,7 @@ python tools\diagnose_chunks_deep.py
 
 13. **§12-13 — supervisor 라우팅 가드 + web/vector 루프 종결 조건 (2026-05-04 사용자측 검증 세션 발견)**
 
-    **현재 상태 (2026-05-04 검출 시점)**: 본 세션 미션 A(일반 LLM Q&A health check) 검증 중 4건의 결정적 하자 검출. backend layer는 §12-12-1 close 후 정상이지만, **supervisor 라우팅 + router 분기에 토픽-적합성 가드가 없어** venfobel과 무관한 일반 질문이 RAG 경로로 끌려가 4분 7초 폭주 + web 인덱스 의도치 않은 증가(8→37 청크) 관찰. 본 큐는 §12-12와 달리 retrieval 품질이 아닌 **routing/loop 제어 layer** 작업이며, C 미션(end-to-end 리포트) 작업 중 무관 질의 발생 시 인덱스 추가 오염 가능성 존재.
+    **현재 상태 (2026-05-05 사용자측 검증 세션 close)**: 본 세션 미션 A/B/C 완수. C 미션(end-to-end 리포트 생성) 7섹션 + report_builder 합본 정상 완료, 다만 §12-13-5(`write:` 명시형 prefix 외 라우팅 실패)로 인한 임시 우회로 사용. 신규 4개 항목 박제(13-5/6/7/8). §12-13 큐 전체 8개 항목 누적 — 코드 수정 진입 트리거는 (1) §12-13-5 우선순위 최상 (사용자 명시형 prefix 강제 부담) (2) §12-13-1~4 패키지로 supervisor + router 분기 정리 (3) §12-13-6/7/8 후순위.
 
     출처: §12-12-1 close 직후 사용자측 검증 세션(2026-05-04). 미션 A에서 "비타민 B1이 뭐야"(60초, 정상), "파이썬에서 리스트 컴프리헨션이 뭐야"(247초, 5회 vector→web 루프, 인덱스 8→37), "벤포벨이 뭐야"(9초, 정상)의 3건 비교 로그에서 검출. C 미션은 본 큐 미해결 상태로 진입(하자 인지 + 인덱스 변화 메모 + reports/ 디렉토리 분리 운영으로 risk 격리).
 
@@ -641,8 +641,32 @@ python tools\diagnose_chunks_deep.py
     - 발견: communicator가 모든 응답을 `reports/venfobel-vitamin/{slug}_{timestamp}.md`로 자동 저장. Direct QA hard-stop 응답(317B/377B)도, 일반 communicator 응답(512B)도, C 미션 end-to-end 리포트도 모두 동일 파일명 형식 → 시각적 식별 불가.
     - 증상: 본 세션 검증 중 `reports/venfobel-vitamin/`에 3개 QA 응답 파일 자동 생성 (170636/171821/172655). C 진입 시 진짜 리포트와 섞일 위험.
     - 검토안: QA 응답 저장 경로를 `reports/venfobel-vitamin/qa/{slug}_{ts}.md` 또는 `reports/venfobel-vitamin/{slug}_qa_{ts}.md`(qa prefix)로 분리. `agent.communicator`의 `[SAVE] report saved` 분기에서 `qa_direct_reply` 플래그 보고 경로 분기.
-    - 임시 우회 (본 세션 완료): C 진입 전 검증 세션 부산물 3개 파일을 `reports/venfobel-vitamin/_qa_session_20260504/`로 이동.
+    - C 진입 전 검증 세션 부산물 3개 파일을 삭제.
     - 진입 트리거: 코드 수정은 차후. **임시 우회는 본 세션 C 진입 전 즉시.**
+
+    13-5. **`write:` 명시형 prefix 외 라우팅 실패 (ko-natural 형식)** — 상태: `pending` (임시 우회 확정) / 의존: 없음 / 우선순위: 최상 (Blocker)
+    - 발견: 2026-05-05 사용자측 검증 세션 C 미션 진입 시. "2. <섹션명> 섹션 작성해주세요"(ko-natural hit) 입력 → supervisor가 write 의도 무시 + research_round 0→1 promote → web_search → vector → synthesizer → communicator Direct QA 흐름으로 진행. **section_writer 진입 실패** (90초, 356자 응답).
+    - 대조군: 같은 의도를 "write: <섹션명>"(explicit hit)으로 입력 시 `[Supervisor fast-path] write + rag_on_disk → vector_search → section_writer` 분기 정확 작동. 7섹션 연속 100% 일관 재현 (06:01:54~06:32:34).
+    - 임시 우회: **C 미션은 `write:` 명시형 prefix 사용 시 정상 작동.** 7섹션 + report_builder 합본까지 31분에 완수.
+    - 검토안: `agent.supervisor` 의도 분류 분기에서 `extract_write_title()` 결과를 explicit/ko-natural 구분 없이 동일 우선순위로 처리. `rag_expression.py:213-243` 함수는 둘 다 정상 hit하므로 supervisor 측에서 결과 사용 시점에서 구분이 발생.
+    - 진입 트리거: §12-13-1/2/3과 함께 supervisor 분기 코드 손댈 때. 코드 수정 우선순위 최상이지만 임시 우회로 사용자 작업은 막히지 않음.
+
+    13-6. **Vertex 429 ResourceExhausted retry — quota 모니터링 부재** — 상태: `pending` / 의존: 없음 / 우선순위: 중
+    - 발견: C 미션 Section 7 작성 중(06:28:46~06:31:20, 2분 49초) `langchain_google_vertexai._retry`가 `ResourceExhausted: 429` 발생 → 4초 대기 후 재시도 → 성공. **다른 섹션 평균(35~50초) 대비 5배 소요.**
+    - risk: retry 한도 초과 시 해당 섹션 작성 실패 가능. C 미션 7섹션 처리 정도 트래픽에서 1회 발생 → 일상 운영 트래픽에서 빈도 추정 필요.
+    - 검토안: (a) Vertex quota 일일 사용량 추적 metric 추가, (b) 429 발생 시 fallback (gemini-flash → gemini-flash-lite, Anthropic API), (c) 긴 섹션 LLM 호출 분할.
+    - 진입 트리거: 사용자측 작업이 누적되며 429 빈도가 증가하는 시점.
+
+    13-7. **`extract_write_title` 닫는 괄호 처리 미흡** — 상태: `pending` / 의존: §12-13-1과 패키지 처리 가능 / 우선순위: 낮음
+    - 발견: C 미션 Section 7 입력 `'write: 실행 로드맵 및 핵심 성과 지표(KPI)'` → extract 결과 `'실행 로드맵 및 핵심 성과 지표(KPI'` (닫는 `)` 잘림). 본문 작성에 영향 없으나 파일명도 `실행-로드맵-및-핵심-성과-지표kpi.md`로 정규화됨(괄호 자체 누락).
+    - 검토안: `rag_expression.py:213-243` 함수의 `_TAIL_PUNCT_RE` 정규식 점검. tail 정리 시 닫는 괄호도 trim 대상에 포함된 것으로 추정 → 매칭된 여는 괄호 `(` 직전까지 포함하는 group 처리 필요.
+    - 진입 트리거: §12-13-1 이후 또는 별도 cosmetic 정리 시.
+
+    13-8. **router.tail outline_shown=False 영구 미설정 → communicator prompt 분기와 비일관** — 상태: `pending` / 의존: 없음 / 우선순위: 낮음
+    - 발견: C 미션 7섹션 진행 중 매번 `[router.tail] outline exists but not shown → communicator (shown=False)` 라우팅. 그러나 communicator 응답은 outline 표시하지 않고 일반 응답만 생성. 즉 router가 "outline 표시" 의도로 보냈으나 communicator는 "다시 출력하지 않겠다" 분기 선택 → state.outline_shown 계속 False → 다음 섹션 처리 시 또 동일 라우팅 반복.
+    - 증상: communicator 호출 7회 누적 + reports/ 디렉토리에 1KB대 부산물 7개 누적 (§12-13-4 누적 가속).
+    - 검토안: communicator가 outline 표시 분기를 거쳤다면(prompt가 outline을 컨텍스트로 받았으나 출력 생략 결정 포함) state.outline_shown=True 명시 설정. 또는 router.tail의 outline_display 분기 우선순위 조정.
+    - 진입 트리거: §12-13-4 코드 수정 시 함께.
 
 ---
 
