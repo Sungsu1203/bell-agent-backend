@@ -51,3 +51,5 @@ start_bell.bat
 **/length.bin
 **/link_lists.bin
 **/index_metadata.pickle
+# OAuth credentials (dead, deleted from Cloud Console)
+oauth_client_info.json
