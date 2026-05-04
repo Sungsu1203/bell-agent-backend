@@ -387,7 +387,7 @@ python tools\diagnose_chunks_deep.py
    *다음 세션 시작점:*
    - 권장 = **pet-food-premium으로 (a) 평가 재개**. 검증된 인덱스 (median 0.410/p95 0.618, fast path 분포 안정). 평가 절차/스크립트는 토픽 슬러그 변경만으로 재사용 가능.
    - 산출물 (commit 포함): `tools/sanity_check_gemini_embedding.py`, `tools/sample_chunks_for_eval.py`, `tools/eval_embedding_models.py`, `eval/goldset/<slug>/README.md`.
-   - height 오염은 별도 작업 후보로 박제 (아래 신설 §12-N 또는 별도 절 참조 — ingest 큐레이션 점검 + GATE_KEEP_SOURCES 적용 검토).
+   - height 오염은 별도 작업 후보로 박제 (아래 신설 §12-N 또는 별도 절 참조 — ingest 큐레이션 점검 + GATE_KEEP_SOURCES 적용 검토). [2026-05-04 정정: §12-N은 §12-12로 채번 확정. 단 height 오염 후속 작업은 §12-12에 포함되지 않았고 §12-10 본문이 후속 트랙 — 별도 §12-N 신설은 미실행.]
 
    **(a) 2차 시도 (2026-05-04, venfobel-vitamin 토픽)**
 
@@ -512,7 +512,7 @@ python tools\diagnose_chunks_deep.py
     - 본 세션 패치: `LOCAL_RAG_GLOBS`에 `,refs/**/*.md,refs/**/*.docx` 추가 (글로벌 .env).
     - height 오염 재해석: "광고 운영 제안서로 100% 오염" 박제는 web side 관찰일 가능성 — local side는 실제로 빈 상태였을 가능성 있음. height 토픽 인덱스가 남아있다면 source 분포 재확인 필요.
 
-11. **§12-N — venfobel-vitamin 작업 발견 사항 (2026-05-04)**
+11. **§12-11 — venfobel-vitamin 작업 발견 사항 (2026-05-04)**
 
     11-1. **web_search prompt에 OBJ 미주입 (해결됨, commit 6ddf20b)**
     - 증상: web seeding 시 LLM이 `BLOCKAGI_OBJECTIVE_*` 무시하고 일반론 쿼리만 생성. 1차 실행 시 토픽 제목 + mission 텍스트 기반 추상 쿼리 2개만 만들어짐.
