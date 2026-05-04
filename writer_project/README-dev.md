@@ -389,6 +389,39 @@ python tools\diagnose_chunks_deep.py
    - 산출물 (commit 포함): `tools/sanity_check_gemini_embedding.py`, `tools/sample_chunks_for_eval.py`, `tools/eval_embedding_models.py`, `eval/goldset/<slug>/README.md`.
    - height 오염은 별도 작업 후보로 박제 (아래 신설 §12-N 또는 별도 절 참조 — ingest 큐레이션 점검 + GATE_KEEP_SOURCES 적용 검토).
 
+   **(a) 2차 시도 (2026-05-04, venfobel-vitamin 토픽)**
+
+   토픽 변경 사유: pet-food-premium 대신 종근당 광고기획 작업이 들어와서 venfobel-vitamin으로 진입.
+
+   *인덱스 구축 결과 — 깨끗 + 풍성*:
+   - `data/chroma_store/venfobel-vitamin-{web,local}/`
+   - web 8 청크, local 349 청크, 합계 357 청크
+   - 청크 통계: avg 651자, p50 754자, p90 1144자
+   - source 분포: xlsx 190, pptx 78, pdf 50, md 43 (local) + dailypharm·hankyung·khidi·krx (web 일부)
+   - 광고대행사 보유 자료(refs/1. 벤포벨/, 종근당_*.pdf) + 우리 보강 .md 6개(시장규모·OTC 광고 규제·활성형 B1·3강 라인업·광고 크리에이티브·Consumer)
+
+   *본 세션 인프라 패치 (commit 누적)*:
+   - commit 99692c6: refs/ 광고기획 자료 일괄 추가 (15 files, 1183 insertions)
+   - commit 10295ee: topics/venfobel-vitamin.env OBJ 5개 정의 (3C+Consumer+전략 시사점)
+   - commit d296f5c: oauth_client_info.json 무력화 + .gitignore 패치 (§12-11-7 참조)
+   - commit 6ddf20b: feat(web_search): inject objectives into prompt (§12-11-1 fix)
+   - .env: ALLOWED_DOMAINS 38→50 확장 (의약 매체 9 + 광고 매체 4)
+   - .env: LOCAL_RAG_GLOBS에 .md, .docx 패턴 추가 (§12-10 정정 결과)
+
+   *(a) 평가 진입 직전 상태*:
+   - 환경 검증: VertexAIEmbeddings(text-multilingual-embedding-002) dim=768 정상 호출 확인
+   - 평가 도구 4개는 commit a731f2f 시점에 height-growth-supplement로 하드코딩 → venfobel용 적응 필요 (3개 파일에서 TOPIC_SLUG 한 줄씩 수정)
+   - 평가 흐름: sanity_check → sample_chunks → 골드셋 작성(정성, 30~60분) → eval 실행
+   - 골드셋 형식: chunks_sampled.jsonl, store별 15~20개씩, 작성 가이드는 eval/goldset/height-growth-supplement/README.md 참조
+
+   *다음 세션 시작점*:
+   1. tools/sample_chunks_for_eval.py L26, tools/eval_embedding_models.py L40, tools/sanity_check_gemini_embedding.py L8 — 3개 파일에서 `TOPIC_SLUG = "height-growth-supplement"` → `"venfobel-vitamin"` 변경
+   2. `python tools/sanity_check_gemini_embedding.py` (두 모델 dim 확인)
+   3. `python tools/sample_chunks_for_eval.py` → eval/goldset/venfobel-vitamin/chunks_sampled.jsonl 생성
+   4. 골드셋 작성 (정성 작업, 30~60분)
+   5. `python tools/eval_embedding_models.py` → eval/results/venfobel-vitamin_gemini_vs_multilingual.md
+   6. 사전 가설 판정(gap 1.3x AND top-1 +5%p) → §12-4-B 박제
+
 5. **VertexAIEmbeddings lazy validation 보강** — ctor는 통과하지만 첫 호출 시 인증 에러 가능. 그 시점 처리
 6. **BM25 키워드 검색 보강** — 정확 매칭(제품명, 회사명) 약한 부분 보완
 7. ~~**HWP 파일 읽기 지원**~~ — 보류 (회사 자료 0개, 외부 HWP는 노이즈 위주). 재검토 조건: 회사가 HWP 자료 도입 시
@@ -399,6 +432,57 @@ python tools\diagnose_chunks_deep.py
     - local store ingest 경로 추적 (refs 폴더는 운영 ingest 파이프라인이 자동으로 읽지 않음 — `refs/`는 LangGraph state 키와 무관한 너 작업용 raw 폴더)
     - 다중 청크화된 단일 페이지(seoul.co.kr 패턴) 차단 휴리스틱 검토 (한 source당 청크 상한)
     - 별도 세션 권장.
+
+    **정정 메모 (2026-05-04, venfobel-vitamin 작업 중 발견)**:
+    - 위 박제 중 "refs 폴더는 운영 ingest 파이프라인이 자동으로 읽지 않음" — **부정확**.
+    - 실제 동작: `agent/web_search.py:1235`에서 `ingest_local_files()` 자동 호출 (`LOCAL_RAG_GLOBS` 환경변수 읽음, 토픽별 1회 가드, vector handoff 자동 주입).
+    - height 작업 시점의 진짜 원인 추정: `LOCAL_RAG_GLOBS=refs/**/*.pdf,refs/**/*.pptx,refs/**/*.xlsx`에 .md/.docx 패턴 누락 → .docx로 저장된 광고대행사 자료, .md 형식 보강 자료 적재 누락.
+    - 본 세션 패치: `LOCAL_RAG_GLOBS`에 `,refs/**/*.md,refs/**/*.docx` 추가 (글로벌 .env).
+    - height 오염 재해석: "광고 운영 제안서로 100% 오염" 박제는 web side 관찰일 가능성 — local side는 실제로 빈 상태였을 가능성 있음. height 토픽 인덱스가 남아있다면 source 분포 재확인 필요.
+
+11. **§12-N — venfobel-vitamin 작업 발견 사항 (2026-05-04)**
+
+    11-1. **web_search prompt에 OBJ 미주입 (해결됨, commit 6ddf20b)**
+    - 증상: web seeding 시 LLM이 `BLOCKAGI_OBJECTIVE_*` 무시하고 일반론 쿼리만 생성. 1차 실행 시 토픽 제목 + mission 텍스트 기반 추상 쿼리 2개만 만들어짐.
+    - 진단: `prompts.py:173 get_web_search_prompt()` PromptTemplate vars에 `objectives` 누락. `agent/web_search.py` inputs dict에도 OBJ 주입 없음.
+    - 해결: `get_web_search_prompt()`에 `{objectives}` 변수 + 규칙 6,7 추가. `agent/web_search.py`에 `config.load_research_objectives_from_env()` 호출 + inputs dict 주입. (research_synthesizer와 동일 패턴 재사용)
+    - 효과 검증: 재실행 시 정밀 쿼리 생성 (IQVIA, 오쏘몰, 아로나민, 임팩타민 등 OBJ 키워드 포함).
+
+    11-2. **MAX_SEARCH_QUERIES_PER_ROUND 미스터리 cap=2 (미해결)**
+    - 증상: .env 어디에도 명시 없는데 런타임 `CFG.MAX_SEARCH_QUERIES_PER_ROUND=2`.
+    - 코드 디폴트 충돌: `agent/web_search.py:333` 디폴트 3, `core/config.py:501` 디폴트 6, 실제 2.
+    - 가설: LLM이 OBJ 5개를 2개 쿼리에 압축해서 자연 종료(cap 미발동) vs hidden config override.
+    - 다음 세션: `_env_int` 구현 추적, setup 스크립트 또는 미발견 .env 파일 점검.
+
+    11-3. **의약 매체 fetch 실패 (외부 이슈)**
+    - `dailypharm.com` → SSL blacklist (`oldm.dailypharm.com` 호스트로 접근됨)
+    - `hitnews.co.kr` → HTTP 404
+    - `kpanews.co.kr` → HTTP 404
+    - GATEKEEP 통과해도 본문 수집 단계 실패 → 인덱스 적재 안 됨.
+    - 다음 트랙: `tools/web_rag/ingest_net.py`의 fetch 재시도 로직 + SSL 검증 옵션.
+
+    11-4. **호스트 정규화 누락 — oldm.dailypharm.com**
+    - 화이트리스트의 `dailypharm.com`은 `oldm.dailypharm.com` 등 subdomain prefix 호스트와 별개로 인식.
+    - 다음 트랙: `tools/web_rag/search.py` GATEKEEP 단계에 subdomain stripping 또는 suffix 매칭.
+
+    11-5. **화이트리스트 확장 효과 제한 (38→50)**
+    - 증상: 의약 매체 9개 + 광고 매체 4개 추가했지만 web 청크 0→8로 미증.
+    - 원인: URL 자체 죽음(§12-11-3) + backend 다양화 부재(naver_direct + tavily만).
+    - 다음 트랙: backend 추가 + fetch 재시도(§12-11-3 연계) + 호스트 정규화(§12-11-4 연계).
+
+    11-6. **dual_retrieve web≠0일 때 정상 작동 (본 세션 확인)**
+    - 지난 박제: web=0일 때 local fallback 안 함 의심 → 본 세션 web≠0 케이스로 검증.
+    - smoke hit 로그 확인 (`q=일반의약품 종합비타민... → [데일리팜] | oldm.dailypharm.com`).
+    - 미해결: web=0 케이스의 fallback은 여전히 미검증 (이번 세션 web≠0이라 못 봄).
+
+    11-7. **oauth_client_info.json client_secret 노출 사고 (처리 완료)**
+    - 발견: `git ls-files | Select-String "service_account|credentials|\.json$"` 결과 oauth_client_info.json이 추적 중.
+    - 노출 commit: `3fce3e6` "update codes" — github.com/Sungsu1203/bell-agent-backend (Public 레포)에 push되어 외부 노출.
+    - 자격증명 내용: project_id=`gemini-rag-project-new` (현재 vertex 운영 프로젝트 `gemini-rag-search-final`과 별개), client_id=`1068404894813-...`, client_secret 포함.
+    - 사용처 확인: 본 시스템 코드에서 import 없음 → dead credential.
+    - 처리: Cloud Console gemini-rag-project-new에서 OAuth client (Gemini-RAG-ADC) Delete → 노출된 secret 영구 무력화.
+    - working tree 정리: oauth_client_info.json 삭제 + .gitignore에 추가 (commit d296f5c).
+    - 미완 트랙: git history scrub via `git filter-repo --path oauth_client_info.json --invert-paths` (다음 push 전 별도 트랙). secret 무력화 완료이므로 history 정리는 위생 차원.
 
 ---
 
