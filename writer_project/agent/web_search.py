@@ -297,8 +297,21 @@ def web_search_agent(state: State):
     outline_text = get_topic_outline_text(state)
     mission = str(_task_get(pending, "description", "") or "").strip()
 
+    # objectives 추출 (research_synthesizer와 동일 패턴)
+    objs = list(state.get("research_objectives") or [])
+    if not objs:
+        try:
+            objs = config.load_research_objectives_from_env()
+        except Exception as e:
+            logger.debug("[WEB SEARCH AGENT] objectives load skipped: %s", e)
+            objs = []
+    objectives_text = "\n".join(f"{i+1}. {o}" for i, o in enumerate(objs)) if objs else "(none)"
+    if objs:
+        logger.info("[WEB SEARCH AGENT] objectives %d개 주입", len(objs))
+
     inputs = {
         "mission": mission,
+        "objectives": objectives_text,    # ← 추가
         "references": references,
         "messages": messages,
         "outline": outline_text,
