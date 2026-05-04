@@ -9,7 +9,7 @@
     - 층위 1 (clean): local-only ranking, web-only ranking (각 store 내부)
     - 층위 2 (운영 정렬): local + web 합친 통합 풀 ranking
 
-골드셋: eval/goldset/height-growth-supplement/chunks_sampled.jsonl
+골드셋: eval/goldset/venfobel-vitamin/chunks_sampled.jsonl
         (query 필드가 채워진 행만 사용)
 
 산출 지표 (층위마다):
@@ -26,7 +26,7 @@
     python tools/eval_embedding_models.py
 
 출력:
-    eval/results/height-growth-supplement_gemini_vs_multilingual.md
+    eval/results/venfobel-vitamin_gemini_vs_multilingual.md
 """
 
 import json
@@ -40,12 +40,12 @@ import numpy as np
 from dotenv import load_dotenv
 
 load_dotenv(".env")
-load_dotenv("topics/height-growth-supplement.env", override=True)
+load_dotenv("topics/venfobel-vitamin.env", override=True)
 
 from langchain_google_vertexai import VertexAIEmbeddings
 
 # ---------- 설정 ----------
-TOPIC_SLUG = "height-growth-supplement"
+TOPIC_SLUG = "venfobel-vitamin"
 GOLDSET_FILE = Path("eval/goldset") / TOPIC_SLUG / "chunks_sampled.jsonl"
 OUTPUT_FILE = Path("eval/results") / f"{TOPIC_SLUG}_gemini_vs_multilingual.md"
 

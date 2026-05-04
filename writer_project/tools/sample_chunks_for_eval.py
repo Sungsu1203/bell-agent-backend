@@ -1,5 +1,5 @@
 """
-1단계: height-growth-supplement Chroma store에서 평가용 청크 샘플링.
+1단계: venfobel-vitamin Chroma store에서 평가용 청크 샘플링.
 
 운영 dual_retrieve가 web/local만 사용하고 통합 store(슬러그 단독)는 사용하지 않으므로,
 평가도 local store와 web store에서만 샘플링한다. 각 store 25개씩, 총 50개.
@@ -8,7 +8,7 @@
     python tools/sample_chunks_for_eval.py
 
 출력:
-    eval/goldset/height-growth-supplement/chunks_sampled.jsonl
+    eval/goldset/venfobel-vitamin/chunks_sampled.jsonl
 
 각 줄 형식:
     {"chunk_id": "...", "text": "...", "source": "...", "store": "local|web", "query": ""}
@@ -23,10 +23,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv(".env")
-load_dotenv("topics/height-growth-supplement.env", override=True)
+load_dotenv("topics/venfobel-vitamin.env", override=True)
 
 # ---------- 설정 ----------
-TOPIC_SLUG = "height-growth-supplement"
+TOPIC_SLUG = "venfobel-vitamin"
 CHROMA_BASE = Path("data/chroma_store")
 
 # 운영 dual_retrieve가 사용하는 store만 (통합 store 제외)
@@ -63,6 +63,7 @@ def load_chunks_from_store(store_path: Path, store_label: str) -> list[dict]:
         vs = Chroma(
             persist_directory=str(store_path),
             embedding_function=emb,
+            collection_name=store_path.name,
         )
         col = vs._collection
         result = col.get(include=["documents", "metadatas"])

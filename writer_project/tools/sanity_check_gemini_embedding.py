@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 # 운영과 동일한 로딩 순서: 루트 .env (GCP 인증, 프로바이더) → 토픽 .env (override)
 load_dotenv(".env")
-load_dotenv("topics/height-growth-supplement.env", override=True)
+load_dotenv("topics/venfobel-vitamin.env", override=True)
 
 # 인증/프로젝트 설정 확인 (디버그)
 print(f"[debug] GOOGLE_APPLICATION_CREDENTIALS={os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')}")

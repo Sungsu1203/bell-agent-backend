@@ -422,6 +422,78 @@ python tools\diagnose_chunks_deep.py
    5. `python tools/eval_embedding_models.py` → eval/results/venfobel-vitamin_gemini_vs_multilingual.md
    6. 사전 가설 판정(gap 1.3x AND top-1 +5%p) → §12-4-B 박제
 
+   **(b) 2차 시도 결과 (2026-05-04, venfobel-vitamin)**
+
+    평가 실행 완료. 사전 가설 판정 + 부가 발견 정리.
+
+    *평가 환경*:
+    - 골드셋: eval/goldset/venfobel-vitamin/chunks_sampled.jsonl, 27 청크 중 21개 query 채움 (local 19 + web 2)
+    - web n=2로 `MIN_QUERIES_PER_TIER=5` 미달 → tier1_web 자동 스킵, tier1_local + tier2_merged만 산출
+    - REF: text-multilingual-embedding-002 (768d), TGT: gemini-embedding-001 (3072d)
+
+    *사전 가설 판정 (tier2_merged 기준)*:
+
+    | 조건 | 임계값 | 측정값 | 통과 |
+    | --- | --- | --- | --- |
+    | gap_ratio (TGT/REF) | ≥ 1.30× | 0.94× | ❌ |
+    | top-1 Δ (TGT−REF) | ≥ +5%p | +14.3%p | ✅ |
+
+    AND 조건 → **fail (보류 유지)**.
+
+    단 fail 사유가 "효과 없음"이 아닌 **"효과 있으나 마이그레이션 ROI 정밀 검증 필요"**. top-1 +14.3%p, MRR +0.074는 retrieval ranking 품질에서 의미 있는 우세이며, gap_ratio < 1.0은 gemini-001의 임베딩 공간 특성(조밀 분포, 변별 폭은 작으나 ranking은 정확)을 드러내는 결과로 해석.
+
+    *tier별 결과*:
+
+    | 층위 | 모델 | gap | top-1 | top-3 | MRR |
+    | --- | --- | --- | --- | --- | --- |
+    | tier1_local (n=19) | REF | 0.117 | 63.2% | 84.2% | 0.756 |
+    | tier1_local (n=19) | TGT | 0.117 | **78.9%** | **89.5%** | **0.840** |
+    | tier1_web (n=2) | — | skipped | — | — | — |
+    | tier2_merged (n=21) | REF | 0.112 | 57.1% | 81.0% | 0.706 |
+    | tier2_merged (n=21) | TGT | 0.106 | **71.4%** | **85.7%** | **0.780** |
+
+    tier1_local은 더 큰 격차(top-1 +15.7%p) — 깨끗한 도메인 내부에서 TGT 우세 분명. tier2_merged 격차가 줄어드는 건 web 청크 2개의 작은 풀이 평균을 흐리는 영향.
+
+    *부가 발견 — 운영 cleanup 후보 박제*:
+
+    1. **OPERATIONAL_THRESHOLD = 0.65 사실상 무의미**. 두 모델 모두 threshold 0.65 적용 시 precision 5% / recall 100% — 골드셋 모든 쌍이 distance < 0.65라 cut-off로 기능 안 함. 이는 모델 비교와 무관한 운영 retrieval 자체의 문제로, 권장 threshold는 분포 기준 ~0.19~0.20 (rel.p75와 hardneg.median 중간). 운영 retrieval이 사실상 cut-off 없이 머지 중. **§12-N-α 별도 작업 큐**로 박제: 운영 threshold 재조정 효과 검증.
+
+    2. **collection_name 명시 누락 silent fail 버그 발견 + 패치**. 1차 시도(commit a731f2f) 평가 도구는 langchain-chroma `Chroma(...)` 호출에 `collection_name=` 미지정 → default `"langchain"` 이름의 빈 collection 자동 생성, 거기서 0건 silent 반환. 2차 시도에서 `collection_name=store_path.name` 명시로 패치. 박제된 1차 환경 검증 메모(§12-4-A 1차 시도)가 정확히 이 케이스를 예고했으나 코드 반영 누락 — **박제 → 코드 동기화 갭의 사례**. 1차 시도가 만든 빈 langchain collection 두 개도 같은 commit에서 cleanup.
+
+    3. **VertexAIEmbeddings deprecation 경고**. `langchain-google-vertexai.VertexAIEmbeddings`는 LangChain 3.2.0에서 deprecated, 4.0.0에서 제거 예정. `langchain-google-genai.GoogleGenerativeAIEmbeddings`로 마이그레이션 권고. 본 평가는 운영 일관성 위해 동일 클래스 유지 — 운영(`core/llm.py`)도 같은 클래스 사용 중. 운영 마이그레이션 시점에 평가도 함께 cleanup. **§12-N-β 별도 작업 큐**.
+
+    4. **`core/llm.py:386-399` kwargs 폴백 순서 cleanup 후보** (§12-4-A 1차 시도에서 박제). `model_name=`(deprecated alias) 첫 시도 → `model=` 폴백 순서를 `model=` 우선으로 뒤집기. 동작 변화 없음. **§12-N-β 작업 큐에 통합**.
+
+    *venfobel 토픽 인덱스 한계 박제*:
+
+    - web 인덱스 8 청크 → 골드셋 web 2 청크 → tier1_web 평가 구조적 불가능
+    - height 1차 시도(web 85)와 venfobel 2차 시도(web 8)의 차이는 인덱스 품질이 아닌 양의 차이. 토픽별 평가 진입 가능성 판정 시 web 청크 수가 선결 조건
+    - 향후 venfobel web 인덱스 보강(ALLOWED_DOMAINS 50개 활용) 후 재평가는 **§12-N-γ 작업 큐**
+
+    *마이그레이션 결정 — 보류 유지*:
+
+    본 평가는 단일 토픽 결과이며, gemini-001의 retrieval 우세는 분명하나:
+    - 차원 4배 증가에 따른 인덱스 저장 비용 4배
+    - 임베딩 호출 비용 (3072d API 호출)
+    - threshold 재조정 필요 (§12-N-α와 연동)
+    - 인덱스 재생성 필요
+
+    이 운영 부담을 +14.3%p top-1 / +0.074 MRR로 정당화하려면 **다른 토픽(pet-food-premium 등)에서 동일 평가를 반복하여 결과 일반화 검증**이 선결. **§12-N-δ 작업 큐**: pet-food-premium 토픽으로 임베딩 평가 반복.
+
+    *산출물 commit*:
+    - 평가 도구 패치: `tools/sample_chunks_for_eval.py` collection_name 명시
+    - 빈 langchain collection cleanup: `data/chroma_store/venfobel-vitamin-{local,web}/langchain` 삭제
+    - 골드셋: `eval/goldset/venfobel-vitamin/{README.md, chunks_sampled.jsonl}`
+    - 결과: `eval/results/venfobel-vitamin_gemini_vs_multilingual.md`
+    - topic 적응: tools/{sanity_check_gemini_embedding,sample_chunks_for_eval,eval_embedding_models}.py 슬러그 치환
+
+    *push 보류 유지 사유*:
+
+    origin/main 대비 6 commits ahead (이번 commit 포함). 광고대행사 자료 NDA risk + 골드셋 jsonl이 광고대행사 자료 본문 일부 포함 → push 금지. NDA 정리 끝날 때까지 local commit만 누적. §12-11-7과 동일 정책.
+
+    *다음 세션 진입점*:
+    §12-N-α/β/γ/δ 중 우선순위 결정. 가장 ROI 높은 후보는 §12-N-α (운영 threshold 재조정 효과 검증) — gemini 마이그레이션과 무관하게 현 운영 retrieval 품질 직접 개선 가능성.
+
 5. **VertexAIEmbeddings lazy validation 보강** — ctor는 통과하지만 첫 호출 시 인증 에러 가능. 그 시점 처리
 6. **BM25 키워드 검색 보강** — 정확 매칭(제품명, 회사명) 약한 부분 보완
 7. ~~**HWP 파일 읽기 지원**~~ — 보류 (회사 자료 0개, 외부 HWP는 노이즈 위주). 재검토 조건: 회사가 HWP 자료 도입 시
