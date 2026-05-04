@@ -612,7 +612,7 @@ python tools\diagnose_chunks_deep.py
 
 13. **§12-13 — supervisor 라우팅 가드 + web/vector 루프 종결 조건 (2026-05-04 사용자측 검증 세션 발견)**
 
-    **현재 상태 (2026-05-05 사용자측 검증 세션 close)**: 본 세션 미션 A/B/C 완수. C 미션(end-to-end 리포트 생성) 7섹션 + report_builder 합본 정상 완료, 다만 §12-13-5(`write:` 명시형 prefix 외 라우팅 실패)로 인한 임시 우회로 사용. 신규 4개 항목 박제(13-5/6/7/8). §12-13 큐 전체 8개 항목 누적 — 코드 수정 진입 트리거는 (1) §12-13-5 우선순위 최상 (사용자 명시형 prefix 강제 부담) (2) §12-13-1~4 패키지로 supervisor + router 분기 정리 (3) §12-13-6/7/8 후순위.
+    __현재 상태 (2026-05-05 §12-13 코드 수정 세션 후)__: §12-13-5/7 close. §12-13 큐 9개 누적 중 2개 close, 7개 pending (§13-1/2/3/4/6/8 + 신규 §13-9).
 
     출처: §12-12-1 close 직후 사용자측 검증 세션(2026-05-04). 미션 A에서 "비타민 B1이 뭐야"(60초, 정상), "파이썬에서 리스트 컴프리헨션이 뭐야"(247초, 5회 vector→web 루프, 인덱스 8→37), "벤포벨이 뭐야"(9초, 정상)의 3건 비교 로그에서 검출. C 미션은 본 큐 미해결 상태로 진입(하자 인지 + 인덱스 변화 메모 + reports/ 디렉토리 분리 운영으로 risk 격리).
 
@@ -644,12 +644,20 @@ python tools\diagnose_chunks_deep.py
     - C 진입 전 검증 세션 부산물 3개 파일을 삭제.
     - 진입 트리거: 코드 수정은 차후. **임시 우회는 본 세션 C 진입 전 즉시.**
 
-    13-5. **`write:` 명시형 prefix 외 라우팅 실패 (ko-natural 형식)** — 상태: `pending` (임시 우회 확정) / 의존: 없음 / 우선순위: 최상 (Blocker)
+    13-5. **`write:` 명시형 prefix 외 라우팅 실패 (ko-natural 형식)** — 상태: `closed (2026-05-05 §12-13 코드 수정 세션)` / 의존: 없음 / 우선순위: 최상 (Blocker)
     - 발견: 2026-05-05 사용자측 검증 세션 C 미션 진입 시. "2. <섹션명> 섹션 작성해주세요"(ko-natural hit) 입력 → supervisor가 write 의도 무시 + research_round 0→1 promote → web_search → vector → synthesizer → communicator Direct QA 흐름으로 진행. **section_writer 진입 실패** (90초, 356자 응답).
     - 대조군: 같은 의도를 "write: <섹션명>"(explicit hit)으로 입력 시 `[Supervisor fast-path] write + rag_on_disk → vector_search → section_writer` 분기 정확 작동. 7섹션 연속 100% 일관 재현 (06:01:54~06:32:34).
     - 임시 우회: **C 미션은 `write:` 명시형 prefix 사용 시 정상 작동.** 7섹션 + report_builder 합본까지 31분에 완수.
     - 검토안: `agent.supervisor` 의도 분류 분기에서 `extract_write_title()` 결과를 explicit/ko-natural 구분 없이 동일 우선순위로 처리. `rag_expression.py:213-243` 함수는 둘 다 정상 hit하므로 supervisor 측에서 결과 사용 시점에서 구분이 발생.
     - 진입 트리거: §12-13-1/2/3과 함께 supervisor 분기 코드 손댈 때. 코드 수정 우선순위 최상이지만 임시 우회로 사용자 작업은 막히지 않음.
+
+    **close 후기 (2026-05-05 §12-13 코드 수정 세션)**:
+    - 패치: `agent/supervisor.py` Line 607~617 — `_is_write_cmd = last_text.lower().startswith("write:")` 검사를 `_write_title_early = extract_write_title(last_text)` 호출로 통일. explicit/ko-natural 둘 다 hit 시 동일 fast-path 진입.
+    - description 정규화: `last_text` 원본 → `f"write: {_write_title_early}"` 로 변환하여 section_writer 측 파싱 일관성 확보.
+    - 로그에 `hit=explicit/ko-natural` 표기 추가 — 라우팅 분기 진단성 확보.
+    - 검증: ko-natural 입력 "7. 실행 로드맵 및 핵심 성과 지표(KPI) 섹션 작성해주세요" → fast-path 정확 진입 + section_writer 도달 + 4905자 초안/10165 bytes .md 저장 (08:08:50~08:11:21, 2분 31초). 직전 세션 7회 100% 실패 → 본 세션 1회 회복 확정.
+    - 회귀 검증 explicit 형식은 단위 테스트 (`extract_write_title('write: 실행 로드맵 및 핵심 성과 지표(KPI)')` → `'실행 로드맵 및 핵심 성과 지표(KPI)'`) 로 갈음. 함수 hit 결과만 사용하는 패치 구조상 explicit 회귀 가능성 무시 가능.
+    - 부수 효과: §12-13-3 (after_vector → web 루프) 의 본 시나리오 트리거 차단. writer_pending 사전 등록으로 router.after_vector가 vector no hits 시에도 web_search 우회 후 section_writer 직행. (§13-3 자체는 일반 QA-like 입력에서 여전히 미수정.)
 
     13-6. **Vertex 429 ResourceExhausted retry — quota 모니터링 부재** — 상태: `pending` / 의존: 없음 / 우선순위: 중
     - 발견: C 미션 Section 7 작성 중(06:28:46~06:31:20, 2분 49초) `langchain_google_vertexai._retry`가 `ResourceExhausted: 429` 발생 → 4초 대기 후 재시도 → 성공. **다른 섹션 평균(35~50초) 대비 5배 소요.**
@@ -657,16 +665,36 @@ python tools\diagnose_chunks_deep.py
     - 검토안: (a) Vertex quota 일일 사용량 추적 metric 추가, (b) 429 발생 시 fallback (gemini-flash → gemini-flash-lite, Anthropic API), (c) 긴 섹션 LLM 호출 분할.
     - 진입 트리거: 사용자측 작업이 누적되며 429 빈도가 증가하는 시점.
 
-    13-7. **`extract_write_title` 닫는 괄호 처리 미흡** — 상태: `pending` / 의존: §12-13-1과 패키지 처리 가능 / 우선순위: 낮음
+    13-7. **`extract_write_title` 닫는 괄호 처리 미흡** — 상태: `closed (2026-05-05 §12-13 코드 수정 세션)` / 의존: §12-13-1과 패키지 처리 가능 / 우선순위: 낮음
     - 발견: C 미션 Section 7 입력 `'write: 실행 로드맵 및 핵심 성과 지표(KPI)'` → extract 결과 `'실행 로드맵 및 핵심 성과 지표(KPI'` (닫는 `)` 잘림). 본문 작성에 영향 없으나 파일명도 `실행-로드맵-및-핵심-성과-지표kpi.md`로 정규화됨(괄호 자체 누락).
     - 검토안: `rag_expression.py:213-243` 함수의 `_TAIL_PUNCT_RE` 정규식 점검. tail 정리 시 닫는 괄호도 trim 대상에 포함된 것으로 추정 → 매칭된 여는 괄호 `(` 직전까지 포함하는 group 처리 필요.
     - 진입 트리거: §12-13-1 이후 또는 별도 cosmetic 정리 시.
+
+    - 진입 트리거: §12-13-1 이후 또는 별도 cosmetic 정리 시.
+
+    **close 후기 (2026-05-05 §12-13 코드 수정 세션)**:
+    - 진단 정정: 박제 본문은 `_TAIL_PUNCT_RE` 만 원인으로 지목했으나, 실제로는 `_strip_smart_quotes()` (Line 207~209) 의 `s.strip(...)` 인자에도 `'(', ')', '[', ']'` 포함되어 있어 explicit 경로에서도 닫는 `)` 잘림. 단위 테스트 `extract_write_title('write: 실행 로드맵 및 핵심 성과 지표(KPI)')` → `'실행 로드맵 및 핵심 성과 지표(KPI'` 로 explicit 경로 버그 확인.
+    - 패치 (`rag_expression.py`):
+      - Line 27 부근 — `_strip_tail_punct(s)` 헬퍼 신규 추가: 닫는 따옴표는 기존대로 제거, 닫는 `)`/`]` 는 문자열 안에 대응 여는 짝이 있으면 보존, 없으면 제거 (떠돌이 closer 정리). `_TAIL_PUNCT_RE` 는 legacy 변수로 보존 (다른 모듈 사용처 0건 확인, 향후 cleanup 가능).
+      - `_strip_smart_quotes()` (Line 207~209) — strip 인자에서 `()`, `[]` 제거 + 함수 끝에 `_strip_tail_punct()` 호출 추가.
+      - Line 239 — `_TAIL_PUNCT_RE.sub("", raw)` → `_strip_tail_punct(raw)` 교체.
+    - 단위 검증: 7개 케이스 (#1 explicit+괄호, #2 ko-natural+괄호, #3 ko-natural 일반, #4 떠돌이 `)`, #5 끝 마침표, #7 대괄호 짝) 모두 통과. (#6 따옴표 케이스는 PowerShell escape 이슈로 보류, 회귀 가능성 낮음.)
+    - e2e 검증: 위 §12-13-5 검증과 동일 입력에서 `extract_write_title ko-natural hit: 실행 로드맵 및 핵심 성과 지표(KPI)` 정확 출력 — 닫는 `)` 보존 확인.
+    - 잔여: 슬러그 정규화 단계에서 괄호 자체 누락은 별개 함수 (`section_writer` 또는 `content_utils.save_md_draft` 슬러그 정규화) 영역 → §12-13-9 신규 박제로 분리.
 
     13-8. **router.tail outline_shown=False 영구 미설정 → communicator prompt 분기와 비일관** — 상태: `pending` / 의존: 없음 / 우선순위: 낮음
     - 발견: C 미션 7섹션 진행 중 매번 `[router.tail] outline exists but not shown → communicator (shown=False)` 라우팅. 그러나 communicator 응답은 outline 표시하지 않고 일반 응답만 생성. 즉 router가 "outline 표시" 의도로 보냈으나 communicator는 "다시 출력하지 않겠다" 분기 선택 → state.outline_shown 계속 False → 다음 섹션 처리 시 또 동일 라우팅 반복.
     - 증상: communicator 호출 7회 누적 + reports/ 디렉토리에 1KB대 부산물 7개 누적 (§12-13-4 누적 가속).
     - 검토안: communicator가 outline 표시 분기를 거쳤다면(prompt가 outline을 컨텍스트로 받았으나 출력 생략 결정 포함) state.outline_shown=True 명시 설정. 또는 router.tail의 outline_display 분기 우선순위 조정.
     - 진입 트리거: §12-13-4 코드 수정 시 함께.
+
+    - 진입 트리거: §12-13-4 코드 수정 시 함께.
+
+    13-9. **section_writer 슬러그 정규화에서 괄호 자체 제거** — 상태: `pending` / 의존: 없음 / 우선순위: 낮음 (cosmetic)
+    - 발견: 2026-05-05 §12-13 코드 수정 세션. §12-13-7 패치로 `extract_write_title()` 결과는 `'실행 로드맵 및 핵심 성과 지표(KPI)'` (괄호 보존) 정상 반환. 그러나 section_writer 가 .md 파일명 슬러그 생성 시 `실행-로드맵-및-핵심-성과-지표kpi.md` (괄호 자체 누락) 로 정규화. 본문 제목은 정상 표기.
+    - 증상: cosmetic 이슈 — 합본 보고서 본문 영향 없음. 다만 sections/ 디렉토리 파일명에서 괄호 정보 손실 → 동명이섹션 (예: "...(요약)" vs "...(상세)") 충돌 잠재 위험.
+    - 검토안: `content_utils._slugify()` 또는 section_writer 측 슬러그 함수 점검. `re.sub(r'[^\w\-]', '', s)` 같은 정규식이 괄호를 제거 중일 가능성. 괄호를 `-`로 치환하거나 보존하도록 수정.
+    - 진입 트리거: 별도 cosmetic 정리 시 또는 동명이섹션 충돌 발생 시.
 
 ---
 

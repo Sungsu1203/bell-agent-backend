@@ -604,17 +604,25 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
     # 연구 라운드 부트스트랩
     def _is_research_mode_local(st: Mapping[str, Any]) -> bool: return _is_research_mode(st)
 
-    # write 명령 + RAG 있으면 리서치 건너뛰고 바로 section_writer로
-    _is_write_cmd = last_text.lower().startswith("write:")
-    if _is_write_cmd and has_on_disk:
+    # write 명령(explicit "write:" 또는 ko-natural "X 섹션 작성해주세요") + RAG 있으면
+    # 리서치 건너뛰고 바로 section_writer로
+    # §12-13-5: extract_write_title()이 둘 다 hit하므로 explicit prefix 검사 대신 통일 사용.
+    #           description은 "write: <title>"로 정규화하여 section_writer 측 파싱 일관성 확보.
+    _write_title_early = extract_write_title(last_text)
+    if _write_title_early and has_on_disk:
+        _hit_kind = "explicit" if last_text.lower().startswith("write:") else "ko-natural"
+        _norm_desc = f"write: {_write_title_early}"
         if not _safe_has_pending(tasks, "section_writer"):
-            tasks.append(Task(agent="section_writer", done=False, description=last_text, done_at=""))
+            tasks.append(Task(agent="section_writer", done=False, description=_norm_desc, done_at=""))
         if not _safe_has_pending(tasks, "vector_search_agent"):
             tasks.append(Task(agent="vector_search_agent", done=False, description=f"qa_query:{last_text}", done_at=""))
-        logger.info("[Supervisor fast-path] write + rag_on_disk → vector_search → section_writer")
+        logger.info(
+            "[Supervisor fast-path] write + rag_on_disk → vector_search → section_writer (title=%s, hit=%s)",
+            _write_title_early, _hit_kind,
+        )
         _dash_emit(state, where="supervisor", picked="vector_search_agent", reason="write_rag_fastpath_with_vector")
         return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {}), "rag_on_disk": True, "topic_title": state.get("topic_title")}
-
+    
     if _is_research_mode_local(state):
         research_agents = ("research_planner","web_search_agent","vector_search_agent","research_synthesizer")
         has_research_pending = any(_safe_has_pending(tasks, a) for a in research_agents)

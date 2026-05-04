@@ -24,7 +24,41 @@ def _is_langchain_message(obj: Any) -> bool:
         return False
 
 # --- safe tail-trim patterns (quote/paren/bracket) ---
-_TAIL_PUNCT_RE = re.compile(r"""[\"“”'’)\]]+$""")
+# §13-7: 닫는 괄호/대괄호는 대응하는 여는 짝이 있으면 보존, 없으면 제거.
+# 닫는 따옴표는 기존 동작 유지(짝 매칭이 모호함).
+_TAIL_QUOTE_RE = re.compile(r"""[\"""'']+$""")
+
+
+def _strip_tail_punct(s: str) -> str:
+    """문자열 끝의 닫는 따옴표/괄호/대괄호를 정리.
+    단, 닫는 ')' 또는 ']'는 문자열 안에 대응 여는 짝이 있으면 보존한다.
+    예: '실행 로드맵(KPI)' → '실행 로드맵(KPI)' (짝 매칭, 보존)
+        'foo)' → 'foo' (짝 없음, 제거)
+        'foo")' → 'foo' (짝 없음 → ) 제거 → " 제거)
+    """
+    if not s:
+        return s
+    # 1) 닫는 따옴표만 우선 제거 (짝 개념 모호)
+    s = _TAIL_QUOTE_RE.sub("", s)
+    # 2) 닫는 괄호/대괄호: 짝 매칭 검사 후 결정
+    while s and s[-1] in (")", "]"):
+        closer = s[-1]
+        opener = "(" if closer == ")" else "["
+        # 끝의 closer 1개를 떼고 나머지에서 opener 갯수 vs closer 갯수 비교
+        body = s[:-1]
+        if body.count(opener) > body.count(closer):
+            # 대응하는 여는 짝이 있으니 closer는 짝의 일부 → 보존
+            break
+        # 짝 없는 떠돌이 closer → 제거 후 다시 검사 (e.g. '...))')
+        s = body.rstrip()
+        # 한 번 더 닫는 따옴표 제거 (e.g. 'foo")' 케이스)
+        s = _TAIL_QUOTE_RE.sub("", s)
+    return s
+
+
+# 하위 호환: 기존 변수명 보존 (다른 모듈이 import할 가능성 대비)
+# §13-7 이후로는 _strip_tail_punct() 사용을 권장
+_TAIL_PUNCT_RE = re.compile(r"""[\"""'')\]]+$""")  # legacy, deprecated
 _TAIL_SECTION_RE = re.compile(r"\s*(?:섹션|section)\s*$", re.IGNORECASE)
 
 __all__ = [
@@ -204,11 +238,16 @@ def extract_section_index(text_like: Any) -> Optional[int]:
                 return None
     return None
 
-
 def _strip_smart_quotes(s: str) -> str:
-    # 따옴표 + 괄호/대괄호/마침표/세미콜론까지 정리 (국문 마침표 포함)
-    return s.strip(' \t\'\"“”‘’()[];:。．.;…‥.')
-
+    """따옴표 + 마침표/세미콜론 등 꼬리 noise 정리.
+    §13-7: 닫는 괄호/대괄호는 _strip_tail_punct()에서 짝 매칭 후 결정하므로
+           여기서는 strip 대상에서 제외한다.
+    """
+    # 1) 양끝의 공백/따옴표/마침표/세미콜론 정리 (괄호류 제외)
+    s = s.strip(' \t\'\"""''.;:。．;…‥.')
+    # 2) 꼬리 괄호/대괄호는 짝 매칭 기반으로 정리
+    s = _strip_tail_punct(s)
+    return s
 
 def extract_write_title(text_like: Any) -> Optional[str]:
     """문자열/멀티모달 입력에서 write/작성/집필 명령의 타이틀을 추출.
@@ -236,7 +275,7 @@ def extract_write_title(text_like: Any) -> Optional[str]:
         if m2:
             raw = (m2.group("title") or "").strip()
             # 문장 끝 불필요 토큰 제거(따옴표/괄호/대괄호 닫힘 등)
-            raw = _TAIL_PUNCT_RE.sub("", raw).strip()
+            raw = _strip_tail_punct(raw).strip()
             # '섹션/section' 꼬리 제거(대소문자 무시)
             raw = _TAIL_SECTION_RE.sub("", raw).strip()
             title = _strip_smart_quotes(raw)
