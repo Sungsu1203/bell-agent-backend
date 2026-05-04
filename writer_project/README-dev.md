@@ -564,6 +564,8 @@ python tools\diagnose_chunks_deep.py
 
     **현재 상태 (2026-05-04 세션 close 시점)**: §12-12-1 close 완료. §12-12-2/3/4는 우선순위 하향 — backend mechanism 개선 작업이 backend 위생 layer에 머물러 있고, 사용자 측 동작 검증(리포트 end-to-end 생성, Direct QA 작동, 일반 LLM Q&A 흐름)이 선행되어야 함. 사용자 측 검증에서 retrieval 품질 부족이 실제로 드러나는 시점에 §12-12-2/3/4 또는 §12-6(BM25/cross-encoder reranking) 재진입. 그 전까지 본 큐는 보류.
 
+    **현재 상태 (2026-05-04 사용자측 검증 세션 후)**: 본 세션 미션 B(Direct QA on 벤포벨 인덱스) 정식 통과. 글로벌 0.65 임계 정상 작동 확인 — venfobel-vitamin local 인덱스(349 청크)에서 "벤포벨이 뭐야" 질의 → Ipsos 광고효과조사 PPTX 청크 2건 hit, Direct QA Summary 생성(161자). 단, **임계 경계 진동 정량 관찰**: (a) 동일 청크 `dailypharm.com/user/news/7806`이 query에 따라 0.679 통과 / 0.675 컷으로 진동, (b) `distance=0.650` 정확 일치 케이스가 컷됨 (`> 0.650` strict 비교 추정). 이는 §12-12-1 close 시 명시한 "venfobel-vitamin은 분포 절벽 부재 → 본 절차 적용 불가" 판단과 정합. **override 재진입 결정은 보류 유지**하되, C 미션(end-to-end 리포트) 결과물의 인용 분포에서 0.65 컷이 정성적으로 유의미한 잡음 제거인지 vs 누락 신호인지 추가 평가 후 §12-12-2/3/4 또는 §12-6 재진입 판단.
+
     출처: §12-4-A (b) 2차 시도(venfobel-vitamin) 평가 부산물로 발견된 운영 정합성 작업 4건. 본 큐는 venfobel 토픽에 종속되지 않으며 글로벌 운영 retrieval/임베딩 품질에 관한 cleanup 항목 모음.
 
     각 항목 메타 형식: **상태 / 의존 / 차단 사유**
@@ -607,6 +609,40 @@ python tools\diagnose_chunks_deep.py
     - 평가 도구: §12-4-A 2차 시도 산출물 그대로 재사용. 슬러그 치환 3곳(`tools/sample_chunks_for_eval.py:L26`, `tools/eval_embedding_models.py:L40`, `tools/sanity_check_gemini_embedding.py:L8`)만 변경.
     - 골드셋 작성 정성 작업 30~60분 필요.
     - 진입 트리거: §12-12-1 완료 후 또는 광고대행사 작업(venfobel) 일단락 후.
+
+13. **§12-13 — supervisor 라우팅 가드 + web/vector 루프 종결 조건 (2026-05-04 사용자측 검증 세션 발견)**
+
+    **현재 상태 (2026-05-04 검출 시점)**: 본 세션 미션 A(일반 LLM Q&A health check) 검증 중 4건의 결정적 하자 검출. backend layer는 §12-12-1 close 후 정상이지만, **supervisor 라우팅 + router 분기에 토픽-적합성 가드가 없어** venfobel과 무관한 일반 질문이 RAG 경로로 끌려가 4분 7초 폭주 + web 인덱스 의도치 않은 증가(8→37 청크) 관찰. 본 큐는 §12-12와 달리 retrieval 품질이 아닌 **routing/loop 제어 layer** 작업이며, C 미션(end-to-end 리포트) 작업 중 무관 질의 발생 시 인덱스 추가 오염 가능성 존재.
+
+    출처: §12-12-1 close 직후 사용자측 검증 세션(2026-05-04). 미션 A에서 "비타민 B1이 뭐야"(60초, 정상), "파이썬에서 리스트 컴프리헨션이 뭐야"(247초, 5회 vector→web 루프, 인덱스 8→37), "벤포벨이 뭐야"(9초, 정상)의 3건 비교 로그에서 검출. C 미션은 본 큐 미해결 상태로 진입(하자 인지 + 인덱스 변화 메모 + reports/ 디렉토리 분리 운영으로 risk 격리).
+
+    13-1. **supervisor fast-path 토픽-적합성 가드 부재** — 상태: `pending` / 의존: 없음 / 우선순위: 높음 (C 미션 진행 중 재발 위험)
+    - 발견: 입력에 "?"가 포함되면 supervisor가 "QA-like" 분류만으로 vector_search_agent로 직행. 토픽(`venfobel-vitamin`) 키워드와의 매칭은 검사하지 않음.
+    - 증상: "파이썬에서 리스트 컴프리헨션이 뭐야"가 venfobel 인덱스 retrieval 시도 → no hits → web_search 진입 → outline OBJ 5개 쿼리로 venfobel 자료 추가 인덱싱 → 인덱스 8→37 증가.
+    - 검토안: fast-path 진입 전 토픽 키워드(`venfobel`, `벤포벨`, `비타민`, `B1`, `벤포티아민`, `종근당` 등) 1차 매칭. 매칭 0이면 communicator 직행, ≥1이면 현재 동작 유지. 키워드 셋은 `core.config.CFG.TOPIC_TITLE` 또는 별도 `TOPIC_KEYWORDS` 설정에서 주입.
+    - 진입 트리거: C 미션 완료 후 즉시 (예방적 수정 — C 산출물 평가에는 영향 없음, 다만 후속 사용자측 검증에서 재발 차단).
+
+    13-2. **web_search agent의 query 파생 로직: 사용자 질의와 OBJ 분리** — 상태: `pending` / 의존: §12-13-1과 패키지로 처리 가능 / 우선순위: 중
+    - 발견: web_search agent는 사용자 질의를 무시하고 outline OBJ 5개를 그대로 검색 쿼리로 사용 (`[WEB SEARCH AGENT] objectives 5개 주입` 로그). 즉 사용자 의도와 web_search 의도가 의도적으로 분리되어 있음.
+    - 증상: vector retrieval이 no hits일 때 fallback으로 web_search가 호출되는데, 발사되는 쿼리는 사용자 질의와 무관 → 사용자 질의로 다시 vector retrieval 시도해도 또 no hits → 루프.
+    - 검토안 (택1):
+      - (a) vector no-hits 시 web_search 진입 자체를 차단 (`router.after_vector` 분기에서 "QA-like 의도이고 user query와 OBJ 무관"이면 communicator로 직행)
+      - (b) web_search 쿼리에 user query 1개 혼합 (OBJ 4 + user 1)
+      - (a)가 단순하고 §12-13-1과 결합 시 자연스러움. (b)는 OBJ 기반 research workflow와 충돌 가능.
+    - 진입 트리거: §12-13-1과 함께.
+
+    13-3. **after_vector → web_search → after_vector 루프 카운터 검증** — 상태: `pending` / 의존: §12-13-1/2와 묶음 / 우선순위: 중
+    - 발견: 로그상 `after_vector_ws_retries=1/1` 명시(retry 1회로 제한)에도 실제로는 5회 루프 발생 → 카운터 의도와 실제 동작 불일치.
+    - 증상: 2번째 질의(파이썬)에서 vector_search 5회 + web_search 5회 = 10단계가 4분 7초 동안 진행됨. `core/routers.py`의 `after_vector` / `after_web` 분기에서 카운터 증가 누락 또는 round 진입 시 reset 로직 의심.
+    - 검토안: `core/routers.py` 해당 분기 코드 점검 + 카운터 state path(예: `state["routing_counters"]["after_vector_ws_retries"]`) 추적. 단위 테스트로 재현 + 1회 제한 회복.
+    - 진입 트리거: §12-13-1/2 작업 시 함께. routers 코드 손댈 때 한 번에 처리.
+
+    13-4. **communicator 자동 저장 파일명이 C 미션 리포트와 충돌** — 상태: `pending` / 의존: 없음 / 우선순위: 높음 (C 진입 직전 즉시 필요)
+    - 발견: communicator가 모든 응답을 `reports/venfobel-vitamin/{slug}_{timestamp}.md`로 자동 저장. Direct QA hard-stop 응답(317B/377B)도, 일반 communicator 응답(512B)도, C 미션 end-to-end 리포트도 모두 동일 파일명 형식 → 시각적 식별 불가.
+    - 증상: 본 세션 검증 중 `reports/venfobel-vitamin/`에 3개 QA 응답 파일 자동 생성 (170636/171821/172655). C 진입 시 진짜 리포트와 섞일 위험.
+    - 검토안: QA 응답 저장 경로를 `reports/venfobel-vitamin/qa/{slug}_{ts}.md` 또는 `reports/venfobel-vitamin/{slug}_qa_{ts}.md`(qa prefix)로 분리. `agent.communicator`의 `[SAVE] report saved` 분기에서 `qa_direct_reply` 플래그 보고 경로 분기.
+    - 임시 우회 (본 세션 완료): C 진입 전 검증 세션 부산물 3개 파일을 `reports/venfobel-vitamin/_qa_session_20260504/`로 이동.
+    - 진입 트리거: 코드 수정은 차후. **임시 우회는 본 세션 C 진입 전 즉시.**
 
 ---
 
