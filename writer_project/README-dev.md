@@ -558,6 +558,49 @@ python tools\diagnose_chunks_deep.py
 
 ---
 
+12. **§12-12 — 운영 retrieval/임베딩 cleanup 큐 (2026-05-04~)**
+
+    출처: §12-4-A (b) 2차 시도(venfobel-vitamin) 평가 부산물로 발견된 운영 정합성 작업 4건. 본 큐는 venfobel 토픽에 종속되지 않으며 글로벌 운영 retrieval/임베딩 품질에 관한 cleanup 항목 모음.
+
+    각 항목 메타 형식: **상태 / 의존 / 차단 사유**
+    - 상태: `pending` / `active` / `blocked` / `done`
+    - 의존: 선행 작업 또는 외부 조건
+    - 차단 사유: blocked일 때만 명시
+
+    12-1. **운영 OPERATIONAL_THRESHOLD 재조정 효과 검증** — 상태: `active` (2026-05-04~) / 의존: 없음
+
+    - 발견(§12-4-A (b)): 운영 threshold 0.65에서 venfobel 골드셋 기준 precision 5% / recall 100% — cut-off로 기능 안 함. 골드셋 모든 쌍이 distance < 0.65라 운영 retrieval이 사실상 cut-off 없이 머지 중.
+    - 권장값(분포 근거): rel.p75와 hardneg.median 중간값 ~0.19~0.20 (text-multilingual-embedding-002 기준, venfobel 골드셋).
+    - 검증 가설: threshold를 운영 분포 기준값으로 내리면 retrieval 노이즈 감소.
+    - 검증 방법: 본 세션 첫 작업으로 설계 (sweep 범위, 측정 지표, 토픽 일반화 처리 방식 결정 필요).
+    - 영향 범위: 글로벌 default `RAG_DISTANCE_THRESHOLD=0.65`. pet-food-premium은 0.60 override 중 — 토픽별 override 기제는 이미 존재하므로, 글로벌 default 변경 vs 토픽별 권장값 산출 절차 정립 중 어느 방향인지 설계 단계에서 확정.
+    - 산출물 예정: 검증 스크립트, 결과 메모, README §2(distance threshold) 또는 §8(진단 도구) 항목 갱신.
+
+    12-2. **VertexAIEmbeddings deprecation 마이그레이션 + kwargs 폴백 순서 cleanup** — 상태: `pending` / 의존: LangChain 4.0 출시 동향 / 차단 사유: ROI 우선순위 낮음 + 과거 마이그레이션 회귀 이력(§12-4)
+
+    - 통합 대상 두 건:
+      - (a) `langchain-google-vertexai.VertexAIEmbeddings` (LangChain 3.2.0 deprecated, 4.0.0 제거 예정) → `langchain-google-genai.GoogleGenerativeAIEmbeddings` 마이그레이션. 운영(`core/llm.py`) + 평가 도구 동시 cleanup.
+      - (b) `core/llm.py:386-399` kwargs_list 폴백 순서 뒤집기. 현재 `model_name=`(deprecated alias) 첫 시도 → `model=` 폴백. `model=` 우선으로 변경 (동작 변화 없음).
+    - 위험: 과거 GenAI API key 직접 인증 시 동작 실패 → ADC 회귀 이력. 본 작업은 ADC 인증 유지 + import 경로만 교체로 한정 (§12-4 (b) 후보안).
+    - 진입 트리거: LangChain 4.0 RC 발표 시점 또는 별도 운영 사유 발생 시.
+
+    12-3. **venfobel-vitamin web 인덱스 보강 후 재평가** — 상태: `blocked` / 의존: §12-11-3, §12-11-4, §12-11-5 / 차단 사유: web seeding 단계 fetch/호스트 정규화 이슈 미해결
+
+    - 발견(§12-4-A (b)): venfobel web 인덱스 8 청크 → 골드셋 web 2 청크 → tier1_web 평가 구조적 불가능. ALLOWED_DOMAINS 38→50 확장 효과는 fetch 실패로 미발현.
+    - 선행 작업: §12-11-3(의약 매체 fetch 실패 — SSL/404), §12-11-4(oldm.dailypharm.com 호스트 정규화), §12-11-5(backend 다양화 + 재시도 로직).
+    - 진입 조건: web 청크 수가 tier1_web 평가 가능 수준(≥ 골드셋 5건 확보 가능)으로 회복.
+    - 재평가 시 §12-4-A 1차/2차 시도 평가 도구 그대로 재사용 가능 (collection_name 명시 패치 적용 후 commit 기준).
+
+    12-4. **pet-food-premium 토픽으로 임베딩 평가 반복 (일반화 검증)** — 상태: `pending` / 의존: 없음 (인덱스 검증 완료 — median 0.410/p95 0.618)
+
+    - 목적: §12-4-A (b) venfobel 결과(top-1 +14.3%p, gap_ratio 0.94×)가 단일 토픽 결과인지, gemini-embedding-001의 일반적 특성인지 분리 검증.
+    - 마이그레이션 결정의 선결조건: pet-food-premium 결과가 venfobel과 동일 방향(top-1 우세 + gap_ratio < 1.0)이면 gemini-001의 임베딩 공간 특성으로 일반화 가능 → 마이그레이션 ROI 정밀 평가 단계 진입.
+    - 평가 도구: §12-4-A 2차 시도 산출물 그대로 재사용. 슬러그 치환 3곳(`tools/sample_chunks_for_eval.py:L26`, `tools/eval_embedding_models.py:L40`, `tools/sanity_check_gemini_embedding.py:L8`)만 변경.
+    - 골드셋 작성 정성 작업 30~60분 필요.
+    - 진입 트리거: §12-12-1 완료 후 또는 광고대행사 작업(venfobel) 일단락 후.
+
+---
+
 ## 13) 알려진 이슈/주의사항
 
 **PowerShell 인코딩 설정**: 모든 소스 파일은 UTF-8로 저장되어 있음. PowerShell의 `Get-Content` 등은 기본적으로 시스템 로케일(CP949)로 읽어서 한글이 깨져 보일 수 있음. `$PROFILE`에 다음 추가 권장:
