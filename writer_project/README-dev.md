@@ -562,6 +562,8 @@ python tools\diagnose_chunks_deep.py
 
 12. **§12-12 — 운영 retrieval/임베딩 cleanup 큐 (2026-05-04~)**
 
+    **현재 상태 (2026-05-04 세션 close 시점)**: §12-12-1 close 완료. §12-12-2/3/4는 우선순위 하향 — backend mechanism 개선 작업이 backend 위생 layer에 머물러 있고, 사용자 측 동작 검증(리포트 end-to-end 생성, Direct QA 작동, 일반 LLM Q&A 흐름)이 선행되어야 함. 사용자 측 검증에서 retrieval 품질 부족이 실제로 드러나는 시점에 §12-12-2/3/4 또는 §12-6(BM25/cross-encoder reranking) 재진입. 그 전까지 본 큐는 보류.
+
     출처: §12-4-A (b) 2차 시도(venfobel-vitamin) 평가 부산물로 발견된 운영 정합성 작업 4건. 본 큐는 venfobel 토픽에 종속되지 않으며 글로벌 운영 retrieval/임베딩 품질에 관한 cleanup 항목 모음.
 
     각 항목 메타 형식: **상태 / 의존 / 차단 사유**
