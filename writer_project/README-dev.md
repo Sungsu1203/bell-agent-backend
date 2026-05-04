@@ -345,6 +345,8 @@ python tools\diagnose_chunks_deep.py
 
 1. **메타데이터 풍부화** — `published_date`, `language` 추가 시 시간 가중치/언어 필터 가능
 2. **distance threshold 재튜닝 절차** — 현재값: 글로벌 0.65, pet-food-premium 0.60 (text-multilingual-embedding-002 기준). 새 토픽 추가 시 `tools/diagnose_distance_threshold.py`로 분포 측정 후 절벽 직전 값 선택. 임베딩 모델 변경 시 재튜닝 필수.
+
+    **한계 (2026-05-04, §12-12-1 결과로 명시)**: "절벽 직전 값 선택" 절차는 분포에 절벽이 존재한다는 가정에 의존. venfobel-vitamin 토픽에서는 9 포인트 sweep 결과 절벽 자체가 식별 안 됨 (relevant/hardneg 분포 꼬리 중첩, multi-chunk source 81%). 이런 좁은 분포 토픽에서는 본 절차 적용 불가 — 토픽 override 미설정 유지하고 §12-6 (BM25) 같은 다른 mechanism 검토. 상세: `eval/threshold_sweep/CONCLUSION.md`.
 3. **Vertex AI grounded search 운영** — `tools/web_rag/vertex_search.py`는 살아있는 기능 모듈로 `SKIP_VERTEX_SEARCH` 토글로 제어됨. 한국어 자료는 Naver/Tavily로 충분하고 Vertex 호출 시 대기 시간이 길어 현재 비활성 (`SKIP_VERTEX_SEARCH=1`). 그러나 영어 자료(글로벌 시장 리포트 등)에서는 커버리지를 보강하는 효과가 있어, **영어 자료 위주 토픽은 `topics/<slug>.env`에서 `SKIP_VERTEX_SEARCH=0`으로 오버라이드** 권장. Vertex 결과는 Naver/Tavily 결과에 추가되는 augmentation 형태 (`agent/web_search.py:745` 참조).
 4. **`VertexAIEmbeddings` deprecation 모니터링** — `core/llm.py:404`에서 두 종류 deprecation warning 발생:
    - `LangChainDeprecationWarning`: 4.0에서 제거 예정, `langchain-google-genai`의 `GoogleGenerativeAIEmbeddings` 권고
@@ -495,7 +497,7 @@ python tools\diagnose_chunks_deep.py
     §12-12 작업 큐(§12-12-1~4) 중 우선순위 결정. 가장 ROI 높은 후보는 §12-12-1 (운영 threshold 재조정 효과 검증) — gemini 마이그레이션과 무관하게 현 운영 retrieval 품질 직접 개선 가능성.
 
 5. **VertexAIEmbeddings lazy validation 보강** — ctor는 통과하지만 첫 호출 시 인증 에러 가능. 그 시점 처리
-6. **BM25 키워드 검색 보강** — 정확 매칭(제품명, 회사명) 약한 부분 보완
+6. **BM25 키워드 검색 보강** — 정확 매칭(제품명, 회사명) 약한 부분 보완. **우선순위 상향 trigger (2026-05-04, §12-12-1 결과)**: venfobel-vitamin처럼 좁은 도메인 + 임베딩 분포 변별 부족 토픽에서는 distance threshold cut-off가 작동 안 함이 정량 확인됨. BM25 같은 keyword-based mechanism이 보완 가치 큼. 상세: `eval/threshold_sweep/CONCLUSION.md`.
 7. ~~**HWP 파일 읽기 지원**~~ — 보류 (회사 자료 0개, 외부 HWP는 노이즈 위주). 재검토 조건: 회사가 HWP 자료 도입 시
 8. **백업 파일 정리** — `agent/supervisor.py.bak`, `agent/supervisor.py.broken`, `requirements_vertex.txt.bak` 등 git tracked 백업이 있다면 정리 검토
 9. **`CLEAR_CHROMA_ON_START` 메커니즘 개선** — 현재는 vector_search 노드 진입 시 발동하는 늦은 청소. 임베딩 모델 변경 같은 큰 작업에는 부족 (web_search ingest 단계에서 이미 옛 인덱스에 새 청크 추가됨). 디스크 직접 삭제로 우회. 향후 app.py 시작 즉시 청소되도록 메커니즘 옮기기 검토.
@@ -567,14 +569,19 @@ python tools\diagnose_chunks_deep.py
     - 의존: 선행 작업 또는 외부 조건
     - 차단 사유: blocked일 때만 명시
 
-    12-1. **운영 OPERATIONAL_THRESHOLD 재조정 효과 검증** — 상태: `active` (2026-05-04~) / 의존: 없음
+    12-1. **운영 OPERATIONAL_THRESHOLD 재조정 효과 검증** — 상태: `done (close, 2026-05-04 — 운영 적용 미실시)` / 의존: 없음
 
-    - 발견(§12-4-A (b)): 운영 threshold 0.65에서 venfobel 골드셋 기준 precision 5% / recall 100% — cut-off로 기능 안 함. 골드셋 모든 쌍이 distance < 0.65라 운영 retrieval이 사실상 cut-off 없이 머지 중.
-    - 권장값(분포 근거): rel.p75와 hardneg.median 중간값 ~0.19~0.20 (text-multilingual-embedding-002 기준, venfobel 골드셋).
-    - 검증 가설: threshold를 운영 분포 기준값으로 내리면 retrieval 노이즈 감소.
-    - 검증 방법: 본 세션 첫 작업으로 설계 (sweep 범위, 측정 지표, 토픽 일반화 처리 방식 결정 필요).
-    - 영향 범위: 글로벌 default `RAG_DISTANCE_THRESHOLD=0.65`. pet-food-premium은 0.60 override 중 — 토픽별 override 기제는 이미 존재하므로, 글로벌 default 변경 vs 토픽별 권장값 산출 절차 정립 중 어느 방향인지 설계 단계에서 확정.
-    - 산출물 예정: 검증 스크립트, 결과 메모, README §2(distance threshold) 또는 §8(진단 도구) 항목 갱신.
+    - 발견(§12-4-A (b)): 운영 threshold 0.65에서 venfobel 골드셋 기준 precision 5% / recall 100% — cut-off로 기능 안 함.
+    - 사전 가설: τ를 rel.p75와 hardneg.median 중간(~0.20)으로 내리면 retrieval 노이즈 감소 → **결과적으로 정정됨** (산술적 중간이 분리 가능 cut-off 아님).
+    - 측정: 산출물 `tools/threshold_sweep.py` (신규) + `eval/threshold_sweep/venfobel-vitamin_sweep.md`. 9 포인트 sweep (0.150~0.300 step 0.025 + baseline 0.60, 0.65), same-source hardneg 보정 ON/OFF 두 결과.
+    - 결과 핵심:
+      - 절벽 없음 (가장 큰 jump -0.196, CLIFF_MIN_JUMP=0.20 미만)
+      - F1 최대 τ=0.150에서도 P=0.591/R=0.619 → recall 38% 손실 대비 precision 개선이 운영 가치 없음
+      - 운영 0.65 = 사실상 cut-off 없음 (recall 1.000) 정량 재확인
+    - **Close 결론**: venfobel 토픽 분포 특성상 distance threshold cut-off는 retrieval 분리 mechanism으로 부적합. 운영 cut-off 변경하지 않음. 글로벌 default 0.65 + venfobel override 미설정 유지.
+    - 상세 박제: `eval/threshold_sweep/CONCLUSION.md` (시나리오 판정, 재진입 조건 R1~R3, 후속 분기).
+    - 후속 분기: §12-2 (재튜닝 절차의 한계 명시) + §12-6 (BM25 우선순위 데이터 포인트).
+    - 재진입 조건 요약: (R1) 다른 토픽에서 절벽 식별 시 토픽별 override / (R2) 임베딩 모델 변경 시 재측정 / (R3) 골드셋 보강 — 상세는 CONCLUSION.md §6-4.
 
     12-2. **VertexAIEmbeddings deprecation 마이그레이션 + kwargs 폴백 순서 cleanup** — 상태: `pending` / 의존: LangChain 4.0 출시 동향 / 차단 사유: ROI 우선순위 낮음 + 과거 마이그레이션 회귀 이력(§12-4)
 
