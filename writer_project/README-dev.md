@@ -766,6 +766,16 @@ python tools\diagnose_chunks_deep.py
       - **py-spy 진단 가치**: stack trace 1번 떠서 즉시 lock contention 패턴 식별. 외부 connection / process state / 로그만으로는 "외부 hang 인지 내부 deadlock 인지" 구분 불가했음. WindowsApps Python 환경에서도 정상 동작 확인 — 인프라로 박제.
       - **Lock vs RLock 디폴트 선택**: 모듈 내 함수가 서로 호출하는 구조라면 RLock 이 안전. Lock 은 "단순 mutual exclusion + nested 호출 없음" 이 보장될 때만. metrics.py 처럼 `record_*` → `round()` 패턴이 흔한 코드는 RLock 이 디폴트.
 
+    **Flush 누락 close 후기 (2026-05-05 검증 3단계 — deadlock 풀고 나서 노출)**:
+    - 증상: deadlock 패치 후 백엔드 재시작 + 섹션 작성 → hang 사라지고 정상 진행. `logs/metrics.ndjson` **파일은 생성**됐으나 **내용이 0바이트**. record_llm_call / event 호출은 분명 일어났는데 디스크에 안 떨어짐.
+    - 진단: `tools/metrics.py:228 _FH = open(fpath, "a", encoding="utf-8")` 는 **default block buffering** (Python text mode 기본 ~8KB). `_FH.write(...)` 후 명시 flush 없음. `_shutdown()` (L244) 의 `_FH.flush() + close()` 만 flush 호출하는데, 이건 `atexit.register(_shutdown)` 으로 등록 → **프로세스 종료 시점에만 발동**. 백엔드가 살아있는 동안엔 buffer 에 누적되고 디스크 0바이트.
+    - 노출 시점이 늦은 이유: 게이트 함정 / deadlock 두 개를 풀고 나서야 실제로 emit 이 worker 큐까지 도달 → 처음으로 _worker() 가 _FH.write() 호출 → 그제서야 buffer 에만 쌓이는 패턴 노출. 즉 §12-13-6 (a) 도입 단계에서 이 버그도 같이 잠재돼 있었으나, 앞 두 layer 가 emit 자체를 막아서 가려져 있었음.
+    - 패치: `tools/metrics.py:228` 한 줄 — `open(fpath, "a", encoding="utf-8")` → `open(fpath, "a", encoding="utf-8", buffering=1)`. `buffering=1` 은 **line buffering**: 매 `"\n"` 만나면 자동 flush. NDJSON 라인 단위 emit 패턴과 정확히 맞음. 매 라인마다 syscall 1회 추가되지만 fsync 가 아닌 OS 페이지 캐시 flush 라 성능 영향 측정 불가능 수준.
+    - 박제 후기:
+      - **검증 단계의 다층 노출 패턴 (재정리)**: §12-13-6 (a) metric 도입 → 검증 1단계 게이트 함정 → 검증 2단계 reentrancy 데드락 → 검증 3단계 flush 누락. 4개 layer 가 결과적으로 같은 commit 묶음에 박혀있었고, 사용자 입장에서 "1번 켜면 동작해야 할 기능" 이 3번 추가 패치 후에야 작동. **새 인프라는 1단 검증으로 끝나는 일이 거의 없다는 교훈** — 활성화 후 첫 1~3회는 모두 진단 trigger 로 가정하고 디버깅 인프라(py-spy 등) 미리 준비.
+      - **block buffering vs line buffering**: 로그/메트릭 파일에 default block buffering 은 함정. `print(..., flush=True)` 와 같은 명시 flush 또는 `open(..., buffering=1)` 이 NDJSON 같은 라인 단위 emit 패턴의 디폴트가 되어야. `tail -f` / `Get-Content -Wait` 류 라이브 모니터링 도구가 동작하려면 line buffering 필수.
+      - **atexit 의존의 함정**: shutdown hook 만 flush 하던 패턴은 "프로세스가 정상 종료될 때만 데이터가 보존됨" 을 의미. SIGKILL / OOM / Stop-Process -Force 같은 비정상 종료에선 buffer 째 잃음. 메트릭 같은 운영 데이터는 라이브 가시성 + 비정상 종료 내성 양쪽 다 line buffering 이 정공법.
+
     13-7. **`extract_write_title` 닫는 괄호 처리 미흡** — 상태: `closed (2026-05-05 §12-13 코드 수정 세션)` / 의존: §12-13-1과 패키지 처리 가능 / 우선순위: 낮음
     - 발견: C 미션 Section 7 입력 `'write: 실행 로드맵 및 핵심 성과 지표(KPI)'` → extract 결과 `'실행 로드맵 및 핵심 성과 지표(KPI'` (닫는 `)` 잘림). 본문 작성에 영향 없으나 파일명도 `실행-로드맵-및-핵심-성과-지표kpi.md`로 정규화됨(괄호 자체 누락).
     - 검토안: `rag_expression.py:213-243` 함수의 `_TAIL_PUNCT_RE` 정규식 점검. tail 정리 시 닫는 괄호도 trim 대상에 포함된 것으로 추정 → 매칭된 여는 괄호 `(` 직전까지 포함하는 group 처리 필요.

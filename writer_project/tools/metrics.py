@@ -225,7 +225,10 @@ def _worker() -> None:
                     if _FH is None:
                         fpath = _get_file()
                         os.makedirs(os.path.dirname(fpath), exist_ok=True)
-                        _FH = open(fpath, "a", encoding="utf-8")
+                        # buffering=1: line buffering — 매 "\n" 마다 자동 flush.
+                        # 기본 block buffering(8KB)이면 백엔드 종료(atexit) 전까지 buffer 에만
+                        # 쌓여 라이브 모니터링 불가. §12-13-6 검증 3단계에서 노출.
+                        _FH = open(fpath, "a", encoding="utf-8", buffering=1)
                     _FH.write(json.dumps(item, ensure_ascii=False) + "\n")
                 except Exception:
                     # 파일 쓰기 실패는 무시(드롭)
