@@ -12,6 +12,7 @@ from utils.tasks import HumanMessage, AIMessage
 import core.config as config
 from core.paths import current_path, now_str as _now_str, outline_base_dir
 from core.state_types import State, Flags
+from core.events import emit_event
 from core.models import Task, AgentName
 from utils.sanitize import sanitize_state
 
@@ -147,6 +148,7 @@ def chapter_writer(state: State):
         return {"messages": state.get("messages", []), "task_history": state.get("task_history", [])}
 
     logger.info("============ CHAPTER WRITER ============")
+    emit_event("장 본문 작성")
     llm = get_llm()
     state = cast(State, sanitize_state(state))
 

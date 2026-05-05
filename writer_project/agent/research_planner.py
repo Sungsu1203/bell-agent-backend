@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 from core.paths import now_str as _now_str
 from core.state_types import State
+from core.events import emit_event
 from core.models import Task, AgentName
 from utils.sanitize import sanitize_state, as_int
 from prompts import get_research_planner_prompt
@@ -25,6 +26,7 @@ from tools.web_rag.ingest import _default_chroma_dir  # Chroma persist dir resol
 
 def research_planner(state: State):
     logger.info("============ RESEARCH PLANNER ============")
+    emit_event("조사 계획 수립")
     llm = get_llm()
     state = cast(State, sanitize_state(state))
 

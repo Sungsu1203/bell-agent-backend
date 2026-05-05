@@ -10,6 +10,7 @@ import os, re, time, json, glob, shutil, hashlib
 import concurrent.futures as cf
 
 from core.state_types import State, References
+from core.events import emit_event
 if TYPE_CHECKING:
     # 타입 전용(순환 의존 방지)
     from core.state_types import Flags
@@ -178,6 +179,7 @@ def web_search_agent(state: State):
         pass
 
     logger.info("============ WEB SEARCH AGENT ============")
+    emit_event("웹 검색")
 
     # (선택 보강) 런타임 ENV가 바뀌었을 수 있으므로 호출 시점에 재동기화
     try:

@@ -13,6 +13,7 @@ from utils.text_utils import clean_snip as _clean_snip
 from utils.outline import get_topic_outline_text
 from prompts import get_research_synthesizer_prompt
 from core.state_types import State
+from core.events import emit_event
 import core.config as config
 from core.paths import current_path, now_str as _now_str, research_topic_dir, research_resources_dir
 from utils.rag_utils import score_doc as _score_doc
@@ -49,6 +50,7 @@ def _cfg_bool(name: str, default: bool = False) -> bool:
 
 def research_synthesizer(state: State):
     logger.info("============ RESEARCH SYNTHESIZER ============")
+    emit_event("참고문헌 정리")
     llm = get_llm()
     state = cast(State, sanitize_state(state))
 

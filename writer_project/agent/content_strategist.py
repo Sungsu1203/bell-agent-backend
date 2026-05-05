@@ -18,6 +18,7 @@ from core.models import Task, AgentName
 from core.config import DocMode
 from utils.sanitize import sanitize_state
 from core.state_types import State
+from core.events import emit_event
 from prompts import get_content_strategist_prompt
 from utils.outline import read_outline, save_outline
 from utils.outline import normalize_outline_headings as _normalize_outline_headings
@@ -30,6 +31,7 @@ import re
 
 def content_strategist(state: State):
     logger.info("============ CONTENT STRATEGIST ============")
+    emit_event("목차 구성")
     llm = get_llm()
     state = cast(State, sanitize_state(state))
 

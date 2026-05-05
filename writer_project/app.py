@@ -129,6 +129,7 @@ from core.paths import now_str as _now_str, current_path
 from core.state_types import State
 
 from core.state_io import save_state
+from core.events import emit_event, get_events_since, clear_events
 from utils.sanitize import coerce_int
 from report_builder import build_final_report
 
@@ -1323,6 +1324,10 @@ async def api_run(payload: Dict[str, Any]):
     # 새 실행 시작 시 cancel 플래그 해제
     _CANCEL_EVENT.clear()
 
+    # 새 실행 시작 시 이벤트 버퍼 초기화 — 사용자 관점에서는 명령 한 번이 한 흐름
+    clear_events()
+    emit_event("작업 시작", kind="start", detail=user_input[:120])
+
 
     # 옵션은 우선 받아두기만 하고(최소 수정),
     # 실제로 CFG/ENV 반영까지 하려면 2단계에서 확장하면 됩니다.
@@ -1338,6 +1343,7 @@ async def api_run(payload: Dict[str, Any]):
             state_now = _WEB_STATE
             assert state_now is not None  # ✅ Pylance에게 "None 아님" 확정
 
+            emit_event("작업 완료", kind="done")
             return {
                 "ok": True,
                 "message": _last_ai_text(state_now) or "OK",
@@ -1345,6 +1351,7 @@ async def api_run(payload: Dict[str, Any]):
             }
         except Exception as e:
             logger.exception("api_run failed: %s", e)
+            emit_event("오류 발생", kind="error", detail=str(e)[:200])
             return {"ok": False, "error": str(e)}
         
 # ═══════════════════════════════════════════════════════════
@@ -1865,6 +1872,20 @@ def api_logs(cursor: int = 0, limit: int = 200):
         next_cursor = out[-1]["seq"] if out else int(cursor)
 
     return {"ok": True, "next_cursor": next_cursor, "lines": out}
+
+
+@web_app.get("/api/events")
+def api_events(cursor: int = 0, limit: int = 200):
+    """
+    사용자 관점 진행 이벤트 폴링.
+    - cursor: 마지막으로 받은 seq (없으면 0)
+    - limit: 최대 반환 줄 수
+    return:
+      {"ok": True, "next_cursor": <int>,
+       "events": [{"seq":..., "ts":..., "label":"...", "kind":"...", "detail":"..."}]}
+    """
+    next_cursor, events = get_events_since(int(cursor or 0), int(limit or 200))
+    return {"ok": True, "next_cursor": next_cursor, "events": events}
 
 
 # ── 엔트리포인트 ───────────────────────────────────────────────────────────────

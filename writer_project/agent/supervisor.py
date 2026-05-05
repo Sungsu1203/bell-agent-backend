@@ -26,6 +26,7 @@ from core.topic import start_new_topic, sanitize_title as _sanitize_title
 from core.llm import get_llm
 from prompts import get_supervisor_prompt
 from core.state_types import State  # TypedDict
+from core.events import emit_event
 # Direct QA 가드/판별 유틸(연구 모드 차단 로직 포함)
 from utils.rag_utils import should_direct_qa as _should_direct_qa
 from utils.rag_utils import is_qa_like as _is_qa_like_ext
@@ -350,6 +351,7 @@ def _title_by_index(outline_text: str | None, idx: int) -> str | None:
 
 def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
     logger.info("============ SUPERVISOR ============")
+    emit_event("작업 분석")
     _dash_emit(state, where="supervisor.enter")
 
     # ✅ ultra-early pre-flight: command_intent가 아직 안 박혀도 '목차' 입력이면 즉시 처리(LLM init 방지)

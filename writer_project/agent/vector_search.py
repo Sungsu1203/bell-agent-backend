@@ -12,6 +12,7 @@ from core.llm import get_llm
 import core.config as config
 from core.paths import current_path, now_str as _now_str
 from core.state_types import State
+from core.events import emit_event
 from core.models import Task
 from utils.sanitize import sanitize_state, as_int
 from utils.rag_utils import (
@@ -642,6 +643,7 @@ def _collection_count(ns: str, persist_dir: str) -> int:
 # ── Main ──────────────────────────────────────────────────────────────────────
 def vector_search_agent(state: State):
     logger.info("============ VECTOR SEARCH AGENT ============")
+    emit_event("참고문헌 검색")
     llm = get_llm()
     state = cast(State, sanitize_state(state))
 

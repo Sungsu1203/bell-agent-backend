@@ -5,6 +5,7 @@ from utils.tasks import HumanMessage, AIMessage, has_pending
 import core.config as config
 from core.paths import now_str as _now_str, current_path, sections_dir
 from core.state_types import State
+from core.events import emit_event
 from core.models import Task
 from utils.sanitize import sanitize_state, coerce_int
 from rag_expression import is_outline_display
@@ -179,6 +180,7 @@ def communicator(state: State):
     COMM_LOG_QA_MAXLEN = int(getattr(config.CFG, "COMM_LOG_QA_MAXLEN", 0) or 0)
 
     logger.info("============ COMMUNICATOR ============")
+    emit_event("응답 정리")
     DASH_ON = bool(getattr(config.CFG, "LOG_DASHBOARD", False))
     DASH_RATE = float(getattr(config.CFG, "DASH_RATE_SEC", 0.0) or 0.0)
 

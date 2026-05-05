@@ -31,6 +31,7 @@ D:\GPT_AGENT\writer_project
 │
 ├─ core/                     # 공통 인프라 (설정·타입·라우팅)
 │   ├─ config.py                 # ENV 단일화 (CFG dataclass)
+│   ├─ events.py                 # 사용자 관점 진행 이벤트 버퍼 (frontend LogPanel 헤더용, §12-14)
 │   ├─ llm.py                    # LLM/임베딩 모델 팩토리
 │   ├─ models.py                 # Task 등 도메인 모델
 │   ├─ paths.py                  # 출력 경로/파일명 규칙
@@ -852,6 +853,49 @@ python tools\diagnose_chunks_deep.py
     - 진단: `tools/metrics.py:record_llm_call()` 이 `REG.topic_slug` 를 직접 읽음. set_topic_slug 가 호출되어 REG.topic_slug 가 채워지는 시점과 record_llm_call 호출 시점 사이에 어딘가에서 reset 되거나, 혹은 REG.topic_slug 가 이번 라운드에서 처음부터 set 안 됨. set_topic_slug 호출처 점검 필요.
     - 검토안: (a) record_llm_call 호출 측(section_writer)에서 명시적으로 topic_slug 인자 전달 — `state.get("topic_slug")` 를 그대로 넘김. (b) set_topic_slug 호출 위치를 supervisor/세션 진입점에 강제. (a) 가 호출 측 한 줄 추가로 끝나는 정공법.
     - 진입 트리거: 일별 토픽별 호출 집계가 필요해질 때 또는 별도 cosmetic 정리 시.
+
+14. **§12-14 — 사용자 관점 진행 이벤트 채널 (frontend LogPanel 헤더 공급)** — 상태: `closed (2026-05-05)` / 의존: 없음 / 우선순위: 중
+
+    **출처**: 프런트엔드 사용자가 진행 로그(원시 백엔드 로그) 가 개발자용이라 "지금 어느 단계에서 작업 중인지" 한눈에 안 보인다는 보고. 짝 박제: `Bell_Agent/frontend/README-dev.md` §12-12.
+
+    **설계**:
+    - 원시 logger 파이프(`_LOG_BUFFER` + `/api/logs`) 와 별개의 **구조화 이벤트 채널** 신설. 같은 패턴(deque + lock + cursor 폴링) 미러.
+    - `core/events.py` (신규): `_EVENT_BUF` (`deque[(seq, ts, label, kind, detail)]`, maxlen=200), `_EVENT_LOCK`, `_EVENT_SEQ`. 공개 API:
+      - `emit_event(label, kind="phase", detail=None)` — 노드 진입 시 한국어 라벨로 적재.
+      - `get_events_since(cursor, limit) -> (next_cursor, events)` — cursor 폴링.
+      - `clear_events()` — `api_run` 진입 시 호출 (명령 한 번 = 워크플로 한 흐름 정책).
+      - `latest_event()` — 최신 이벤트 조회.
+    - `app.py`: `/api/events?cursor=...&limit=...` 엔드포인트 + `api_run` 의 lifecycle 이벤트 (`작업 시작` / `작업 완료` / `오류 발생`).
+    - 9개 노드 진입에 한 줄씩 `emit_event` 박음. 라벨은 사용자 친화적 한국어 (노드 이름 그대로 X):
+      - `supervisor` → `"작업 분석"`
+      - `communicator` → `"응답 정리"`
+      - `content_strategist` → `"목차 구성"`
+      - `research_planner` → `"조사 계획 수립"`
+      - `research_synthesizer` → `"참고문헌 정리"`
+      - `vector_search_agent` → `"참고문헌 검색"`
+      - `web_search_agent` → `"웹 검색"`
+      - `section_writer` → `"섹션 본문 작성"`
+      - `chapter_writer` → `"장 본문 작성"`
+    - 박제 위치 관습: 각 agent 함수의 `logger.info("============ NAME ============")` banner **직후**. 조기 return 분기(예: section_writer 의 `DOC_MODE != "report"`, web_search 의 `qa_direct_reply`) 보다 뒤에 두어 실제 노드가 실행될 때만 발화하도록 함.
+
+    **순환 의존 회피**: `app.py → graph.py → agent/* `구조라 agent 가 app.py 를 import 하면 순환. 그래서 버퍼/헬퍼를 `core/events.py` 에 두고 app.py 와 agent/* 가 일방향으로 import.
+
+    **버그 1건 close (cursor reset 미감지)**:
+    - 시나리오: Run 1 후 frontend cursor=7. Run 2 시작 → `clear_events()` 가 `_EVENT_SEQ=0`, buffer 비움 → 첫 emit 으로 seq=1 발생. Frontend polls cursor=7 → buffer 의 seq=1 < 7 이라 필터 통과 못함, `out=[]`, naive 구현은 `next_cursor = int(cursor) = 7` 반환 → frontend reset 감지 조건 `next_cursor < cursor` 가 `7 < 7 == false` → 영원히 새 이벤트 못 받음.
+    - 패치: `get_events_since()` 에 명시 reset 신호 추가 — caller cursor 가 현재 `_EVENT_SEQ` 보다 크면 즉시 `(_EVENT_SEQ, [])` 반환. frontend 는 `next_cursor < cursor` 로 감지 → cursor=0 으로 reset → 다음 폴링에서 첫 이벤트부터 새로 받음.
+    - 일반화: backend reset + monotonic-from-zero seq 패턴은 frontend 의 단순 cursor 비교 폴링과 충돌. 다른 cursor 채널 추가 시 동일 가드 필요.
+
+    **운영 규칙**:
+    - 새 LangGraph 노드 추가 시 `agent/<node>.py` 의 banner 직후에 `emit_event("...")` 한 줄 의무. 라벨 누락 시 frontend 헤더가 이전 단계에 정체.
+    - 라벨은 한국어 사용자 표현으로 (노드 이름이 아니라). frontend `LogPanel.tsx` 가 그대로 노출하므로 가독성 우선.
+    - 명령 한 번 = 이벤트 흐름 한 번. `clear_events()` 는 `api_run` 외에 다른 곳에서 호출 금지 (frontend reset 감지 가정 위배).
+    - `kind` 4종: `"phase"` (기본, 노드 진입), `"start"` (api_run 시작), `"done"` (api_run 정상 종료), `"error"` (예외). frontend 는 done/error 면 펄스 애니메이션 정지 + 색상 변경.
+
+    **검증**: 백엔드 재시작 후 명령 두 번 연속 실행. 첫 명령 "대기 중" → "작업 시작" → "작업 분석" → ... → "작업 완료" 흐름. 두 번째 명령 시 1.5s 내 헤더 라벨 갱신 시작 (cursor reset 정상 동작).
+
+    **잔여**:
+    - `tools/metrics.py` 의 `record_*` 와 `core/events.py` 는 별개 채널 (운영 분석용 NDJSON vs 사용자 UI용 인메모리). 통합 검토는 우선순위 낮음 — 목적과 수명이 달라 분리 유지가 자연스러움.
+    - communicator 등 일부 노드는 함수 본문 안쪽에 banner 가 있어 emit_event 위치도 그에 맞춰 깊숙이 배치됨. 향후 banner 위치 정리 시 emit_event 도 같이 옮길 것.
 
 ---
 

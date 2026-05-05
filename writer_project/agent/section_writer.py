@@ -12,6 +12,7 @@ from utils.tasks import AIMessage
 import core.config as config
 from core.paths import current_path, now_str as _now_str
 from core.state_types import State, Flags
+from core.events import emit_event
 from core.models import Task
 from utils.sanitize import sanitize_state
 from utils.refs import attach_auto_citations, refs_preview_text as _refs_preview_text, facts_block as _facts_block
@@ -152,6 +153,7 @@ def section_writer(state: State):
         return {"messages": state.get("messages", []), "task_history": state.get("task_history", [])}
 
     logger.info("============ SECTION WRITER ============")
+    emit_event("섹션 본문 작성")
 
     state = cast(State, sanitize_state(state))
     tasks = list(state.get("task_history", []) or [])
