@@ -723,6 +723,16 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
             tasks.append(Task(agent="section_writer", done=False, description=_norm_desc, done_at=""))
         if not _safe_has_pending(tasks, "vector_search_agent"):
             tasks.append(Task(agent="vector_search_agent", done=False, description=f"qa_query:{last_text}", done_at=""))
+        # ── §12-13-5 보강: vector_search direct_qa skip 가드 발화용 flag 세팅 ──
+        f = dict(state.get("flags") or {})
+        f["pending_write_title"] = True              # 필수 — L1235 가드 발화
+        f["requested_write_title"] = _write_title_early  # 필수 — schedule_writer가 title 없으면 noop
+        f["suppress_vector_qa"] = True               # 권장 — supervisor 재진입 시 qa_direct_reply 차단
+        mstate["flags"] = f
+        try:
+            schedule_writer_if_needed(mstate, reason="early_write_fastpath_with_refs")
+        except Exception:
+            logger.exception("[Supervisor early write] schedule_writer_if_needed failed (non-fatal)")
         logger.info(
             "[Supervisor fast-path] write + rag_on_disk → vector_search → section_writer (title=%s, hit=%s)",
             _write_title_early, _hit_kind,

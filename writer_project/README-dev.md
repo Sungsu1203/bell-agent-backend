@@ -707,6 +707,11 @@ python tools\diagnose_chunks_deep.py
     - 검증: ko-natural 입력 "7. 실행 로드맵 및 핵심 성과 지표(KPI) 섹션 작성해주세요" → fast-path 정확 진입 + section_writer 도달 + 4905자 초안/10165 bytes .md 저장 (08:08:50~08:11:21, 2분 31초). 직전 세션 7회 100% 실패 → 본 세션 1회 회복 확정.
     - 회귀 검증 explicit 형식은 단위 테스트 (`extract_write_title('write: 실행 로드맵 및 핵심 성과 지표(KPI)')` → `'실행 로드맵 및 핵심 성과 지표(KPI)'`) 로 갈음. 함수 hit 결과만 사용하는 패치 구조상 explicit 회귀 가능성 무시 가능.
     - 부수 효과: §12-13-3 (after_vector → web 루프) 의 본 시나리오 트리거 차단. writer_pending 사전 등록으로 router.after_vector가 vector no hits 시에도 web_search 우회 후 section_writer 직행. (§13-3 자체는 일반 QA-like 입력에서 여전히 미수정.)
+    - 2026-05-05 17:46 추가 검증 (explicit + 신규 세션 / refs 비어있는 컨텍스트): msgs=3, docs_in_state=0 상태에서 write:
+  ▎ 실행 로드맵 및 핵심 성과 지표(KPI) 입력. supervisor.py L718-731 신설 분기에 pending_write_title=True +
+  ▎ requested_write_title + suppress_vector_qa=True + schedule_writer_if_needed() 추가. 흐름은 web_search →
+  ▎ section_writer (refs 비어있음으로 vector 단계 우회), router.after_web 의 strict writer_pending 검사 통과로
+  ▎ section_writer 직행. draft 4922 chars, 11546 bytes 저장. 직전 17:06 회귀(468 chars) 회복 확정.
 
     13-6. **Vertex 429 ResourceExhausted retry — quota 모니터링 부재** — 상태: `pending` / 의존: 없음 / 우선순위: 중
     - 발견: C 미션 Section 7 작성 중(06:28:46~06:31:20, 2분 49초) `langchain_google_vertexai._retry`가 `ResourceExhausted: 429` 발생 → 4초 대기 후 재시도 → 성공. **다른 섹션 평균(35~50초) 대비 5배 소요.**
