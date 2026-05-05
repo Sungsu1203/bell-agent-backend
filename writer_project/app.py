@@ -1357,15 +1357,63 @@ class ExportRequest(BaseModel):
     format: str = "docx"
 
 
+def _load_outline_items() -> list[str]:
+    """현재 활성 outline의 줄 단위 항목 목록 반환. 실패 시 빈 리스트."""
+    global _WEB_STATE
+    st = _WEB_STATE
+    if st is None:
+        return []
+    try:
+        p_topic, p_default = _outline_paths(st)
+        path = p_topic if os.path.exists(p_topic) else (
+            p_default if os.path.exists(p_default) else None
+        )
+        if not path:
+            return []
+        with open(path, "r", encoding="utf-8") as f:
+            return [ln.rstrip("\n") for ln in f.readlines() if ln.strip()]
+    except Exception:
+        return []
+
+
+def _outline_title_to_slug(raw: str) -> str:
+    """outline 한 줄에서 제목만 추출 후 슬러그화 (frontend lib/data.ts:slugifyTitle와 동치)."""
+    from utils.text_utils import slugify
+    s = re.sub(r"^\s*#+\s*", "", raw)
+    s = re.sub(r"^\s*\d+[.)]\s*", "", s).strip()
+    return slugify(s, allow_unicode=True)
+
+
+def _resolve_section_file(
+    section_id: int, slug_dir: str, outline_items: list[str]
+) -> str | None:
+    """section_id → .md 절대 경로. 못 찾으면 None.
+    1) 파일명 prefix "{section_id}-..." (옛 형식)
+    2) outline_items[section_id-1] 제목 슬러그가 파일 stem과 일치 (신 형식 — writer가 prefix 안 붙임)
+    """
+    files = [f for f in os.listdir(slug_dir) if f.endswith(".md")]
+
+    for fname in files:
+        if fname.startswith(f"{section_id}-"):
+            return os.path.join(slug_dir, fname)
+
+    if 1 <= section_id <= len(outline_items):
+        target = _outline_title_to_slug(outline_items[section_id - 1]).lower()
+        if target:
+            for fname in files:
+                stem = re.sub(r"\.md$", "", fname).lower()
+                if stem == target:
+                    return os.path.join(slug_dir, fname)
+
+    return None
+
+
 def _read_section_file(section_id: int) -> tuple[str, str]:
-    """
-    sections/<slug>/N-*.md 파일을 읽어서 (제목, 본문) 반환.
-    """
+    """sections/<slug>/ 의 섹션 파일을 읽어서 (제목, 본문) 반환."""
     sections_dir = os.path.join(str(current_path), "sections")
     if not os.path.isdir(sections_dir):
         raise HTTPException(404, "sections directory not found")
 
-    # slug 폴더 찾기 (보통 하나만 있음 — 현재 활성 토픽)
     slug_dirs = [
         d for d in os.listdir(sections_dir)
         if os.path.isdir(os.path.join(sections_dir, d))
@@ -1381,28 +1429,25 @@ def _read_section_file(section_id: int) -> tuple[str, str]:
     )[0]
     slug_dir = os.path.join(sections_dir, target_slug)
 
-    # N-*.md 파일 찾기
-    for fname in os.listdir(slug_dir):
-        if fname.startswith(f"{section_id}-") and fname.endswith(".md"):
-            fpath = os.path.join(slug_dir, fname)
-            with open(fpath, "r", encoding="utf-8") as f:
-                content = f.read()
-            # 제목: 본문 첫 ## 헤딩에서 추출
-            title_match = re.search(r"^##\s+(.+)$", content, re.MULTILINE)
-            if title_match:
-                title = title_match.group(1).strip()
-                # "3. 학부모 키성장..." → "학부모 키성장..." (앞 번호 제거)
-                title = re.sub(r"^\d+[.)]\s*", "", title)
-            else:
-                title = fname
-            return title, content
+    outline_items = _load_outline_items()
+    fpath = _resolve_section_file(section_id, slug_dir, outline_items)
+    if not fpath:
+        raise HTTPException(404, f"section {section_id} not found")
 
-    raise HTTPException(404, f"section {section_id} not found")
+    with open(fpath, "r", encoding="utf-8") as f:
+        content = f.read()
+    title_match = re.search(r"^##\s+(.+)$", content, re.MULTILINE)
+    if title_match:
+        title = title_match.group(1).strip()
+        title = re.sub(r"^\d+[.)]\s*", "", title)
+    else:
+        title = os.path.basename(fpath)
+    return title, content
 
 
 def _read_all_sections() -> list[tuple[int, str, str]]:
-    """
-    모든 섹션을 (id, title, content) 리스트로 반환 (번호 순 정렬).
+    """모든 섹션을 (id, title, content) 리스트로 반환 (번호 순 정렬).
+    매칭: 파일명 prefix 숫자 우선, 없으면 outline 제목 슬러그 역매핑.
     """
     sections_dir = os.path.join(str(current_path), "sections")
     if not os.path.isdir(sections_dir):
@@ -1422,21 +1467,32 @@ def _read_all_sections() -> list[tuple[int, str, str]]:
     )[0]
     slug_dir = os.path.join(sections_dir, target_slug)
 
-    results = []
+    outline_items = _load_outline_items()
+    slug_to_id: dict[str, int] = {}
+    for i, raw in enumerate(outline_items):
+        sl = _outline_title_to_slug(raw).lower()
+        if sl:
+            slug_to_id[sl] = i + 1
+
+    results: list[tuple[int, str, str]] = []
     for fname in os.listdir(slug_dir):
         if not fname.endswith(".md"):
             continue
+        sid: int | None = None
         m = re.match(r"^(\d+)-", fname)
-        if not m:
+        if m:
+            sid = int(m.group(1))
+        else:
+            stem = re.sub(r"\.md$", "", fname).lower()
+            sid = slug_to_id.get(stem)
+        if sid is None:
             continue
-        sid = int(m.group(1))
         fpath = os.path.join(slug_dir, fname)
         with open(fpath, "r", encoding="utf-8") as f:
             content = f.read()
         title_match = re.search(r"^##\s+(.+)$", content, re.MULTILINE)
         if title_match:
             title = title_match.group(1).strip()
-            # "3. 학부모 키성장..." → "학부모 키성장..." (앞 번호 제거)
             title = re.sub(r"^\d+[.)]\s*", "", title)
         else:
             title = fname
