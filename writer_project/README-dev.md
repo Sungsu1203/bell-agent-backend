@@ -612,15 +612,54 @@ python tools\diagnose_chunks_deep.py
 
 13. **§12-13 — supervisor 라우팅 가드 + web/vector 루프 종결 조건 (2026-05-04 사용자측 검증 세션 발견)**
 
-    __현재 상태 (2026-05-05 §12-13 코드 수정 세션 후)__: §12-13-5/7 close. §12-13 큐 9개 누적 중 2개 close, 7개 pending (§13-1/2/3/4/6/8 + 신규 §13-9).
+    __현재 상태 (2026-05-05 §12-13-1 + §12-13-4 패키지 close 세션 후)__: §12-13-1/4/5/7 close. §12-13 큐 9개 누적 중 4개 close, 5개 pending (§13-2/3/6/8/9).
 
     출처: §12-12-1 close 직후 사용자측 검증 세션(2026-05-04). 미션 A에서 "비타민 B1이 뭐야"(60초, 정상), "파이썬에서 리스트 컴프리헨션이 뭐야"(247초, 5회 vector→web 루프, 인덱스 8→37), "벤포벨이 뭐야"(9초, 정상)의 3건 비교 로그에서 검출. C 미션은 본 큐 미해결 상태로 진입(하자 인지 + 인덱스 변화 메모 + reports/ 디렉토리 분리 운영으로 risk 격리).
 
-    13-1. **supervisor fast-path 토픽-적합성 가드 부재** — 상태: `pending` / 의존: 없음 / 우선순위: 높음 (C 미션 진행 중 재발 위험)
+    13-1. **supervisor fast-path 토픽-적합성 가드 부재** — 상태: `closed (2026-05-05 §12-13-1 + §12-13-4 패키지 close 세션, 2차 패치 포함)` / 의존: 없음 / 우선순위: 높음 (C 미션 진행 중 재발 위험)
     - 발견: 입력에 "?"가 포함되면 supervisor가 "QA-like" 분류만으로 vector_search_agent로 직행. 토픽(`venfobel-vitamin`) 키워드와의 매칭은 검사하지 않음.
     - 증상: "파이썬에서 리스트 컴프리헨션이 뭐야"가 venfobel 인덱스 retrieval 시도 → no hits → web_search 진입 → outline OBJ 5개 쿼리로 venfobel 자료 추가 인덱싱 → 인덱스 8→37 증가.
     - 검토안: fast-path 진입 전 토픽 키워드(`venfobel`, `벤포벨`, `비타민`, `B1`, `벤포티아민`, `종근당` 등) 1차 매칭. 매칭 0이면 communicator 직행, ≥1이면 현재 동작 유지. 키워드 셋은 `core.config.CFG.TOPIC_TITLE` 또는 별도 `TOPIC_KEYWORDS` 설정에서 주입.
     - 진입 트리거: C 미션 완료 후 즉시 (예방적 수정 — C 산출물 평가에는 영향 없음, 다만 후속 사용자측 검증에서 재발 차단).
+
+    **close 후기 (2026-05-05 §12-13-1 + §12-13-4 패키지 close 세션, 1차 + 2차 패치)**:
+
+    *1차 패치*:
+    - `core/config.py`: `TOPIC_KEYWORDS` env 신규 (`List[str]`, 콤마 구분, 미설정 시 `TOPIC_TITLE` 토큰 fallback). 비어 있으면 가드 비활성(기존 동작 유지).
+    - `agent/supervisor.py`: 모듈-레벨 헬퍼 `_topic_keyword_set()` / `_topic_match_count()` 신규. 가드 2곳 적용 — ANCHOR-1(qa_direct_reply set 분기), L545 QA-like fast-path 직전. 키워드 0개 매칭 시 `task_history`에 `('communicator', 'off_topic:direct_qa'|'off_topic:qa_like')` 등록 + early return.
+
+    *1차 검증 결과 (2026-05-05 09:27~29) — 부분 실패*:
+    - 1차 가드 발화는 정확함 (`[Supervisor fast-path] QA-like off-topic ... → communicator`)
+    - 그러나 그래프 엣지가 `research_planner`를 호출하면서 우회됨. 09:29:05 `[router.after_vector] research_loop_active=True → research_synthesizer (override qa_direct_reply)` 가 결정적 우회 지점.
+    - ns_web 37 → 69 오염 (32 chunks 추가, 새 URL 15개 인덱싱). 09:29:19 `[router.after_synth] findings quick-ingest added=1` 부작용까지 발생.
+    - 다행히 오염 자료 분석 결과 OBJ1/OBJ2(이중제형/오쏘몰, 일반약 광고 규제, 아로나민/임팩타민 비교, 활성비타민 비교표, 벤포벨 직접 언급)와 우연히 부합 → ns_web=69 그대로 보존하고 C 미션 진행 결정.
+
+    *2차 패치*:
+    - `core/routers.py`: `_has_off_topic_pending()` 헬퍼 신규 + 5개 라우터 진입 가드 (`tail_task_router`, `after_web_search_agent`, `after_vector_router`, `after_planner_router`, `after_synthesizer_router`). 모든 다른 분기(research_loop_active 등)보다 우선.
+    - `agent/supervisor.py`: 두 가드 분기에 `research_round=0` + `research_loop_active=False` 강제 리셋 추가 (state mutation + return dict 양쪽). 함수 상단 L449 `[Supervisor] promote research_round=1 (basis: rag_on_disk)` 자동 승격을 가드 발화 시 무력화.
+
+    *2차 검증 결과 (2026-05-05 09:46~47) — 성공*:
+    - 입력: `파이썬 리스트 컴프리헨션이 뭐야?` (박제 회귀 케이스)
+    - 1차 가드 발화 ✓ → 그래프가 `research_planner` 호출 → 2차 가드 차단 ✓ (`[router.after_planner] off_topic task pending → communicator (guard)`)
+    - 미출현 확인: `[Web Search Agent]`, `documents_to_chroma(part:web)`, `[Research Synthesizer]`
+    - ns_web 69 → 69 (인덱스 오염 0)
+    - 응답 저장: `reports/venfobel-vitamin/qa/qa_venfobel-vitamin_20260505_094715.md` (921 bytes, 407 chars). 1차 검증(325 bytes) 대비 약 3배 풍부.
+
+    *ENV 적용 (옵션 A: TOPIC_TITLE 원본 유지)*:
+    - `topics/venfobel-vitamin.env`: `TOPIC_KEYWORDS=venfobel,벤포벨,비타민,B1,벤포티아민,종근당` 추가
+    - `TOPIC_TITLE`의 일반어("시장", "분석", "2026" 등)도 fallback 토큰으로 합류 — 광범위 보조 질의는 통과, 박제 회귀 케이스는 차단. 운영 의도와 부합.
+
+    *부산물 정리*:
+    - `reports/venfobel-vitamin/_qa_session_20260505_communicator/` 8개 파일 삭제 (옵션 1 통째 삭제). 박제 ts(170636/171821/172655) 3개는 본 디렉터리에 부재 → 사실상 이미 정리된 상태였음.
+
+    *잔여 관찰사항 (close 차단 사유 아님)*:
+    - 2차 검증 후 task_history에 `web_search_agent` (False, search:auto) pending 잔존
+    - `research_loop_active=True` 잔존
+    - 다층 방어선(5개 라우터 가드) 덕분에 실제 부작용은 없으나 깔끔한 close를 위한 보강은 §12-13 큐 다른 항목 처리 시 같이 검토.
+
+    *부수 효과*:
+    - §12-13-2 (web_search agent의 query 파생 로직) 의 본 시나리오 트리거 차단. supervisor 가드 + router 가드 다층 방어선이 web_search 진입 자체를 막으므로 OBJ 5개 쿼리 생성 부작용도 발생 불가. (§12-13-2 자체는 일반 on-topic 질의에서 user query와 OBJ 분리 문제는 여전히 미수정.)
+    - §12-13-3 (after_vector → web 루프 카운터) 의 본 시나리오도 차단. router 가드가 진입 자체를 막으므로 카운터 증가 여부와 무관하게 안전. (§12-13-3 자체는 카운터 정확성 문제 미수정.)
 
     13-2. **web_search agent의 query 파생 로직: 사용자 질의와 OBJ 분리** — 상태: `pending` / 의존: §12-13-1과 패키지로 처리 가능 / 우선순위: 중
     - 발견: web_search agent는 사용자 질의를 무시하고 outline OBJ 5개를 그대로 검색 쿼리로 사용 (`[WEB SEARCH AGENT] objectives 5개 주입` 로그). 즉 사용자 의도와 web_search 의도가 의도적으로 분리되어 있음.
@@ -637,12 +676,22 @@ python tools\diagnose_chunks_deep.py
     - 검토안: `core/routers.py` 해당 분기 코드 점검 + 카운터 state path(예: `state["routing_counters"]["after_vector_ws_retries"]`) 추적. 단위 테스트로 재현 + 1회 제한 회복.
     - 진입 트리거: §12-13-1/2 작업 시 함께. routers 코드 손댈 때 한 번에 처리.
 
-    13-4. **communicator 자동 저장 파일명이 C 미션 리포트와 충돌** — 상태: `pending` / 의존: 없음 / 우선순위: 높음 (C 진입 직전 즉시 필요)
+    13-4. **communicator 자동 저장 파일명이 C 미션 리포트와 충돌** — 상태: `closed (2026-05-05 §12-13-1 + §12-13-4 패키지 close 세션)` / 의존: 없음 / 우선순위: 높음 (C 진입 직전 즉시 필요)
     - 발견: communicator가 모든 응답을 `reports/venfobel-vitamin/{slug}_{timestamp}.md`로 자동 저장. Direct QA hard-stop 응답(317B/377B)도, 일반 communicator 응답(512B)도, C 미션 end-to-end 리포트도 모두 동일 파일명 형식 → 시각적 식별 불가.
     - 증상: 본 세션 검증 중 `reports/venfobel-vitamin/`에 3개 QA 응답 파일 자동 생성 (170636/171821/172655). C 진입 시 진짜 리포트와 섞일 위험.
     - 검토안: QA 응답 저장 경로를 `reports/venfobel-vitamin/qa/{slug}_{ts}.md` 또는 `reports/venfobel-vitamin/{slug}_qa_{ts}.md`(qa prefix)로 분리. `agent.communicator`의 `[SAVE] report saved` 분기에서 `qa_direct_reply` 플래그 보고 경로 분기.
     - C 진입 전 검증 세션 부산물 3개 파일을 삭제.
     - 진입 트리거: 코드 수정은 차후. **임시 우회는 본 세션 C 진입 전 즉시.**
+    **close 후기 (2026-05-05 §12-13-1 + §12-13-4 패키지 close 세션)**:
+    - 패치 (`agent/communicator.py`):
+      - `_safe_save_report(state, content_hint, *, qa_mode=False)` 시그니처 확장. `qa_mode=True` 시 저장 경로를 `<out>/<topic_slug>/qa/qa_<topic_slug>_<ts>.md`로 분리.
+      - 호출처 3곳 분기:
+        - L294 (레거시 플래그 QA): `qa_mode=True` 명시
+        - L383 (tagged QA delivery): `qa_mode=True` 명시
+        - L913 (generated reply 후크): `desc.startswith("off_topic:")` OR `qa_direct_reply` flag 추론 → 자동 분기 (§12-13-1 가드가 라우팅한 응답도 자동 격리)
+      - `_save_last_ai_if_any` 경로(L170)는 비-QA 컨텍스트 유지 (announce_planner, show_outline 등).
+    - 검증: `reports/venfobel-vitamin/qa/qa_venfobel-vitamin_20260505_094715.md` 정상 저장 (921 bytes). C 미션 진짜 리포트(`reports/venfobel-vitamin/` 직하)와 디렉터리 단위 분리 확인.
+    - 부산물 정리: `_qa_session_20260505_communicator/` 8개 파일 옵션 1로 통째 삭제 처리.
 
     13-5. **`write:` 명시형 prefix 외 라우팅 실패 (ko-natural 형식)** — 상태: `closed (2026-05-05 §12-13 코드 수정 세션)` / 의존: 없음 / 우선순위: 최상 (Blocker)
     - 발견: 2026-05-05 사용자측 검증 세션 C 미션 진입 시. "2. <섹션명> 섹션 작성해주세요"(ko-natural hit) 입력 → supervisor가 write 의도 무시 + research_round 0→1 promote → web_search → vector → synthesizer → communicator Direct QA 흐름으로 진행. **section_writer 진입 실패** (90초, 356자 응답).

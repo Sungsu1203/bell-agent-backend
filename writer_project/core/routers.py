@@ -322,10 +322,40 @@ def _has_writer_pending_strict(state: State) -> bool:
     return False
 
 
+# ── §12-13-1 (2차 패치): off-topic 가드 헬퍼 ──────────────────────────────────
+# supervisor 단 가드(_topic_match_count)가 등록한 'off_topic:*' 태스크를 라우터
+# 단에서도 최우선 검사한다. supervisor → research_planner 엣지가 그래프 빌더에
+# 정의되어 있어 supervisor의 early return만으로는 우회를 막을 수 없으므로,
+# 각 라우터의 진입점에서 이 가드를 호출하여 communicator로 강제 라우팅한다.
+def _has_off_topic_pending(state: State) -> bool:
+    """task_history에 'off_topic:*' description prefix를 가진 미완료 task가 있는지."""
+    try:
+        tasks = state.get("task_history", []) or []
+        for t in reversed(tasks):
+            if isinstance(t, dict):
+                agent = t.get("agent", "")
+                done = bool(t.get("done", True))
+                desc = str(t.get("description", "") or "")
+            else:
+                agent = getattr(t, "agent", "")
+                done = bool(getattr(t, "done", True))
+                desc = str(getattr(t, "description", "") or "")
+            if (not done) and agent == "communicator" and desc.startswith("off_topic:"):
+                return True
+    except Exception as e:
+        logger.debug("[router._has_off_topic_pending] scan failed: %r", e)
+    return False
+
+
 def tail_task_router(state: State) -> str:
     """작성 단계(테일)에서 다음 노드를 선택."""
     if _is_show_outline_intent(state):
         logger.info("[router.tail] show_outline intent → communicator (hard-stop)")
+        return "communicator"
+
+    # §12-13-1 (2차 패치): off-topic 가드 — tail에 도달한 경우에도 communicator로
+    if _has_off_topic_pending(state):
+        logger.info("[router.tail] off_topic task pending → communicator (guard)")
         return "communicator"
     
     # ── STRICT WRITER GUARD: writer가 펜딩이면 최우선 라우팅
@@ -440,6 +470,12 @@ def after_web_search_agent(state: State) -> str:
     """
     if _is_show_outline_intent(state):
         logger.info("[router.after_web] show_outline intent → communicator (hard-stop)")
+        return "communicator"
+
+    # §12-13-1 (2차 패치): off-topic 가드 — supervisor가 등록한 off_topic:* task가
+    # 있으면 web_search 결과와 무관하게 communicator로 직행. 가드 우회 차단.
+    if _has_off_topic_pending(state):
+        logger.info("[router.after_web] off_topic task pending → communicator (guard)")
         return "communicator"
     
     tasks = state.get("task_history", []) or []
@@ -639,6 +675,19 @@ def after_vector_router(state: State) -> str:
     tasks = state.get("task_history", []) or []
     flags = state.get("flags") or {}
 
+    # §12-13-1 (2차 패치): off-topic 가드 — 모든 다른 분기(research_loop_active,
+    # qa_direct_reply 등)보다 우선. 박제 회귀 케이스에서 09:29:05 시점
+    # `[router.after_vector] research_loop_active=True → research_synthesizer`로
+    # 우회되어 인덱스 오염이 발생했음. 이 가드로 그 경로를 차단.
+    if _has_off_topic_pending(state):
+        # qa_direct_reply 플래그가 잔존할 수 있으므로 정리하여 후속 부작용 방지
+        try:
+            clear_qa(cast(MutableMapping[str, Any], state))
+        except Exception:
+            pass
+        logger.info("[router.after_vector] off_topic task pending → communicator (guard)")
+        return "communicator"
+
     # ── (NEW) Direct QA 패스스루: 플래그가 True면 내용 유무와 무관하게 communicator로 전달
     if bool((flags or {}).get("qa_direct_reply", False)):
         logger.info("[router.after_vector] direct_qa=True → communicator (passthrough & clear flags)")
@@ -764,6 +813,13 @@ def after_planner_router(state: State) -> str:
     5) refs/references에 이미 문서가 있거나 rag_on_disk=True → vector_search_agent
     6) 기본: web_search_agent
     """
+    # §12-13-1 (2차 패치): off-topic 가드 — supervisor 가드 우회로 planner가 실행됐어도
+    # 여기서 차단. 이 라우터는 직전 세션 09:27:53 시점에 'default → web_search_agent'로
+    # 인덱스 오염 사이클의 시작점이었음.
+    if _has_off_topic_pending(state):
+        logger.info("[router.after_planner] off_topic task pending → communicator (guard)")
+        return "communicator"
+
     tasks = state.get("task_history", []) or []
 
     # refs → references 미러링(혼용 방지)
@@ -841,6 +897,12 @@ def after_synthesizer_router(state: State) -> str:
     - 연구 라운드를 더 돌지 결정(신규 URL 수, 최소/최대 라운드, 무신규 연속치 등)
     - 계속 연구면 research_planner, 아니면 tail_task_router(writer/communicator 등)
     """
+    # §12-13-1 (2차 패치): off-topic 가드 — synthesizer가 findings를 quick-ingest하여
+    # 인덱스에 추가하는 부작용까지 발생하므로, 가드 우회로 여기까지 도달했어도 즉시 종료.
+    if _has_off_topic_pending(state):
+        logger.info("[router.after_synth] off_topic task pending → communicator (guard)")
+        return "communicator"
+
     tasks = state.get("task_history", []) or []
 
     if callable(schedule_writer_if_needed):

@@ -101,10 +101,13 @@ def communicator(state: State):
         except Exception as e:
             logger.warning("[WRITER] requested_title injection failed: %s", e)
 
-    def _safe_save_report(state: State, content_hint: str | None = None):
+    def _safe_save_report(state: State, content_hint: str | None = None, *, qa_mode: bool = False):
         """
         산출물(최소한 커뮤니케이터 응답 텍스트라도)을 파일로 저장하고
         state['last_saved_path']를 갱신한다.
+
+        §12-13-4: qa_mode=True이면 reports/<topic_slug>/qa/ 서브디렉터리 +
+        파일명 prefix 'qa_'로 저장하여 작성(write) 산출물과 분리.
         """
         try:
             topic_slug = (state.get("topic_slug") or "report").strip()
@@ -115,11 +118,17 @@ def communicator(state: State):
             else:
                 base = current_path() if callable(current_path) else current_path  # function 혹은 값 모두 대응
                 out_root_path = Path(str(base)) / "outputs"
-            out_dir = out_root_path / topic_slug
+            # §12-13-4: QA 응답은 별도 서브디렉터리로 분리
+            if qa_mode:
+                out_dir = out_root_path / topic_slug / "qa"
+            else:
+                out_dir = out_root_path / topic_slug
             out_dir.mkdir(parents=True, exist_ok=True)
 
             ts = _now_str().replace(":", "").replace(" ", "_").replace("-", "")
-            fname = f"{topic_slug}_{ts}.md"
+            # §12-13-4: QA는 'qa_' prefix로 작성 산출물과 식별 분리
+            prefix = "qa_" if qa_mode else ""
+            fname = f"{prefix}{topic_slug}_{ts}.md"
             out_path = out_dir / fname
 
             content: str | None = None
@@ -141,7 +150,8 @@ def communicator(state: State):
             out_path.write_text(content, encoding="utf-8")
             size = out_path.stat().st_size
             state["last_saved_path"] = str(out_path)
-            logger.info("[SAVE] report saved → %s (bytes=%d)", out_path.as_posix(), size)
+            logger.info("[SAVE] %sreport saved → %s (bytes=%d)",
+                        "QA " if qa_mode else "", out_path.as_posix(), size)
             logger.debug("last_saved_path after save: %s", state.get("last_saved_path"))
             if size == 0:
                 logger.warning("[SAVE][WARN] file saved but size=0 bytes")
@@ -281,7 +291,8 @@ def communicator(state: State):
 
         # ✅ 보장: Direct QA 본문은 항상 저장
         try:
-            _safe_save_report(state, content_hint=reply_text)
+            # §12-13-4: QA 응답은 qa/ 서브디렉터리 + qa_ prefix로 분리 저장
+            _safe_save_report(state, content_hint=reply_text, qa_mode=True)
         except Exception as e:
             logger.warning("[SAVE][DirectQA] save failed: %s", e)
 
@@ -370,7 +381,8 @@ def communicator(state: State):
             state["messages"] = msgs
 
         # (5) Direct QA 본문을 즉시 저장
-        _safe_save_report(state, content_hint=reply_text)
+        # §12-13-4: QA 응답은 qa/ 서브디렉터리 + qa_ prefix로 분리 저장
+        _safe_save_report(state, content_hint=reply_text, qa_mode=True)
 
         # (6) communicator pending task 종료
         pending = next(
@@ -900,7 +912,14 @@ def communicator(state: State):
                     just_wrote = True
                     break
         if not just_wrote and (text_buf or "").strip():
-            _safe_save_report(state, content_hint=text_buf)
+            # §12-13-4: off-topic QA 가드(§12-13-1)가 routing한 응답도
+            # qa/ 서브디렉터리로 분리 저장. desc 기반 1차 추론 + flag 2차 확인.
+            _qa_save = bool(
+                (desc or "").startswith("off_topic:")
+                or (state.get("flags") or {}).get("qa_direct_reply")
+                or state.get("qa_direct_reply")
+            )
+            _safe_save_report(state, content_hint=text_buf, qa_mode=_qa_save)
         else:
             logger.debug("[Communicator] skip autosave (writer just saved).")
     except Exception as e:

@@ -113,6 +113,45 @@ def _writer_agent_name() -> AgentName:
     # mypy/pyright 만족을 위한 캐스트 (값은 위에서 보정)
     return cast(AgentName, w)
 
+# ── §12-13-1: 토픽-적합성 가드 헬퍼 ───────────────────────────────────────────
+# fast-path(QA-like) 진입 전, 사용자 질의가 현재 토픽과 무관한지 1차 판정.
+# 0개 매칭 → off-topic으로 간주, communicator 직행해 vector/web search 누수 차단.
+def _topic_keyword_set() -> set[str]:
+    """CFG.TOPIC_KEYWORDS + CFG.TOPIC_TITLE 토큰을 소문자 정규화한 셋 반환.
+    둘 다 비어 있으면 빈 셋(가드 비활성)."""
+    try:
+        kws = list(getattr(config.CFG, "TOPIC_KEYWORDS", None) or [])
+    except Exception:
+        kws = []
+    try:
+        title = (getattr(config.CFG, "TOPIC_TITLE", "") or "").strip()
+    except Exception:
+        title = ""
+    # TOPIC_TITLE을 비-영문/영문/숫자 경계로 토큰화하여 fallback 키워드로 추가
+    # 예: "venfobel-vitamin" → ["venfobel", "vitamin"]
+    if title:
+        for tok in re.split(r"[^A-Za-z0-9가-힣]+", title):
+            tok = tok.strip()
+            if tok and len(tok) >= 2:  # 1글자 토큰은 노이즈 위험
+                kws.append(tok)
+    out: set[str] = set()
+    for k in kws:
+        s = (k or "").strip().lower()
+        if s and len(s) >= 2:
+            out.add(s)
+    return out
+
+def _topic_match_count(text: str) -> int:
+    """text에 토픽 키워드 중 몇 개가 등장하는지 카운트(중복 키워드 1회 카운트).
+    키워드 셋이 비었으면 항상 1을 반환(=가드 비활성, 모든 입력 통과)."""
+    kws = _topic_keyword_set()
+    if not kws:
+        return 1  # 키워드 미설정 시 기존 동작 유지
+    if not isinstance(text, str) or not text.strip():
+        return 0
+    s = text.lower()
+    return sum(1 for k in kws if k in s)
+
 # ── Chroma NS helpers (web/vector/synth와 동일 규칙) ─────────────────────────
 def _ns_sanitize(s: str) -> str:
     s = (s or "").strip().lower()
@@ -435,6 +474,41 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
             except Exception:
                 _last_text = ""
 
+            # ── §12-13-1: 토픽-적합성 가드 ────────────────────────────
+            # qa_direct_reply 플래그가 켜진 상태라도, 사용자 질의가 현재 토픽
+            # 키워드와 0개 매칭이면 vector/web search로 누수되지 않도록 차단.
+            # (TOPIC_KEYWORDS 미설정 시 _topic_match_count는 항상 1 반환 → 통과)
+            if _last_text and _topic_match_count(_last_text) == 0:
+                logger.info(
+                    "[Supervisor] Direct QA off-topic (no keyword match) → communicator (q=%r)",
+                    _last_text[:80],
+                )
+                # qa_direct_reply 플래그 해제 (재진입 방지)
+                mstate["qa_direct_reply"] = False
+                _flags_off = dict(mstate.get("flags") or {})
+                _flags_off["qa_direct_reply"] = False
+                # §12-13-1 (2차): research_round/research_loop_active 강제 리셋.
+                # 이 함수 상단(L449)에서 'promote research_round=1 (basis: rag_on_disk)'로
+                # 자동 승격된 값이 후속 라우터들의 research mode 분기를 트리거하므로
+                # off-topic 가드 발화 시 명시적으로 0으로 되돌려 research loop 진입 차단.
+                _flags_off["research_loop_active"] = False
+                mstate["flags"] = _flags_off
+                mstate["research_round"] = 0
+                mstate["research_loop_active"] = False
+                if not _safe_has_pending(tasks, "communicator"):
+                    tasks.append(
+                        Task(agent="communicator", done=False, description="off_topic:direct_qa", done_at="")
+                    )
+                _dash_emit(state, where="supervisor", picked="communicator", reason="off_topic_qa_guard")
+                return {
+                    "messages": messages,
+                    "task_history": tasks,
+                    "flags": mstate.get("flags", {}),
+                    "qa_direct_reply": False,
+                    "research_round": 0,
+                    "research_loop_active": False,
+                }
+
             # [변경점] 연구 모드에서도 Direct QA 우선권 부여
             # 연구 모드 && (qa_direct_reply 진행 중 OR 질의가 QA-like)이면 합성기 대신 벡터검색으로 보낸다.
             if _is_research_mode(mstate) and (_flags.get("qa_direct_reply") or _is_qa_like_ext(_last_text)):
@@ -543,6 +617,39 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
         return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {})}
 
     if last_text and _is_qa_like(last_text):
+        # ── §12-13-1: 토픽-적합성 가드 ────────────────────────────
+        # QA-like 입력이지만 토픽 키워드 0개 매칭 → off-topic으로 간주.
+        # vector_search_agent 펜딩 등록 대신 communicator로 직행하여
+        # venfobel 인덱스 retrieval/no-hits→web_search 누수 차단.
+        if _topic_match_count(last_text) == 0:
+            logger.info(
+                "[Supervisor fast-path] QA-like off-topic (no keyword match) → communicator (q=%r)",
+                last_text[:80],
+            )
+            # §12-13-1 (2차): research_round/research_loop_active 강제 리셋.
+            # 함수 상단의 자동 승격(L449)을 무력화하여 후속 라우터의
+            # research mode 분기 진입을 차단.
+            _flags_off2 = dict(mstate.get("flags") or {})
+            _flags_off2["qa_direct_reply"] = False
+            _flags_off2["research_loop_active"] = False
+            mstate["flags"] = _flags_off2
+            mstate["qa_direct_reply"] = False
+            mstate["research_round"] = 0
+            mstate["research_loop_active"] = False
+            if not _safe_has_pending(tasks, "communicator"):
+                tasks.append(
+                    Task(agent="communicator", done=False, description="off_topic:qa_like", done_at="")
+                )
+            _dash_emit(state, where="supervisor", picked="communicator", reason="off_topic_qa_guard")
+            return {
+                "messages": messages,
+                "task_history": tasks,
+                "flags": mstate.get("flags", {}),
+                "qa_direct_reply": False,
+                "research_round": 0,
+                "research_loop_active": False,
+            }
+
         if not _safe_has_pending(tasks, "vector_search_agent"):
             tasks.append(Task(agent="vector_search_agent", done=False, description=f"qa_query:{last_text}", done_at=""))
             # vector_search 입력 채널 보강(q='' 방지)

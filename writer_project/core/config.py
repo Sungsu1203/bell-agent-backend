@@ -251,6 +251,10 @@ class Config:
     REPORT_OUT_DIR: str
     RESEARCH_OUT_DIR: str
     TOPIC_TITLE: str
+    # §12-13-1: supervisor fast-path 토픽-적합성 가드용 키워드 셋.
+    # ENV 'TOPIC_KEYWORDS' (콤마 구분)로 주입. 비어 있으면 TOPIC_TITLE 토큰을
+    # fallback으로 사용. 셋이 모두 비어 있으면 가드 비활성(기존 동작 유지).
+    TOPIC_KEYWORDS: List[str]
     PLANNER_FORCE_KR: bool
     RESEARCH_PLANNER_MAX_Q: int
     RESEARCH_PLANNER_ANNOUNCE: bool
@@ -477,6 +481,12 @@ def _build_config() -> Config:
         REPORT_OUT_DIR=_env_str("REPORT_OUT_DIR", ""),
         RESEARCH_OUT_DIR=_env_str("RESEARCH_OUT_DIR", ""),
         TOPIC_TITLE=_env_str("TOPIC_TITLE", ""),
+        # §12-13-1: 콤마 구분 ENV → List[str]. 빈 항목/공백 제거. 미설정이면 빈 리스트.
+        TOPIC_KEYWORDS=[
+            t.strip()
+            for t in (_env_str("TOPIC_KEYWORDS", "") or "").split(",")
+            if t and t.strip()
+        ],
         PLANNER_FORCE_KR=_env_flag("PLANNER_FORCE_KR", True),
         RESEARCH_PLANNER_MAX_Q=_env_int("RESEARCH_PLANNER_MAX_Q", 7, min_=0, max_=50),
         RESEARCH_PLANNER_ANNOUNCE=_env_flag("RESEARCH_PLANNER_ANNOUNCE", False),
