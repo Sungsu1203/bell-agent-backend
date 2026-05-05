@@ -560,6 +560,11 @@ def after_web_search_agent(state: State) -> str:
         if refs_empty and not _skip_web_search(state) and not (_is_write and _has_rag):
             logger.debug("[router.after_web] writer pending but refs empty → web_search_agent")
             return "web_search_agent"
+        # §12-15: writer 펜딩이라도 vector_search 가 대기중이면 먼저 실행.
+        # 그렇지 않으면 RAG 가 있는데도 retrieval 단계가 통째로 스킵되어 빈 본문이 나간다.
+        if has_pending(state, "vector_search_agent"):
+            logger.info("[router.after_web] writer pending but vector_search pending → vector_search_agent")
+            return "vector_search_agent"
         logger.info("[router.after_web] writer pending(strict) → %s", preferred_writer)
         return preferred_writer
 

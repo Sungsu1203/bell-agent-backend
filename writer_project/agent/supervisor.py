@@ -1011,11 +1011,18 @@ def supervisor_router(state: Mapping[str, Any]) -> str:
     flags = state.get("flags") or {}
     has_writer_p = _has("section_writer", prefix="write:") or _has("chapter_writer", prefix="write:")
     if has_writer_p and flags.get("pending_write_title"):
-        if refs_empty:
-            _dash_emit(state, where="router", picked="web_search_agent", reason="writer_locked_but_refs_empty")
+        # ── §12-15 가드: refs(in-memory)가 비어있어도 rag_on_disk(Chroma 영속)면
+        # web_search 로 빠지지 않고 vector_search 우선. 서버 재시작 직후엔 state["references"]
+        # 가 휘발해 refs_empty=True 지만 디스크 RAG 는 살아있는 케이스를 처리한다.
+        has_on_disk = bool(state.get("rag_on_disk"))
+        if refs_empty and not has_on_disk:
+            _dash_emit(state, where="router", picked="web_search_agent", reason="writer_locked_refs_empty_no_rag")
             return "web_search_agent"
+        if _has("vector_search_agent"):
+            _dash_emit(state, where="router", picked="vector_search_agent", reason="writer_locked_vector_pending")
+            return "vector_search_agent"
         ret = "section_writer" if _doc_mode() == "report" else "chapter_writer"
-        _dash_emit(state, where="router", picked=ret, reason="writer_pending_locked_title_refs_ok")
+        _dash_emit(state, where="router", picked=ret, reason="writer_pending_locked_title_refs_or_rag_ok")
         return ret
 
     preferred = "section_writer" if _doc_mode() == "report" else "chapter_writer"

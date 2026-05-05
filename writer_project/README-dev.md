@@ -897,6 +897,39 @@ python tools\diagnose_chunks_deep.py
     - `tools/metrics.py` 의 `record_*` 와 `core/events.py` 는 별개 채널 (운영 분석용 NDJSON vs 사용자 UI용 인메모리). 통합 검토는 우선순위 낮음 — 목적과 수명이 달라 분리 유지가 자연스러움.
     - communicator 등 일부 노드는 함수 본문 안쪽에 banner 가 있어 emit_event 위치도 그에 맞춰 깊숙이 배치됨. 향후 banner 위치 정리 시 emit_event 도 같이 옮길 것.
 
+15. **§12-15 — 라우터의 in-memory references vs disk rag_on_disk 분리 가드 (서버 재시작 직후 write fast-path 우회 버그)** — 상태: `closed (2026-05-05)` / 의존: 없음 / 우선순위: 높음
+
+    **출처**: 사용자 보고 — "백엔드 서버 재시작하고 프런트엔드에서 write:섹션 하면 RAG 없다고 가정하고 web_search 부터 하고 vector_search 안 하고 section_writer 로 감. 실제로는 RAG 있어서 web_search 불필요, vector_search 후 section_writer 가 정답인데."
+
+    **현상 (재시작 직후 write 명령)**:
+    - supervisor 본함수: `rag_on_disk=True` (Chroma ns_web=73 + ns_local=349 = 422 청크 영속) 정확히 인식 → `[Supervisor fast-path] write + rag_on_disk → vector_search → section_writer` 의도 표명, `task_history=[section_writer, vector_search_agent]` 등록 + `flags.pending_write_title=True`.
+    - 그런데 직후 supervisor_router 가 `============ WEB SEARCH AGENT ============` 로 분기. web_search 후 `[router.after_web] writer pending(strict) → section_writer` 로 vector_search 통째로 스킵. 의도 라우팅 회로가 통째로 빗나감.
+
+    **루트 원인 (라우터 두 군데, 같은 가정 누락)**:
+    - `agent/supervisor.py:supervisor_router` (L1013-1023): `if has_writer_p and pending_write_title: if refs_empty: return "web_search_agent"` — `state["references"]["docs"]` (in-memory, 서버 재시작 시 휘발) 만 보고 `state["rag_on_disk"]` (디스크 Chroma 메타) 무시. 서버 재시작 직후엔 references 가 빈 dict 라서 가드가 잘못 발화하여 web_search 강제.
+    - `core/routers.py:after_web_search_agent` (L552-564): 웹검색 끝난 뒤 `pending_write_title=True && has_writer_p=True` 면 vector_search 펜딩 검사 없이 바로 `return preferred_writer` 직행. 결과적으로 retrieval 단계 자체를 스킵하고 빈 references 로 본문 생성.
+
+    **패치**:
+    - `agent/supervisor.py:1013-1027` — `has_on_disk = bool(state.get("rag_on_disk"))` 추가, 가드를 `refs_empty and not has_on_disk` 로 강화. refs 비어있어도 rag_on_disk=True 면 web_search 안 가고, vector_search_agent 펜딩이면 그쪽 우선, 아니면 writer 직행.
+    - `core/routers.py:560-568` — web_search 후 writer-pending 분기에서 `return preferred_writer` 직전에 `if has_pending(state, "vector_search_agent"): return "vector_search_agent"` 한 줄 추가. retrieval 단계가 통째로 스킵되어 빈 본문이 나가는 사고 차단.
+
+    **검증 (동일 시나리오, 백엔드 재시작 후 `write: 고함량 활성비타민 시장 환경 및 규제 동향 분석` 재실행)**:
+
+    | 항목 | 패치 전 | 패치 후 |
+    |---|---|---|
+    | 파이프라인 | supervisor → **web_search** → section_writer | supervisor → **vector_search** → section_writer |
+    | 처리 시간 | 22:31:28 → 22:32:37 = **69초** | 22:58:48 → 22:59:16 = **28초** |
+    | retrieval | web_search 4건 fetch, 모두 `attach_auto_citations skip unverified` → 인용 **0개** | dual-retrieve web=3 / local=2 → 검증된 ref **5개** |
+    | top sources | dailypharm.com 3건 (모두 unverified) | 종근당_팩트북.pdf, 벤포벨 광고효과조사 PPT, dailypharm/91137 |
+    | draft 본문 | 3530 chars / 8338 bytes (인용 없는 산문) | 2942 chars / 7180 bytes (검증된 RAG 기반) |
+
+    **일반화 교훈 (다른 라우터/가드에도 적용)**:
+    - **in-memory state 와 disk state 를 분리해서 가드**: `state["references"]` (휘발성, 세션 단위) vs `state["rag_on_disk"]` / `state["rag_stats"]` (영속, 디스크 메타). 라우터는 둘 다 봐야 함. references 비어있다고 RAG 자체가 없다고 가정하면 서버 재시작 직후 / 새 세션 첫 명령에서 빗나감.
+    - **fast-path 의도와 라우터 결정의 정합성 점검**: supervisor 본함수의 `[fast-path] ... → A → B` 로그와 직후 `============ A 또는 B ============` banner 가 일치하는지 운영 점검 항목으로 추가. 어긋나면 supervisor_router 의 가드가 본함수 의도를 무력화하는 케이스 의심.
+    - **retrieval 단계 스킵은 사고**: writer-pending 가드가 retrieval(vector_search) 펜딩보다 우선하면 빈 references 로 본문 생성 → unverified citation 0개 + LLM hallucination 위험. 라우터 가드 우선순위는 `vector_search 펜딩 → writer 직행` 순서가 정답.
+
+    **짝 박제**: 프런트엔드 측 `Bell_Agent/frontend/README-dev.md` §12-13 (사용자 origin, 현상). 본 §12-15 가 백엔드 패치 본체.
+
 ---
 
 ## 13) 알려진 이슈/주의사항
