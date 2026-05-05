@@ -750,6 +750,24 @@ python tools\diagnose_chunks_deep.py
     - 검토안: `content_utils._slugify()` 또는 section_writer 측 슬러그 함수 점검. `re.sub(r'[^\w\-]', '', s)` 같은 정규식이 괄호를 제거 중일 가능성. 괄호를 `-`로 치환하거나 보존하도록 수정.
     - 진입 트리거: 별도 cosmetic 정리 시 또는 동명이섹션 충돌 발생 시.
 
+    13-10. **`/api/export` 엔드포인트가 prefix 없는 신형 섹션 파일을 매칭 못 함** — 상태: `closed (2026-05-05 §12-13-10 close 세션)` / 의존: §12-13-9와 같은 슬러그 정합성 라인 / 우선순위: 높음 (사용자 다운로드 기능 차단)
+    - **발견 (2026-05-05)**: 프론트엔드에서 Word 다운로드 시도 시 모든 섹션이 `HTTP 404 — {"detail":"section N not found"}`. 사용자 보고: "Word 다운로드 실패: HTTP 404 Not Found — section 2 not found". 보고서 본문 화면 표시는 정상이고 (`/api/files`는 잘 매칭) export만 깨짐.
+    - **증상**: `kind="section"` 으로 보내든 `kind="report"` 로 보내든 동일하게 매칭 실패 — `_read_section_file()`은 404, `_read_all_sections()`는 빈 리스트 반환 ("no sections found").
+    - **진단**:
+      - `app.py:1386` `_read_section_file()` — 폴더 내 .md 파일 중 `fname.startswith(f"{section_id}-")` 만 매칭. 신형 슬러그 파일명(예: `실행-로드맵-및-핵심-성과-지표kpi.md`) 에는 prefix 없음 → 항상 fail.
+      - `app.py:1429` `_read_all_sections()` — `re.match(r"^(\d+)-", fname)` 으로 prefix 매칭만. 신형 파일은 모두 skip → 빈 결과.
+      - 정합성 깨짐의 근원: writer (`section_writer` / `content_utils.save_md_draft`) 가 `slugify(title)` 결과만 파일명으로 사용하고 prefix를 붙이지 않음. §12-13-9 (슬러그 cosmetic) 발견 당시에도 prefix 부재는 발견됐으나 export endpoint 측 회귀를 catch 못함 — export 기능을 사용자가 처음 시도한 시점에 노출.
+    - **해결** (`app.py` 패치):
+      - 헬퍼 3개 신설: `_load_outline_items()` (활성 outline 줄 단위 로드), `_outline_title_to_slug(raw)` (제목만 추출 후 `utils.text_utils.slugify(allow_unicode=True)`), `_resolve_section_file(section_id, slug_dir, outline_items)` (1차 prefix → 2차 슬러그 fallback).
+      - `_read_section_file()` / `_read_all_sections()` 가 위 헬퍼를 사용하도록 단순화. 옛 형식 (`{N}-...md`) 역호환 유지 + 신형 슬러그 파일명 매칭 추가.
+      - 슬러그 비교는 case-insensitive (lower) — `slugify()`가 이미 lower로 내려주지만 안전망.
+    - **검증**:
+      - 사용자측: 패치 + 백엔드 재시작 후 섹션 2 Word 다운로드 정상. PDF/복사도 동일 흐름이므로 영향 없음(원래 정상이었던 PDF는 별도 §frontend §12-10/-11과 묶인 viewport CSS 회귀가 있었음).
+    - **박제 후기**:
+      - **3중 동기화 invariant**: outline 항목 제목 → 백엔드 `utils.text_utils.slugify` (writer가 파일 저장 시 사용) → 프론트 `lib/data.ts:slugifyTitle` (파일↔섹션 매칭) → 백엔드 `/api/export` (이번 추가). 한 곳만 규칙이 바뀌면 전부 깨짐. §7-2/§12-8/§12-13-9 와 동일 라인 위에 있음.
+      - **prefix 재도입 검토 거절**: writer가 `{N}-` prefix를 다시 붙이는 옵션도 있었으나 (a) 기존 신형 파일들 일괄 rename 비용 (b) outline 항목 순서 변경 시 파일명도 따라 바꿔야 하는 양방향 의존 발생 (c) 슬러그 자체가 이미 사람이 읽기 좋은 파일명 — 셋 모두 부정적이라 fallback 추가가 정공법.
+      - **잔여 위험**: outline 항목 슬러그가 동일한 두 섹션이 들어오면 첫 매칭만 잡힘. 현재 outline은 모두 고유 제목이라 문제없으나 §12-13-9 의 동명이섹션 시나리오와 결합 시 위험. 그때는 outline 인덱스를 우선 쓰는 별도 로직 필요.
+
 ---
 
 ## 13) 알려진 이슈/주의사항
