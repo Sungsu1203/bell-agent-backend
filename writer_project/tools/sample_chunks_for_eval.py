@@ -20,13 +20,13 @@ import random
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from core.config import load_topic_env
 
-load_dotenv(".env")
-load_dotenv("topics/venfobel-vitamin.env", override=True)
+load_topic_env()
 
 # ---------- 설정 ----------
-TOPIC_SLUG = "venfobel-vitamin"
+TOPIC_SLUG = os.environ["TOPIC_SLUG"]
 CHROMA_BASE = Path("data/chroma_store")
 
 # 운영 dual_retrieve가 사용하는 store만 (통합 store 제외)

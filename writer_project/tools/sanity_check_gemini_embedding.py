@@ -1,10 +1,13 @@
 # tools/sanity_check_gemini_embedding.py
 import os
-from dotenv import load_dotenv
+import sys
+from pathlib import Path
 
-# 운영과 동일한 로딩 순서: 루트 .env (GCP 인증, 프로바이더) → 토픽 .env (override)
-load_dotenv(".env")
-load_dotenv("topics/venfobel-vitamin.env", override=True)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from core.config import load_topic_env
+
+# .env → TOPIC_SLUG → topics/{slug}.env(override) 통합 부트스트랩
+load_topic_env()
 
 # 인증/프로젝트 설정 확인 (디버그)
 print(f"[debug] GOOGLE_APPLICATION_CREDENTIALS={os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')}")

@@ -130,6 +130,16 @@ def _load_dotenv_once() -> None:
     except Exception as e:
         print(f"[Config] 토픽 프리셋 로드 실패 (무시): {e}")
 
+
+def load_topic_env() -> None:
+    """평가/유틸 스크립트용 public wrapper.
+
+    .env → TOPIC_SLUG → topics/{slug}.env(override) 순으로 1회 로드한다.
+    앱 본체는 CFG 인스턴스화 시 자동 호출하므로 별도로 부를 필요 없음.
+    """
+    _load_dotenv_once()
+
+
 # ── 연구 목적 ENV 로더(호환 유지 + 확장) ───────────────────────
 def load_research_objectives_from_env(
     prefix: str = "BLOCKAGI_OBJECTIVE_",

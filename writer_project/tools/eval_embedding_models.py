@@ -37,15 +37,16 @@ import time
 from pathlib import Path
 
 import numpy as np
-from dotenv import load_dotenv
 
-load_dotenv(".env")
-load_dotenv("topics/venfobel-vitamin.env", override=True)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from core.config import load_topic_env
+
+load_topic_env()
 
 from langchain_google_vertexai import VertexAIEmbeddings
 
 # ---------- 설정 ----------
-TOPIC_SLUG = "venfobel-vitamin"
+TOPIC_SLUG = os.environ["TOPIC_SLUG"]
 GOLDSET_FILE = Path("eval/goldset") / TOPIC_SLUG / "chunks_sampled.jsonl"
 OUTPUT_FILE = Path("eval/results") / f"{TOPIC_SLUG}_gemini_vs_multilingual.md"
 

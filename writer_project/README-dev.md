@@ -334,6 +334,8 @@ python tools\diagnose_chunks_deep.py
 4. **`writer_scheduler` 단일화** (`schedule_writer_if_needed`만 사용)
 5. **routers 가드 정리 & 순환 제거**
 6. **토픽별 설정 외부화** (`topics/<slug>.config.json`)
+   - 본체: `core.config._load_dotenv_once()` 가 `.env` → `TOPIC_SLUG` → `topics/{slug}.env`(override) 자동 로드. `.env` 의 `TOPIC_SLUG` 한 줄이 단일 스위치.
+   - 평가 도구(`tools/sample_chunks_for_eval.py`, `tools/eval_embedding_models.py`, `tools/sanity_check_gemini_embedding.py`)도 같은 부트스트랩 사용 — `core.config.load_topic_env()` 호출 + `TOPIC_SLUG = os.environ["TOPIC_SLUG"]`. 토픽 전환 시 코드 수정 0줄. (2026-05-05 통합)
 7. **데이터 품질 가드 추가** (`_looks_like_*` 류, 도메인 필터)
 8. **deprecated API 제거**
 
@@ -416,8 +418,10 @@ python tools\diagnose_chunks_deep.py
    - 평가 흐름: sanity_check → sample_chunks → 골드셋 작성(정성, 30~60분) → eval 실행
    - 골드셋 형식: chunks_sampled.jsonl, store별 15~20개씩, 작성 가이드는 eval/goldset/height-growth-supplement/README.md 참조
 
+   **정정 (2026-05-05)**: 위 "3개 파일 한 줄씩 수정"은 `core.config.load_topic_env()` 통합 부트스트랩 도입으로 해소됨. 평가 도구는 이제 `.env` 의 `TOPIC_SLUG` 만 따라간다 — 토픽 전환 시 tools/ 코드 변경 0줄. 자세한 내용은 §7 "토픽별 설정 외부화" 참고.
+
    *다음 세션 시작점*:
-   1. tools/sample_chunks_for_eval.py L26, tools/eval_embedding_models.py L40, tools/sanity_check_gemini_embedding.py L8 — 3개 파일에서 `TOPIC_SLUG = "height-growth-supplement"` → `"venfobel-vitamin"` 변경
+   1. `.env` 에서 `TOPIC_SLUG=<slug>` 만 확인 (현 운영: `venfobel-vitamin`). 평가 도구가 자동으로 따라감.
    2. `python tools/sanity_check_gemini_embedding.py` (두 모델 dim 확인)
    3. `python tools/sample_chunks_for_eval.py` → eval/goldset/venfobel-vitamin/chunks_sampled.jsonl 생성
    4. 골드셋 작성 (정성 작업, 30~60분)
