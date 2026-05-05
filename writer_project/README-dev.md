@@ -713,7 +713,7 @@ python tools\diagnose_chunks_deep.py
   ▎ section_writer (refs 비어있음으로 vector 단계 우회), router.after_web 의 strict writer_pending 검사 통과로
   ▎ section_writer 직행. draft 4922 chars, 11546 bytes 저장. 직전 17:06 회귀(468 chars) 회복 확정.
 
-    13-6. **Vertex 429 ResourceExhausted retry — quota 모니터링 부재** — 상태: `partial (2026-05-05 metric 도입 세션, (a) 완료 / (b)(c) 보류)` / 의존: 없음 / 우선순위: 중
+    13-6. **Vertex 429 ResourceExhausted retry — quota 모니터링 부재** — 상태: `closed (2026-05-05 metric 도입 + 검증 4단계 완료) — (a) 완료 / (b)(c) 추세 데이터 누적 후 결정` / 의존: 없음 / 우선순위: 중
     - 발견: C 미션 Section 7 작성 중(06:28:46~06:31:20, 2분 49초) `langchain_google_vertexai._retry`가 `ResourceExhausted: 429` 발생 → 4초 대기 후 재시도 → 성공. **다른 섹션 평균(35~50초) 대비 5배 소요.**
     - risk: retry 한도 초과 시 해당 섹션 작성 실패 가능. C 미션 7섹션 처리 정도 트래픽에서 1회 발생 → 일상 운영 트래픽에서 빈도 추정 필요.
     - 검토안: (a) Vertex quota 일일 사용량 추적 metric 추가, (b) 429 발생 시 fallback (gemini-flash → gemini-flash-lite, Anthropic API), (c) 긴 섹션 LLM 호출 분할.
@@ -776,6 +776,21 @@ python tools\diagnose_chunks_deep.py
       - **block buffering vs line buffering**: 로그/메트릭 파일에 default block buffering 은 함정. `print(..., flush=True)` 와 같은 명시 flush 또는 `open(..., buffering=1)` 이 NDJSON 같은 라인 단위 emit 패턴의 디폴트가 되어야. `tail -f` / `Get-Content -Wait` 류 라이브 모니터링 도구가 동작하려면 line buffering 필수.
       - **atexit 의존의 함정**: shutdown hook 만 flush 하던 패턴은 "프로세스가 정상 종료될 때만 데이터가 보존됨" 을 의미. SIGKILL / OOM / Stop-Process -Force 같은 비정상 종료에선 buffer 째 잃음. 메트릭 같은 운영 데이터는 라이브 가시성 + 비정상 종료 내성 양쪽 다 line buffering 이 정공법.
 
+    **최종 검증 성공 (2026-05-05 검증 4단계 — flush 풀고 나서)**:
+    - line buffering 패치 후 백엔드 재시작 + 섹션 작성 → hang 없음, `logs/metrics.ndjson` 실시간 누적 확인. 50라인 7785바이트, type 분포: event 14 / chunks 10 / backend_latency 10 / set_round 7 / query_issued 7 / **llm_call 2**.
+    - **§12-13-6 (a) 핵심 결과 — llm_call 라인 2건**:
+      - `{ts: 20:30:30, latency: 47.6s, success: true, retry_hint: "", error_class: "", provider: "vertexai", model: "gemini-2.5-flash", section: "경쟁 브랜드(아로나민·임팩타민) 전략 비교 및 메시지 빈 공간 도출"}`
+      - `{ts: 20:37:56, latency: 29.0s, success: true, retry_hint: "", error_class: "", provider: "vertexai", model: "gemini-2.5-flash", section: 동일}`
+    - **baseline 확정**: 2건 모두 정상 호출 (retry 없음). §12-13-6 발견 케이스(154초, ResourceExhausted 1회 retry) 와 비교 시 5배 빠름 = 평균 35~50초 범위 정확히 부합.
+    - **(b)(c) 진입 신호 정의 (운영 가이드)**:
+      - `latency > 90s` 라인 비율 증가 (NDJSON 후처리: `jq 'select(.type=="llm_call" and .latency > 90)'`)
+      - `success: false` + `error_class: "ResourceExhausted"` 출현
+      - 일일 호출 수 누적 추세 (특정 quota 임계 접근)
+      - 위 3개 지표가 **의미 있는 빈도** 로 나타나기 시작하면 (b) Anthropic fallback 도입 또는 (c) 호출 분할 진입 결정. 임계값은 데이터를 보고 정함.
+    - 잔여(보류 → 별도 박제):
+      - `topic_slug: null` 정합성 — llm_call 라인의 topic_slug 가 null. record_llm_call 호출 시점에 REG.topic_slug 가 set 되어 있지 않은 듯. 분석엔 영향 없으나 일별 topic 별 집계 어려움. **§12-13-11 로 분리 박제**.
+      - section_writer 외 LLM 호출 진입점 (communicator, content_strategist 등) 미계측. 우선순위 낮음.
+
     13-7. **`extract_write_title` 닫는 괄호 처리 미흡** — 상태: `closed (2026-05-05 §12-13 코드 수정 세션)` / 의존: §12-13-1과 패키지 처리 가능 / 우선순위: 낮음
     - 발견: C 미션 Section 7 입력 `'write: 실행 로드맵 및 핵심 성과 지표(KPI)'` → extract 결과 `'실행 로드맵 및 핵심 성과 지표(KPI'` (닫는 `)` 잘림). 본문 작성에 영향 없으나 파일명도 `실행-로드맵-및-핵심-성과-지표kpi.md`로 정규화됨(괄호 자체 누락).
     - 검토안: `rag_expression.py:213-243` 함수의 `_TAIL_PUNCT_RE` 정규식 점검. tail 정리 시 닫는 괄호도 trim 대상에 포함된 것으로 추정 → 매칭된 여는 괄호 `(` 직전까지 포함하는 group 처리 필요.
@@ -824,6 +839,12 @@ python tools\diagnose_chunks_deep.py
       - **3중 동기화 invariant**: outline 항목 제목 → 백엔드 `utils.text_utils.slugify` (writer가 파일 저장 시 사용) → 프론트 `lib/data.ts:slugifyTitle` (파일↔섹션 매칭) → 백엔드 `/api/export` (이번 추가). 한 곳만 규칙이 바뀌면 전부 깨짐. §7-2/§12-8/§12-13-9 와 동일 라인 위에 있음.
       - **prefix 재도입 검토 거절**: writer가 `{N}-` prefix를 다시 붙이는 옵션도 있었으나 (a) 기존 신형 파일들 일괄 rename 비용 (b) outline 항목 순서 변경 시 파일명도 따라 바꿔야 하는 양방향 의존 발생 (c) 슬러그 자체가 이미 사람이 읽기 좋은 파일명 — 셋 모두 부정적이라 fallback 추가가 정공법.
       - **잔여 위험**: outline 항목 슬러그가 동일한 두 섹션이 들어오면 첫 매칭만 잡힘. 현재 outline은 모두 고유 제목이라 문제없으나 §12-13-9 의 동명이섹션 시나리오와 결합 시 위험. 그때는 outline 인덱스를 우선 쓰는 별도 로직 필요.
+
+    13-11. **llm_call 메트릭 라인의 `topic_slug: null` 정합성** — 상태: `pending` / 의존: §12-13-6 (a) / 우선순위: 낮음 (cosmetic, 분석 영향 없음)
+    - 발견 (2026-05-05 §12-13-6 (a) 검증 4단계 직후): `logs/metrics.ndjson` 의 `type: "llm_call"` 라인 2건 모두 `"topic_slug": null`. 다른 type (set_round, query_issued 등) 도 topic_slug 안 들어가는 건 동일하나, llm_call 은 우리가 박제한 의도가 "section + topic_slug 로 어느 토픽에 어떤 섹션 호출했는지" 추적인데 topic_slug 누락으로 토픽별 집계 불가.
+    - 진단: `tools/metrics.py:record_llm_call()` 이 `REG.topic_slug` 를 직접 읽음. set_topic_slug 가 호출되어 REG.topic_slug 가 채워지는 시점과 record_llm_call 호출 시점 사이에 어딘가에서 reset 되거나, 혹은 REG.topic_slug 가 이번 라운드에서 처음부터 set 안 됨. set_topic_slug 호출처 점검 필요.
+    - 검토안: (a) record_llm_call 호출 측(section_writer)에서 명시적으로 topic_slug 인자 전달 — `state.get("topic_slug")` 를 그대로 넘김. (b) set_topic_slug 호출 위치를 supervisor/세션 진입점에 강제. (a) 가 호출 측 한 줄 추가로 끝나는 정공법.
+    - 진입 트리거: 일별 토픽별 호출 집계가 필요해질 때 또는 별도 cosmetic 정리 시.
 
 ---
 
