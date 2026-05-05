@@ -930,6 +930,36 @@ python tools\diagnose_chunks_deep.py
 
     **짝 박제**: 프런트엔드 측 `Bell_Agent/frontend/README-dev.md` §12-13 (사용자 origin, 현상). 본 §12-15 가 백엔드 패치 본체.
 
+16. **§12-16 — 본문 인용 ↔ footnote 매핑 통일 ([[N]] 마커 기반)** — 상태: `closed (2026-05-06)` / 의존: 없음 / 우선순위: 높음 (사용자 클릭 동작 완전 차단)
+
+    **출처**: 사용자 보고 (2026-05-06) — 보고서 본문에 `[일반의약품_마케팅_분석]`, `[Ipsos_보고서]` 같은 라벨로 인용이 박혔지만 클릭해도 출처 패널이 열리지 않음. 참고문헌엔 `일반_의약품_브랜드_마케팅_광고전략_분석.pdf` 같은 풀 파일명만 등장. 짝 박제: `Bell_Agent/frontend/README-dev.md` §12-14.
+
+    **3겹 미스매치 진단**:
+    - (1) `prompts.py:349, 422` — section_writer/chapter_writer 프롬프트가 "짧은 이름만 대괄호로" 지시. 예시도 `[DailyPharm]`/`[아이커.pptx]`/`[foodtoday.or.kr]` 등 확장자 유/무 혼재 → LLM 이 자기 임의로 `[Ipsos_보고서]` 같이 **참고자료에 없는 합성 라벨**을 본문에 박음.
+    - (2) `Bell_Agent/frontend/components/ReportCanvas.tsx:628` — chip regex 가 `\[[^\]]*\.[a-zA-Z0-9가-힣_-]+[^\]]*\]` 즉 대괄호 안에 **확장자 점이 필수**. 확장자 없는 합성 라벨은 chip 변환 자체 실패 → 일반 텍스트로 렌더링되어 클릭 핸들러 부재.
+    - (3) `Bell_Agent/frontend/lib/markdown.ts:findMatchingFootnote` — chip 으로 만들어졌어도 fileName 정확/부분 매칭 의존. LLM 합성 라벨 ("Ipsos_보고서") 과 footnote.fileName ("..._광고효과조사_종근당.pdf") 간 공통 부분문자열 부재 → 매칭 실패.
+
+    **근본 원인**: 본문 인용 토큰과 footnote 사이에 **stable identifier 부재**. LLM 텍스트 라벨에만 의존 → LLM 단축/의역마다 매칭 운에 맡겨짐.
+
+    **처방 (마커 기반 통일)**:
+    | 변경 위치 | 변경 내용 |
+    |---|---|
+    | `utils/refs.py: refs_preview_text(numbered=True)` | LLM 컨텍스트에 references 를 `[1] {label} — {snippet}` 형식 번호 부여로 직렬화 |
+    | `utils/refs.py: attach_marker_citations()` 신설 | 본문 [[N]] 마커 추출 → **본문 등장 순으로 1,2,3,4 재라벨링** (책/논문 인용 관행) → footer `[^N]: {url} ({label})` 1:1 정의 생성 |
+    | `prompts.py:349, 422` | "본문 인용은 [참고 자료]의 번호를 [[N]] 형식으로만. **[라벨] 형식의 자체 합성 명칭 금지**" |
+    | `agent/section_writer.py`, `agent/chapter_writer.py` | `_refs_preview_text(state, numbered=True)` + `attach_marker_citations` 항상 시도 (AUTO_FOOTNOTE 가드와 무관) |
+
+    **검증 (사용자측)**: 마커 chip 정상 렌더링, chip 클릭 → 출처 패널 정확 매칭, footer `[^1] [^2] [^3] [^4]` 순서 정렬. 1차 패치 직후 footer 가 본문 등장 순(예: `[^3] [^1] [^5]`)으로 비순차 출력되던 회귀 즉시 수정 — `attach_marker_citations` 에 `remap = {orig: i+1}` 추가하여 본문/footer 동시 재라벨링.
+
+    **일반화 교훈**:
+    - **본문 토큰과 메타데이터(footnote/링크) 사이엔 stable identifier 가 있어야 한다** — 라벨/파일명 fuzzy 매칭은 LLM 합성 라벨에서 항상 깨진다. 마커(번호 또는 UUID) 가 정공.
+    - **인용 형식의 모호한 예시는 LLM 일탈을 부른다** — 프롬프트에 `[A.pdf]` `[B]` `[C.kr]` 처럼 형식이 뒤섞이면 LLM 은 "라벨은 자유" 로 해석하고 합성 라벨을 만들어냄. 인용 토큰은 **단일 형식만** 허용해야.
+    - **legacy AUTO_FOOTNOTE 모드(quant/domain/footer) 는 유지하되 우선순위 하락**: marker 모드가 항상 먼저 동작 + footer 존재 가드(`FOOTNOTE_DEF_RE`)로 중복 차단. 후속에서 `AUTO_FOOTNOTE_MODE` 의 default 를 `"marker"` 로 변경 + legacy 모드 deprecation 검토.
+
+    **follow-up (별 박제 후보)**:
+    - 프런트 chip 디스플레이 개선: 현재 `[[1]]` 텍스트가 그대로 "1" 로만 보임 — 호버/클릭하면 fileName 보이지만 시각적으로 어떤 출처인지 즉시 식별 어려움. footnotes prop 을 `renderInline → CitationChip` 까지 drilling 해서 fileName/prettyUrl 로 표시.
+    - LLM 마커 규칙 위반 fallback: LLM 이 가끔 [[N]] 외 [라벨] 로 인용할 가능성. 후처리에서 라벨→가장 가까운 ref 매칭 + 마커 변환 로직 추가 검토 (단, 거짓 매칭 위험으로 보수적 적용).
+
 ---
 
 ## 13) 알려진 이슈/주의사항

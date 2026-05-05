@@ -67,6 +67,7 @@ def _as_kv_map(v: Optional[Dict[str, str]] | Optional[Iterable[Tuple[str, str]]]
 
 __all__ = [
     "attach_auto_citations",
+    "attach_marker_citations",
     "merge_refs",
     "refs_preview_text",
     "facts_block",
@@ -301,7 +302,13 @@ def merge_refs(existing: dict | None, new_queries: list[str] | None, new_docs: l
     return {"queries": dedup_q, "docs": dedup_docs}
 
 
-def refs_preview_text(state: Mapping[str, Any], max_q: int = 5, max_docs: int = 8, snippet_len: int = 350) -> str:
+def refs_preview_text(state: Mapping[str, Any], max_q: int = 5, max_docs: int = 8, snippet_len: int = 350, numbered: bool = False) -> str:
+    """
+    references 를 LLM 컨텍스트로 직렬화.
+    - numbered=False (default, 호환): "- [{src}] {snip}"
+    - numbered=True: "- [N] {label} — {snip}"  (LLM 이 [[N]] 마커로 인용 가능하도록 인덱스 부여)
+      ※ N 은 1-based, references.docs 의 등장 순서를 그대로 보존 (attach_marker_citations 와 동일 인덱싱).
+    """
     # CFG 우선 → ENV 폴백 → 인자 기본값
     max_q = _cfg_int("REFS_PREVIEW_MAX_Q", "REFS_PREVIEW_MAX_Q", max_q)
     max_docs = _cfg_int("REFS_PREVIEW_MAX_DOCS", "REFS_PREVIEW_MAX_DOCS", max_docs)
@@ -312,7 +319,7 @@ def refs_preview_text(state: Mapping[str, Any], max_q: int = 5, max_docs: int = 
     docs = (refs.get("docs") or [])[:max_docs]
 
     lines: list[str] = []
-    for d in docs:
+    for i, d in enumerate(docs, start=1):
         meta = _extract_meta(d)
         src = (meta.get("source") or meta.get("url") or "unknown").strip() or "unknown"
         if hasattr(d, "page_content"):
@@ -322,7 +329,11 @@ def refs_preview_text(state: Mapping[str, Any], max_q: int = 5, max_docs: int = 
         else:
             txt = ""
         snip = str(txt).replace("\n", " ")[:snippet_len]
-        lines.append(f"- [{src}] {snip}")
+        if numbered:
+            label = _auto_footnote_label(meta, src)
+            lines.append(f"- [{i}] {label} — {snip}")
+        else:
+            lines.append(f"- [{src}] {snip}")
 
     q_block = "\n".join([f"- {q}" for q in qs]) if qs else "(none)"
     d_block = ("\n\nDocs:\n" + "\n".join(lines)) if lines else ""
@@ -340,6 +351,83 @@ def facts_block(state: Mapping[str, Any]) -> str:
         if s:
             return "\n\n[FACTS]\n" + s
     return ""
+
+
+_MARKER_RE = re.compile(r"\[\[(\d+)\]\]")
+
+
+def attach_marker_citations(gathered: str, state: Mapping[str, Any] | None = None, max_n: int = 20) -> str:
+    """
+    §13: 본문에 박힌 [[N]] 마커를 references[N-1] 와 1:1 매칭해서 footer 정의 생성.
+    - 본문 등장 순서로 번호 재할당 (첫 마커 → [[1]], 두 번째 → [[2]] ...).
+      ※ LLM 이 [참고 자료 요약]의 원본 N 으로 인용했어도, 책/논문 인용 관행에 맞게
+        독자 시점 1,2,3,4 순이 되도록 후처리에서 일괄 재라벨링.
+    - footer 는 재할당된 번호로 출력: [^new_N]: <url>  (<label>)
+    - 범위 밖 N (references 부족) 마커는 그대로 두고 footer 미포함.
+    """
+    if not gathered:
+        return gathered
+
+    state_map = dict(state or {})
+    refs = (state_map.get("references") or {}).get("docs") or []
+    if not refs:
+        return gathered
+
+    # 이미 footer 가 있으면 중복 추가 방지
+    if FOOTNOTE_DEF_RE.search(gathered) or _footer_header_pattern().search(gathered):
+        logger.debug("attach_marker_citations: existing footnotes detected; skipping")
+        return gathered
+
+    # 본문 등장 순서로 original N 을 모음 (중복 제거)
+    upper = min(len(refs), max_n)
+    order: list[int] = []
+    seen: set[int] = set()
+    for m in _MARKER_RE.finditer(gathered):
+        try:
+            n = int(m.group(1))
+        except Exception:
+            continue
+        if n < 1 or n > upper:
+            logger.debug("attach_marker_citations: skip out-of-range marker [[%d]] (refs=%d)", n, len(refs))
+            continue
+        if n not in seen:
+            seen.add(n)
+            order.append(n)
+
+    if not order:
+        logger.debug("attach_marker_citations: no [[N]] markers found in body")
+        return gathered
+
+    # original N → new N (본문 등장 순서대로 1-based 재할당)
+    remap: dict[int, int] = {orig: i + 1 for i, orig in enumerate(order)}
+
+    # 본문 치환: [[orig]] → [[new]] (범위 밖은 그대로 유지)
+    def _sub(match: "re.Match[str]") -> str:
+        try:
+            orig = int(match.group(1))
+        except Exception:
+            return match.group(0)
+        new_n = remap.get(orig)
+        return f"[[{new_n}]]" if new_n is not None else match.group(0)
+
+    new_body = _MARKER_RE.sub(_sub, gathered)
+
+    # footer: new_N 오름차순으로 출력
+    lines: list[str] = []
+    for orig, new_n in sorted(remap.items(), key=lambda kv: kv[1]):
+        doc = refs[orig - 1]
+        meta = _extract_meta(doc)
+        url = (meta.get("url") or meta.get("source") or "").strip()
+        if not url:
+            continue
+        label = _auto_footnote_label(meta, url)
+        lines.append(f"[^{new_n}]: {url}  ({label})")
+
+    if not lines:
+        return new_body
+
+    footer_title = _cfg_str("AUTO_FOOTNOTE_HEADER", "AUTO_FOOTNOTE_HEADER", "### 참고 문헌 / 각주")
+    return new_body.rstrip() + "\n\n---\n\n" + footer_title + "\n" + "\n".join(lines) + "\n"
 
 
 def attach_auto_citations(gathered: str, state: Mapping[str, Any] | None = None) -> str:
@@ -360,6 +448,10 @@ def attach_auto_citations(gathered: str, state: Mapping[str, Any] | None = None)
     mode = _cfg_str("AUTO_FOOTNOTE_MODE", "AUTO_FOOTNOTE_MODE", "footer").lower()
     max_n = _cfg_int("AUTO_FOOTNOTE_MAX", "AUTO_FOOTNOTE_MAX", 12)
     logger.debug("attach_auto_citations: mode=%s, max_n=%d, refs=%d", mode, max_n, len(refs))
+
+    # ── marker 모드 (§13): 본문 [[N]] 마커 ↔ refs 1:1 매핑 ───────
+    if mode == "marker":
+        return attach_marker_citations(gathered, state_map, max_n=max_n)
 
     # ── quant 모드 ─────────────────────────────────────────────
     if mode == "quant":

@@ -16,7 +16,7 @@ from core.events import emit_event
 from core.models import Task, AgentName
 from utils.sanitize import sanitize_state
 
-from utils.refs import attach_auto_citations, refs_preview_text as _refs_preview_text, facts_block as _facts_block
+from utils.refs import attach_auto_citations, attach_marker_citations, refs_preview_text as _refs_preview_text, facts_block as _facts_block
 from prompts import get_chapter_writer_prompt
 from content_utils import save_md_draft
 from utils.outline import next_unwritten_title, get_topic_outline_text
@@ -211,7 +211,8 @@ def chapter_writer(state: State):
     logger.info("[CHAPTER WRITER] target chapter: %s", target_title)
 
     # 참고 문맥
-    ref_text = _refs_preview_text(state) + _facts_block(state)
+    # §13: numbered=True → LLM 컨텍스트에 [N] 인덱스 부여, 본문 [[N]] 마커 인용 가능.
+    ref_text = _refs_preview_text(state, numbered=True) + _facts_block(state)
 
     # 집필
     writer_chain = get_chapter_writer_prompt() | llm | StrOutputParser()
@@ -226,7 +227,13 @@ def chapter_writer(state: State):
     )
     logger.debug("[CHAPTER WRITER] draft length=%s chars", len(gathered or ""))
 
-    # 자동 각주
+    # §13: 마커 기반 footer (본문 [[N]] ↔ refs 1:1). 마커 없으면 변경 없음.
+    try:
+        gathered = attach_marker_citations(gathered, state)
+    except Exception as e:
+        logger.warning("[CHAPTER WRITER] marker-citation 실패: %s", e)
+
+    # (legacy) AUTO_FOOTNOTE: quant/domain/footer 모드 (이미 footer 있으면 skip)
     if _cfg_bool("AUTO_FOOTNOTE", False):
         try:
             gathered = attach_auto_citations(gathered, state)
