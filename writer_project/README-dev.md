@@ -497,6 +497,8 @@ python tools\diagnose_chunks_deep.py
 
     origin/main 대비 6 commits ahead (이번 commit 포함). 광고대행사 자료 NDA risk + 골드셋 jsonl이 광고대행사 자료 본문 일부 포함 → push 금지. NDA 정리 끝날 때까지 local commit만 누적. §12-11-7과 동일 정책.
 
+    **해소 (2026-05-05)**: GitHub repo `Sungsu1203/bell-agent-backend` public → **private** 전환 완료(웹 UI Danger Zone). NDA risk가 외부 익명 노출 → repo 권한 보유자 한정 노출로 전환됨에 따라 push 보류 정책 해제. 누적 백로그 25 commits(`a731f2f..1b8c839`) push 완료. 본 시점부터 commit → push 일반 흐름. 단, NDA 자료(refs/, eval/goldset/venfobel-vitamin/) 자체가 repo 안에 있다는 사실은 변하지 않으므로 collaborator 추가 시 NDA 권한 사전 확인 필수.
+
     *다음 세션 진입점*:
     §12-12 작업 큐(§12-12-1~4) 중 우선순위 결정. 가장 ROI 높은 후보는 §12-12-1 (운영 threshold 재조정 효과 검증) — gemini 마이그레이션과 무관하게 현 운영 retrieval 품질 직접 개선 가능성.
 
@@ -561,6 +563,7 @@ python tools\diagnose_chunks_deep.py
     - 처리: Cloud Console gemini-rag-project-new에서 OAuth client (Gemini-RAG-ADC) Delete → 노출된 secret 영구 무력화.
     - working tree 정리: oauth_client_info.json 삭제 + .gitignore에 추가 (commit d296f5c).
     - 미완 트랙: git history scrub via `git filter-repo --path oauth_client_info.json --invert-paths` (다음 push 전 별도 트랙). secret 무력화 완료이므로 history 정리는 위생 차원.
+    - **정합성 메모 (2026-05-05)**: §12-4-A 의 push 보류 정책 해소(repo private 전환 + 25 commits push)로 "다음 push 전" 조건은 이미 지나감. dead credential history 는 여전히 commit `3fce3e6` 에 잔존. private 전환으로 외부 익명 접근은 차단됐으나 collaborator 모두에게는 여전히 보임. 위생 차원 scrub 가치는 유지되며 우선순위는 낮음(secret 무력화 + 권한 한정 노출 → 잔여 risk 미미).
 
 ---
 
