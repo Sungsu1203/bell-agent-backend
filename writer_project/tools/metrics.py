@@ -7,7 +7,11 @@ from queue import Queue, Full, Empty
 import logging
 logger = logging.getLogger(__name__)
 
-_METRICS_LOCK = threading.Lock()
+# RLock(재진입 가능): record_*() 가 `with _METRICS_LOCK:` 안에서 REG.round() 를 호출하고
+# round() 가 또 같은 lock 을 잡으려 하는 nested 패턴이 있어 비재진입 Lock 으로는 자기 자신
+# 데드락. METRICS_ENABLED=1 첫 활성화 시 §12-13-6 검증 단계에서 web_search 종료 직후
+# hang 으로 노출됨 (py-spy dump 로 모든 metrics thread 가 동일 lock 대기 확인).
+_METRICS_LOCK = threading.RLock()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CFG/경로 정책

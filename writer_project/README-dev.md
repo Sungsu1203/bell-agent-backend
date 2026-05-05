@@ -749,6 +749,23 @@ python tools\diagnose_chunks_deep.py
       - **잔재 정리의 시점**: §12-13-6 (a) metric 도입 → 즉시 검증 시도 → 게이트 함정 노출. metric 추가 자체보다 검증 단계가 함정 폭로의 트리거. 코드 도입 + 첫 검증을 같은 세션에 묶는 게 잔재 청소 기회.
       - **의존성으로 끌려온 패키지의 가시성**: `posthog==5.4.0` 이 ChromaDB 의존성으로 들어온 사실은 `pip show posthog` 또는 의존성 트리(`pipdeptree`) 안 보면 모름. 변수명 단서만으로는 추적 불가했음.
 
+    **Deadlock close 후기 (2026-05-05 검증 2단계 — 게이트 풀고 나서 노출)**:
+    - 증상: 게이트 함정 패치 후 백엔드 재시작 + 섹션 작성 재시도 → web_search 정상 진행 (naver_direct + tavily, 19:59:13 results saved items=1) → **그 직후 결정론적 hang**. 208초 idle, ChromaDB sqlite 19:44:11 이후 무갱신, worker CPU 거의 0 (29.7s/4분), outbound 4건 모두 `CloseWait` (직전 검색 API 잔재). PID kill 후 동일 시나리오 재시도 → **완전히 동일 위치에서 재현**.
+    - 진단 인프라: `pip install --user py-spy` (0.4.2) → `py-spy dump --pid <worker>` 로 전체 thread stack 확보. WindowsApps Python 의 user-site 경로는 `…\LocalCache\local-packages\Python312\Scripts\py-spy.exe`. 향후 Python hang 진단 standard tool로 박제.
+    - py-spy stack trace 핵심:
+      - `asyncio_0` (실제 작업): `metrics.py:event()` (`with _METRICS_LOCK:`) 진입 시도에서 멈춤. 호출 체인: `web_search → _save_results → utils.py:event() → metrics.py:event()`.
+      - `metrics:set_round` thread: `metrics.py:round()` 의 `with _METRICS_LOCK:` 대기.
+      - `metrics:record_query_issued` thread: `metrics.py:record_query_issued()` 의 `with _METRICS_LOCK:` 대기.
+      - `metrics:record_backend_latency:naver_direct` thread: 동일 lock 대기.
+      - 모든 metrics thread 가 동일 `_METRICS_LOCK` 대기 — lock holder 가 release 못 하고 있음.
+    - 진짜 원인 (기존 잠재 버그): `tools/metrics.py:10 _METRICS_LOCK = threading.Lock()` 은 비재진입(non-reentrant). `record_query_issued()` / `record_backend_latency()` / `record_chunks()` 등이 `with _METRICS_LOCK:` 안에서 `REG.round()` 를 호출하는데, `round()` 도 같은 lock 을 다시 잡으려 함 → 같은 thread 의 nested acquire → **자기 자신 데드락**. 모든 다른 thread 는 그 holder 를 무한 대기.
+    - **노출 시점이 우리 변경과 맞물린 이유**: `POSTHOG_DISABLED=1` 시절엔 `_enabled() == False` → `record_*` / `event()` 들이 즉시 return → lock 진입조차 안 해서 reentrancy 버그가 가려져 있었음. 게이트 함정 패치로 `METRICS_ENABLED=1` 이 비로소 효력 발휘 → 첫 lock 진입 → 데드락 폭로. 즉 (a) metric 도입 자체가 원인이 아니라 (b) 활성화로 잠재 버그가 노출된 것.
+    - 패치: `tools/metrics.py:10` 를 `threading.Lock()` → `threading.RLock()` 한 줄 교체. RLock 은 같은 thread 의 재진입 허용, 다른 thread 에는 동일 mutual exclusion. 의미 동일하면서 nested 호출 패턴 안전. 호출 측 코드 수정 불필요.
+    - 박제 후기:
+      - **노출 트리거의 다층 구조**: §12-13-6 (a) metric 추가 → 게이트 함정 → 게이트 패치 → reentrancy 데드락. 한 번에 한 layer 만 보여서 진단이 단계적이었음. 이런 잠재 버그는 "도입 시점" 이 아니라 "활성화 시점" 에 폭로되므로, 새 인프라 활성화 직후 1~2회 정상 동작 확인 권장.
+      - **py-spy 진단 가치**: stack trace 1번 떠서 즉시 lock contention 패턴 식별. 외부 connection / process state / 로그만으로는 "외부 hang 인지 내부 deadlock 인지" 구분 불가했음. WindowsApps Python 환경에서도 정상 동작 확인 — 인프라로 박제.
+      - **Lock vs RLock 디폴트 선택**: 모듈 내 함수가 서로 호출하는 구조라면 RLock 이 안전. Lock 은 "단순 mutual exclusion + nested 호출 없음" 이 보장될 때만. metrics.py 처럼 `record_*` → `round()` 패턴이 흔한 코드는 RLock 이 디폴트.
+
     13-7. **`extract_write_title` 닫는 괄호 처리 미흡** — 상태: `closed (2026-05-05 §12-13 코드 수정 세션)` / 의존: §12-13-1과 패키지 처리 가능 / 우선순위: 낮음
     - 발견: C 미션 Section 7 입력 `'write: 실행 로드맵 및 핵심 성과 지표(KPI)'` → extract 결과 `'실행 로드맵 및 핵심 성과 지표(KPI'` (닫는 `)` 잘림). 본문 작성에 영향 없으나 파일명도 `실행-로드맵-및-핵심-성과-지표kpi.md`로 정규화됨(괄호 자체 누락).
     - 검토안: `rag_expression.py:213-243` 함수의 `_TAIL_PUNCT_RE` 정규식 점검. tail 정리 시 닫는 괄호도 trim 대상에 포함된 것으로 추정 → 매칭된 여는 괄호 `(` 직전까지 포함하는 group 처리 필요.
