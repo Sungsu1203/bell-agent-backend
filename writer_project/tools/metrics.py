@@ -367,6 +367,37 @@ def record_chunks(chars_sum: int, chunks_cnt: int):
         r.chunks_cnt += cc
     _emit({"ts": _now_ts(), "type": "chunks", "chars_sum": cs, "cnt": cc, "round": get_round()})
 
+def record_llm_call(
+    *,
+    provider: str = "",
+    model: str = "",
+    latency_s: float = 0.0,
+    success: bool = True,
+    error_class: str = "",
+    section_title: str = "",
+    retry_hint: str = "",
+):
+    """
+    LLM 호출 1건 메트릭 기록(논블로킹). NDJSON 라인 1건을 emit.
+    내부 retry_count는 langchain이 가려서 호출자가 알 수 없으므로 미수집.
+    대신 latency가 평균 대비 비정상적으로 길면 retry_hint='slow'로 호출 측에서 표기.
+    """
+    if not _enabled():
+        return
+    _emit({
+        "ts": _now_ts(),
+        "type": "llm_call",
+        "provider": (provider or "").strip().lower() or "unknown",
+        "model": (model or "").strip() or "unknown",
+        "latency": max(0.0, _as_float(latency_s, 0.0)),
+        "success": bool(success),
+        "error_class": (error_class or "").strip(),
+        "section": (section_title or "").strip(),
+        "retry_hint": (retry_hint or "").strip(),
+        "round": get_round(),
+        "topic_slug": REG.topic_slug,
+    })
+
 def event(kind: str, **payload):
     if not _enabled():
         return

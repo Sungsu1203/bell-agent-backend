@@ -713,11 +713,27 @@ python tools\diagnose_chunks_deep.py
   ▎ section_writer (refs 비어있음으로 vector 단계 우회), router.after_web 의 strict writer_pending 검사 통과로
   ▎ section_writer 직행. draft 4922 chars, 11546 bytes 저장. 직전 17:06 회귀(468 chars) 회복 확정.
 
-    13-6. **Vertex 429 ResourceExhausted retry — quota 모니터링 부재** — 상태: `pending` / 의존: 없음 / 우선순위: 중
+    13-6. **Vertex 429 ResourceExhausted retry — quota 모니터링 부재** — 상태: `partial (2026-05-05 metric 도입 세션, (a) 완료 / (b)(c) 보류)` / 의존: 없음 / 우선순위: 중
     - 발견: C 미션 Section 7 작성 중(06:28:46~06:31:20, 2분 49초) `langchain_google_vertexai._retry`가 `ResourceExhausted: 429` 발생 → 4초 대기 후 재시도 → 성공. **다른 섹션 평균(35~50초) 대비 5배 소요.**
     - risk: retry 한도 초과 시 해당 섹션 작성 실패 가능. C 미션 7섹션 처리 정도 트래픽에서 1회 발생 → 일상 운영 트래픽에서 빈도 추정 필요.
     - 검토안: (a) Vertex quota 일일 사용량 추적 metric 추가, (b) 429 발생 시 fallback (gemini-flash → gemini-flash-lite, Anthropic API), (c) 긴 섹션 LLM 호출 분할.
     - 진입 트리거: 사용자측 작업이 누적되며 429 빈도가 증가하는 시점.
+
+    **close 후기 — (a) 부분 완료 (2026-05-05 metric 도입 세션)**:
+    - 결정: 발견 빈도가 "C 미션 7섹션 중 1회" 수준에서 (b) Anthropic fallback 도입(패키지 추가 + provider 추가)이나 (c) 호출 분할(프롬프트/체인 구조 변경, 품질 영향 가능)은 비용 대비 과투자. 박제 본문의 "진입 트리거: 빈도가 증가하는 시점" 명시에 맞춰 (a) metric만 우선 도입하여 추세 데이터부터 확보 — (b)(c)는 metric 추세를 본 뒤 데이터로 결정.
+    - 패치:
+      - `tools/metrics.py` — `record_llm_call(provider, model, latency_s, success, error_class, section_title, retry_hint)` 함수 신설. 기존 `_emit` / `_enabled` 인프라 재사용, NDJSON 라인 1건을 `logs/metrics.ndjson` 에 누적. 집계(`RoundAgg`)에는 추가하지 않음 — 후처리(`jq` 등)로 일별 집계 가능, 필요 시 추후 합산 항목 추가.
+      - `agent/section_writer.py` — Line 226 부근 `chain.invoke(...)` 를 `time.monotonic()` 측정 + try/except 로 감싸서 성공/실패 양쪽에서 `record_llm_call` emit. provider는 `config.CFG.LLM_PROVIDER`, model은 `getattr(llm, "model_name", ...) or getattr(llm, "model", ...) or type(llm).__name__` 로 추출.
+      - retry_count 직접 수집 불가 사유: langchain_google_vertexai 의 `_retry` 가 라이브러리 내부에서 끝까지 처리하고 결과만 반환 — 호출 측 시야에 retry 횟수가 노출되지 않음. 대신 latency 가 평균(35~50초) 대비 비정상적으로 길면(임계값 90초) `retry_hint="slow"` 로 표기 → 후처리에서 retry 추정 가능. 임계값 90초는 §12-13-6 발견 케이스(2분 49초)를 식별하기 위한 보수적 기준.
+      - 실패 케이스(`ResourceExhausted` 한도 초과 등)는 `error_class=type(_llm_err).__name__` 로 기록 후 raise — 기존 흐름 유지(에러 전파).
+    - 검증 방법(권장): `logs/metrics.ndjson` 에 `"type":"llm_call"` 라인이 누적되는지 1회 섹션 작성으로 확인 → `jq 'select(.type=="llm_call")'` 로 필터, `select(.retry_hint=="slow")` 또는 `select(.success==false)` 로 의심 케이스 추적. 일일 집계 예: `jq -r 'select(.type=="llm_call") | [.ts, .latency, .retry_hint, .success] | @tsv' logs/metrics.ndjson`.
+    - 잔여 (보류 — metric 추세 본 뒤 결정):
+      - (b) gemini-flash-lite / Anthropic fallback: 현재 `core/llm.py` 는 OpenAI/Gemini/Vertex AI 3개 provider 지원, Anthropic 패키지 미설치. 도입 시 패키지 추가 + `_provider_modules()` 분기 추가 + `LLM_PROVIDER` env 케이스 추가 필요. 의존도 큰 변경.
+      - (c) 호출 분할: `prompts.get_section_writer_prompt()` 와 `agent/section_writer.py:226` 체인 구조를 "긴 섹션은 H3 단위로 분할 → 부분 호출 → 결합" 으로 재설계. 품질 영향(연결성/일관성) 가능 → 별도 검증 필요.
+    - 박제 후기:
+      - **수치적 진입 기준(가설)**: NDJSON 데이터 누적 후 (i) 일일 LLM 호출 수, (ii) `retry_hint=="slow"` 비율, (iii) `success==false` 비율(특히 `error_class=="ResourceExhausted"`) 3개 지표가 의미 있는 추세를 보일 때 (b)(c) 진입 결정. 임계값은 데이터를 보고 정함.
+      - **이름 충돌 주의**: `tools/metrics.py` 에 `record_*` 시리즈(record_query_issued, record_zero_result, ...) 이미 존재 — 새 함수도 동일 패턴(`record_llm_call`)으로 명명. 시그니처는 키워드 전용(`*` 강제)으로 호출 측 가독성 우선.
+      - **§12-13-6 외 LLM 호출 진입점**: `agent/communicator`, `agent/content_strategist` 등 다른 LLM 호출 지점은 본 세션에서 미계측. 발견 케이스가 `section_writer` 한정이라 우선순위 낮음. 추후 (b)/(c) 진입 시 또는 다른 노드에서 429 관측 시 동일 wrapper 추가.
 
     13-7. **`extract_write_title` 닫는 괄호 처리 미흡** — 상태: `closed (2026-05-05 §12-13 코드 수정 세션)` / 의존: §12-13-1과 패키지 처리 가능 / 우선순위: 낮음
     - 발견: C 미션 Section 7 입력 `'write: 실행 로드맵 및 핵심 성과 지표(KPI)'` → extract 결과 `'실행 로드맵 및 핵심 성과 지표(KPI'` (닫는 `)` 잘림). 본문 작성에 영향 없으나 파일명도 `실행-로드맵-및-핵심-성과-지표kpi.md`로 정규화됨(괄호 자체 누락).

@@ -1,5 +1,5 @@
 from __future__ import annotations
-import sys, re, os
+import sys, re, os, time
 from os import path
 from pathlib import Path
 from typing import Tuple, Any, Dict, cast
@@ -21,6 +21,11 @@ from utils.outline import get_topic_outline_text, next_unwritten_title
 from utils.tasks import get_last_write_target, has_pending
 from utils.text_utils import section_slugify
 from core.llm import get_llm
+try:
+    from tools.metrics import record_llm_call as _record_llm_call
+except Exception:  # pragma: no cover
+    def _record_llm_call(**_kw):  # type: ignore[no-redef]
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -224,13 +229,42 @@ def section_writer(state: State):
 
     # ---- LLM 초안 ----
     chain = get_section_writer_prompt() | llm | StrOutputParser()
-    gathered = chain.invoke({
-        "target_title": target_title,
-        "outline": outline_text,
-        "references": ref_text,
-        "messages": messages,
-        "topic_title": state.get("topic_title") or state.get("topic") or "(untitled)",
-    })
+    _llm_provider = (_cfg_str("LLM_PROVIDER", "") or "").strip().lower()
+    try:
+        _llm_model = str(getattr(llm, "model_name", "") or getattr(llm, "model", "") or type(llm).__name__)
+    except Exception:
+        _llm_model = type(llm).__name__
+    _t0 = time.monotonic()
+    try:
+        gathered = chain.invoke({
+            "target_title": target_title,
+            "outline": outline_text,
+            "references": ref_text,
+            "messages": messages,
+            "topic_title": state.get("topic_title") or state.get("topic") or "(untitled)",
+        })
+    except Exception as _llm_err:
+        _lat_fail = time.monotonic() - _t0
+        try:
+            _record_llm_call(
+                provider=_llm_provider, model=_llm_model, latency_s=_lat_fail,
+                success=False, error_class=type(_llm_err).__name__,
+                section_title=target_title or "",
+            )
+        except Exception:
+            pass
+        raise
+    _lat_ok = time.monotonic() - _t0
+    try:
+        # 평균 35~50초 대비 비정상적으로 길면 langchain 내부 retry 발생 의심.
+        # 임계값 90초는 §12-13-6 발견 케이스(2분 49초)를 retry로 식별하기 위한 보수적 기준.
+        _hint = "slow" if _lat_ok > 90.0 else ""
+        _record_llm_call(
+            provider=_llm_provider, model=_llm_model, latency_s=_lat_ok,
+            success=True, section_title=target_title or "", retry_hint=_hint,
+        )
+    except Exception:
+        pass
     logger.debug("[SECTION WRITER] draft length=%s chars", len(gathered or ""))
 
     # ---- 자동 각주 ----
