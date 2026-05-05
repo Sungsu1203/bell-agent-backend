@@ -735,6 +735,20 @@ python tools\diagnose_chunks_deep.py
       - **이름 충돌 주의**: `tools/metrics.py` 에 `record_*` 시리즈(record_query_issued, record_zero_result, ...) 이미 존재 — 새 함수도 동일 패턴(`record_llm_call`)으로 명명. 시그니처는 키워드 전용(`*` 강제)으로 호출 측 가독성 우선.
       - **§12-13-6 외 LLM 호출 진입점**: `agent/communicator`, `agent/content_strategist` 등 다른 LLM 호출 지점은 본 세션에서 미계측. 발견 케이스가 `section_writer` 한정이라 우선순위 낮음. 추후 (b)/(c) 진입 시 또는 다른 노드에서 429 관측 시 동일 wrapper 추가.
 
+    **게이트 함정 close 후기 (2026-05-05 검증 단계 추가 발견)**:
+    - 증상: metric 도입 후 `.env:METRICS_ENABLED=0 → 1` + 백엔드 재시작 + 섹션 1회 재작성 (19:30:49 [LLM] init / 19:31:15~19:31:35 SECTION WRITER, 20초, draft 3008자) 정상 수행됐으나 `logs/metrics.ndjson` 파일 자체가 생성 안 됨.
+    - 진단: `tools/metrics.py:_enabled()` 가 단락 평가 순서로 `os.getenv("POSTHOG_DISABLED")` 를 `METRICS_ENABLED` 보다 먼저 검사 → `.env:POSTHOG_DISABLED=1` 이 살아있어 즉시 False 반환 → `_emit()` 진입 자체 차단.
+    - 변수명-실효 괴리: 코드 주석은 "과거 텔레메트리 경로 호환" 이라 적혀있었지만, 실제로 이 모듈은 더 이상 PostHog 로 송신하지 않고 ndjson 로컬 파일만 emit. 즉 변수명은 PostHog인데 실효는 자체 메트릭 마스터 스위치 — 사용자가 PostHog 외부 송신 차단 의도로 둔 변수가 자체 메트릭까지 끄는 함정.
+    - 패키지 경로 추적: `requirements_vertex.txt:123 posthog==5.4.0` 은 ChromaDB(`chromadb==1.5.1`)의 의존성. 코드베이스 내 `import posthog` 직접 사용 0건. ChromaDB 의 외부 PostHog 송신 차단은 별도 변수 `ANONYMIZED_TELEMETRY=False` (ChromaDB 가 직접 읽음) 가 정공법.
+    - 패치:
+      - `.env` — `POSTHOG_DISABLED=1` 줄 삭제, `ANONYMIZED_TELEMETRY=False` 추가, 주석으로 두 변수의 차이 명시 (자체 ndjson vs 외부 PostHog).
+      - `tools/metrics.py:_enabled()` — `POSTHOG_DISABLED` / `POSTHOG_DISABLE` 게이트 줄 삭제. `DISABLE_METRICS` (kill switch) + `METRICS_ENABLED` (기본 on) 단일 게이트로 단순화. docstring 에 분리 사유 박제.
+    - 검증 절차(사용자 권장): (i) 백엔드 재시작 → (ii) 섹션 1회 작성 → (iii) `Get-Content logs/metrics.ndjson -Tail 20 | Select-String 'llm_call'` 로 라인 확인. 19:31 케이스 재현 시 기대 출력: `latency≈20s, success=true, retry_hint=""`.
+    - 박제 후기:
+      - **이름이 의미를 호도하는 게이트는 항상 함정**: 과거 호환 명목으로 남긴 변수가 신규 사용자/디버거 입장에서 단서 0. metrics 게이트는 metrics 라는 이름의 변수만 보도록 하는 게 정공법. 외부 SDK 차단은 그 SDK 의 공식 변수를 별도로.
+      - **잔재 정리의 시점**: §12-13-6 (a) metric 도입 → 즉시 검증 시도 → 게이트 함정 노출. metric 추가 자체보다 검증 단계가 함정 폭로의 트리거. 코드 도입 + 첫 검증을 같은 세션에 묶는 게 잔재 청소 기회.
+      - **의존성으로 끌려온 패키지의 가시성**: `posthog==5.4.0` 이 ChromaDB 의존성으로 들어온 사실은 `pip show posthog` 또는 의존성 트리(`pipdeptree`) 안 보면 모름. 변수명 단서만으로는 추적 불가했음.
+
     13-7. **`extract_write_title` 닫는 괄호 처리 미흡** — 상태: `closed (2026-05-05 §12-13 코드 수정 세션)` / 의존: §12-13-1과 패키지 처리 가능 / 우선순위: 낮음
     - 발견: C 미션 Section 7 입력 `'write: 실행 로드맵 및 핵심 성과 지표(KPI)'` → extract 결과 `'실행 로드맵 및 핵심 성과 지표(KPI'` (닫는 `)` 잘림). 본문 작성에 영향 없으나 파일명도 `실행-로드맵-및-핵심-성과-지표kpi.md`로 정규화됨(괄호 자체 누락).
     - 검토안: `rag_expression.py:213-243` 함수의 `_TAIL_PUNCT_RE` 정규식 점검. tail 정리 시 닫는 괄호도 trim 대상에 포함된 것으로 추정 → 매칭된 여는 괄호 `(` 직전까지 포함하는 group 처리 필요.

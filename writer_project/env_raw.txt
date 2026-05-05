@@ -211,6 +211,7 @@ FILTER_BAD_DOMAINS=vietnam.vn,gminsights.com,fundamentalbusinessinsights.com,dae
 
 # smroadmap.smtech.go.kr removed 2026-05-02 (data review showed clean PDFs)
 # ────────────────────────── Metrics/Telemetry ───────────────────
+# 자체 ndjson 메트릭(logs/metrics.ndjson) — DISABLE_METRICS / METRICS_ENABLED 만 봄.
 METRICS_ENABLED=0
-POSTHOG_DISABLED=1
-# POSTHOG_DISABLE=1   # ← 중복이므로 제거(한 가지만 유지)
+# ChromaDB → PostHog 외부 익명 텔레메트리 차단 (PostHog SDK는 ChromaDB 의존성으로 들어옴).
+ANONYMIZED_TELEMETRY=False

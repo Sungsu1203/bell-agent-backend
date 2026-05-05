@@ -93,16 +93,16 @@ def _cfg_bool(name: str, default: bool = False) -> bool:
 
 def _enabled() -> bool:
     """
-    메트릭 전역 토글. 아래 중 하나라도 참이면 비활성화:
-    - DISABLE_METRICS=1
-    - POSTHOG_DISABLED=1 또는 POSTHOG_DISABLE=1 (과거 텔레메트리 경로 호환)
-    그 외: CFG.METRICS_ENABLED > ENV.METRICS_ENABLED (기본 on)
+    자체 ndjson 메트릭 전역 토글.
+    - DISABLE_METRICS=1 이면 비활성 (kill switch).
+    - 그 외: CFG.METRICS_ENABLED > ENV.METRICS_ENABLED (기본 on).
+
+    참고: 과거 PostHog 송신 경로 잔재로 POSTHOG_DISABLED/POSTHOG_DISABLE 도 함께
+    게이트를 쓰던 시기가 있었으나, 변수명-실효 괴리로 인한 디버깅 함정(자체 메트릭이
+    PostHog 변수에 막힘)이 §12-13-6 검증에서 노출되어 분리. ChromaDB의 외부 PostHog
+    송신은 별도 변수 ANONYMIZED_TELEMETRY=False 로 처리.
     """
     if _truthy(os.getenv("DISABLE_METRICS"), default=False):
-        return False
-    if _truthy(os.getenv("POSTHOG_DISABLED"), default=False):
-        return False
-    if _truthy(os.getenv("POSTHOG_DISABLE"), default=False):
         return False
     return _cfg_bool("METRICS_ENABLED", default=True)
 
