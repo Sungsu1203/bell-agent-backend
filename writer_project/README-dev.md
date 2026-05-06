@@ -997,6 +997,35 @@ python tools\diagnose_chunks_deep.py
     **진단 도구**:
     - `tools/diagnose_richness.py` 신설 (chromadb Rust binding이 본 환경에서 panic 내는 우회로 sqlite 직접 읽기). 모든 NS 자동 스캔, content_type별 청크 수/길이, 호스트 top, **PDF avg_chunks/pdf** 산출. 한도 변경 효과 측정 표준 도구.
 
+18. **§12-18 — 단일 source 청크 상한 (`MAX_CHUNKS_PER_DOC`) 활성화** — 상태: `closed (2026-05-06)` / 의존: §12-17 / 우선순위: 중
+
+    **출처**: §12-17 효과 측정 직후 발견. venfobel-vitamin-web 재인제스트 결과 `https://dailypharm.com/user/news?category=건기식+A-Z&group=...` 카테고리 인덱스 페이지 1개가 **25청크(34.2%)**. height-growth-supplement에 박제된 `seoul.co.kr` 한 페이지 **34청크(40.0%)** 와 동일 패턴 — 카테고리/검색결과 인덱스 페이지가 헤드라인 나열로 chunk_size 한도까지 길어 다중 청크화되며 NS 신호 비중을 잠식.
+
+    **변경**:
+    - `tools/web_rag/ingest_vector.py:1163~ documents_to_chroma()` — short-chunk filter 직후, ID 생성 직전. 한 source가 cap 초과하면 초과분 drop. log 출력으로 drop 통계 가시화.
+    - `.env`/`env_raw.txt`의 `MAX_CHUNKS_PER_DOC` 값을 30→**15**로. 이전엔 코드 미참조 dead variable였으므로 사실상 신규 활성화. 코드 default 0(미설정 시 비활성).
+
+    **cap 값 근거 (15)**:
+    | 측정 케이스 | 청크 수 | cap=15 효과 |
+    | --- | ---: | --- |
+    | venfobel khidi.or.kr PDF (정상 보고서) | 14 | 통과 ✅ |
+    | venfobel dailypharm 카테고리 인덱스 | 25 | 15로 cut (40%↓) |
+    | height seoul.co.kr 검색결과 페이지 | 34 | 15로 cut (56%↓) |
+
+    정상 PDF(현 14청크)는 보존, 인덱스성 페이지(20+)만 절단되는 임계값.
+
+    **위치 선택 근거 (왜 `documents_to_chroma` 안인가)**:
+    - 본 함수가 web/local 양쪽 ingest의 단일 funnel — `add_web_pages_json_to_chroma` / `add_documents_to_chroma` 모두 여기로 위임. 한 곳 추가로 모든 경로 커버.
+    - 청킹·short-chunk 필터링 **후**, ID 생성 **전**에 cap을 두어 통계 로그가 post-cap 수치를 반영. 측정 일관성.
+
+    **일반화 교훈**:
+    - **dead env 변수는 의도가 정확히 일치할 때 살리는 게 깔끔** — 새 변수 신설 대신 기존 `MAX_CHUNKS_PER_DOC` 활성화로 환경변수 표면적 증가 0. 다만 git 이력에서 dead 시점을 추적할 수 있으므로 박제 필수.
+    - **풍부도 ↔ 신호품질의 짝**: §12-17(추출 깊이 ×4.2)으로 PDF 풍부도를 늘리면, 본 §12-18(단일 source 상한)으로 신호 품질을 보호. 한 쪽만 하면 노이즈 많은 페이지가 인덱스 비중을 차지하는 부작용 가능.
+
+    **follow-up**:
+    - cap이 host 단위로도 필요할 가능성 — dailypharm.com 60.3% 같은 매체 쏠림은 source-level cap으론 못 잡음(매체 안 여러 기사 페이지가 각각 다른 source). 후속 큐 후보: `MAX_CHUNKS_PER_HOST`.
+    - 효과 검증: §12-17과 동일 절차 — venfobel-vitamin-web 디스크 삭제 + 재인제스트 + `tools/diagnose_richness.py` 재측정. 다음 운영 흐름 시 자동 적용되므로 별도 실행 불필요.
+
 ---
 
 ## 13) 알려진 이슈/주의사항

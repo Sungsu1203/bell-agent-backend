@@ -1163,6 +1163,37 @@ def documents_to_chroma(
             logger.debug("[INGEST][%s] pptx short-chunk merge/filter skipped due to error: %s", label, e)
 
         # ──────────────────────────────────────────────────────
+        # [ADD] 단일 source 청크 상한 (§12-18) — 카테고리 인덱스 페이지 등
+        #       다중 청크화로 NS를 잠식하는 쏠림 방지. 0 또는 미설정 시 비활성.
+        #       env: MAX_CHUNKS_PER_DOC (이전 비활성 변수 활성화).
+        # ──────────────────────────────────────────────────────
+        per_source_cap = _cfg_int("MAX_CHUNKS_PER_DOC", 0)
+        if per_source_cap > 0 and splits:
+            seen_count: _dd[str, int] = _dd(int)
+            dropped_per_source: _dd[str, int] = _dd(int)
+            capped: List[Document] = []
+            for d in splits:
+                meta = getattr(d, "metadata", {}) or {}
+                src = str(meta.get("source") or "")
+                if not src:
+                    capped.append(d)
+                    continue
+                if seen_count[src] >= per_source_cap:
+                    dropped_per_source[src] += 1
+                    continue
+                seen_count[src] += 1
+                capped.append(d)
+            if dropped_per_source:
+                total_dropped = sum(dropped_per_source.values())
+                top3 = sorted(dropped_per_source.items(), key=lambda kv: -kv[1])[:3]
+                logger.info(
+                    "[INGEST][%s] per-source chunk cap=%d: dropped %d chunks; top: %s",
+                    label, per_source_cap, total_dropped,
+                    ", ".join(f"{(s[:60] + '...') if len(s) > 60 else s}={c}" for s, c in top3),
+                )
+            splits = capped
+
+        # ──────────────────────────────────────────────────────
         # [ADD] 청크 통계 로깅 (길이 분포/평균 등)
         # ──────────────────────────────────────────────────────
         try:
