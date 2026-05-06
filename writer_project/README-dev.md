@@ -1026,6 +1026,37 @@ python tools\diagnose_chunks_deep.py
     - cap이 host 단위로도 필요할 가능성 — dailypharm.com 60.3% 같은 매체 쏠림은 source-level cap으론 못 잡음(매체 안 여러 기사 페이지가 각각 다른 source). 후속 큐 후보: `MAX_CHUNKS_PER_HOST`.
     - 효과 검증: §12-17과 동일 절차 — venfobel-vitamin-web 디스크 삭제 + 재인제스트 + `tools/diagnose_richness.py` 재측정. 다음 운영 흐름 시 자동 적용되므로 별도 실행 불필요.
 
+19. **§12-19 — Vertex grounded search 토픽 활성화 (`SKIP_VERTEX_SEARCH=0`)** — 상태: `closed (2026-05-06, 활성화 결정 / 효과 측정은 follow-up)` / 의존: §12-17 / 우선순위: 중
+
+    **출처**: §12-17 효과 측정 직후 발견된 두 번째 풍부도 축 — "추출 깊이"는 ×4.2 늘렸으나 **PDF 발견량 자체가 부족** (venfobel-vitamin-web에 unique PDF 1개). 한국어 의약 매체에서 PDF가 적고, 글로벌 보고서·영어 가이드라인이 비어있는 구조적 한계. README §12-3 권장 패턴(`영어 자료 위주 토픽은 토픽별 .env에서 SKIP_VERTEX_SEARCH=0 override`)을 venfobel-vitamin에 적용.
+
+    **변경**:
+    - `topics/venfobel-vitamin.env` 끝에 `SKIP_VERTEX_SEARCH=0` 추가. 글로벌 .env 의 `SKIP_VERTEX_SEARCH=1` 을 토픽 단위로 override.
+    - 코드 변경 0줄. `agent/web_search.py:764` 의 `_cfg_bool("SKIP_VERTEX_SEARCH", False)` 토글이 `attempt==0` 일 때 Vertex grounded search를 호출, Naver/Tavily 결과에 **augmentation 형태로 합쳐짐**.
+
+    **인증·환경 prerequisite (이미 충족)**:
+    - `GCP_PROJECT_ID=gemini-rag-search-final`
+    - `GCP_REGION=us-central1`
+    - `GOOGLE_APPLICATION_CREDENTIALS=...service_account_vertex.json`
+    - `LLM_MODEL=gemini-2.5-flash` (vertex_search.py:77)
+
+    **비용·위험**:
+    - **첫 attempt 대기 시간 수 초 추가** — 모든 web_search 호출의 head latency 증가. 사용자측 체감 가능.
+    - **Vertex API 호출 과금** — Gemini 2.5 grounding 콜.
+    - **한국어 토픽 효과 제한 가능성** — venfobel은 OBJ 1~5가 한국 시장·매체 중심이라 영어 보고서 보강의 한계효용이 작을 수 있음. 다만 OBJ4(소비자 정서)·OBJ5(채널·메시지)는 글로벌 디지털 헬스 트렌드 보고서가 보강 가치 있음.
+
+    **활성화 결정 근거**:
+    - §12-17 측정에서 unique PDF 1개 = 발견량 자체의 구조적 한계 가시화.
+    - 영어 토픽 권장 패턴(README §12-3)을 한국어 토픽이지만 글로벌 자료 보강 목적으로 응용 시도 — 효과가 작으면 토픽 .env 한 줄 제거로 즉시 원복 가능.
+
+    **효과 검증 follow-up**:
+    - 다음 web_search 흐름 1턴 실행 후 `tools/diagnose_richness.py` 재측정. 핵심 지표: `unique_pdfs` 1→N, `vertexaisearch.cloud.google.com/grounding-api-redirect` 도메인 흔적, 영어 도메인 비율 변화.
+    - 응답 latency가 사용자측 체감으로 거슬리는 정도면 토픽 .env에서 즉시 원복.
+
+    **일반화 교훈**:
+    - **풍부도는 "추출 깊이"와 "발견량"의 두 축** (§12-17 본문 박제 재확인). §12-17 = 깊이, 본 §12-19 = 발견량. 둘 다 잡아야 web 인덱스 풍부도가 실질적으로 개선됨.
+    - **한국어 토픽이라도 발견량 보강 목적의 Vertex 활성화는 옵션** — README §12-3 의 "영어 자료 위주 토픽" 가이드는 권장이지 제한이 아님. 토픽별 override 한 줄로 ROI 실측 가능.
+
 ---
 
 ## 13) 알려진 이슈/주의사항
