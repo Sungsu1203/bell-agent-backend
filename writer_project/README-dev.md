@@ -1113,6 +1113,75 @@ python tools\diagnose_chunks_deep.py
     - 이 fix 가 다른 토픽 단위 override (`CHROMA_*`, `LOCAL_RAG_GLOBS`, `BLOCKAGI_OBJECTIVE_*`, `RAG_DISTANCE_THRESHOLD` 등) 의 reload 경로에서도 정상 작동하는지 후속 사용 흐름에서 자연 검증 — 별도 액션 불필요.
     - `_dotenv_loaded` once-guard 자체를 제거하고 `_load_dotenv_once` 를 idempotent 로 만들 수도 있으나, 첫 부팅 print 스팸 트레이드오프가 있어 현재 헬퍼 분리 패턴을 유지.
 
+21. **§12-21 — 인용 chunk 원본 사이드카 (`<section>.refs.json`)** — 상태: `closed (2026-05-06)` / 의존: 없음 / 우선순위: 중
+
+    **출처**: 사용자 보고 (2026-05-06) — "출처 상세 창에서 chunk의 내용을 함께 나타나게 할수 있을까? 섹션에서 인용한 구체적인 내용에 대해 힌트를 얻으면 도움이 많이 될 것 같아." 프런트 SourcePanel 이 fileName/URL/경로만 보여줘 사용자가 인용 본문을 알려면 원본 파일을 직접 열어야 함.
+
+    **설계 결정**: 두 옵션 중 (A) 선택.
+    - (A) 사이드카 JSON: 섹션 작성 시점에 `<section>.refs.json` 을 .md 옆에 박제, 프런트가 별도 엔드포인트로 조회.
+    - (B) footnote 라인에 chunk 발췌 inline. 단순하지만 Word/PDF export 시 footnote가 지저분해지고 발췌 길이 제한이 메시지 품질을 깎음. (A) 가 §7-1 footnote 형식 규약을 건드리지 않음 + 풀 chunk 텍스트 저장 가능.
+
+    **구현 (백엔드)**:
+    | 파일 | 변경 |
+    |---|---|
+    | `utils/refs.py` | `build_marker_refs_map(gathered, state, max_n=20) -> dict[str, dict]` 신설. `attach_marker_citations` 와 동일한 [[N]] → original N → 본문 등장 순 재할당 로직 사용하여, 재할당된 marker → `{marker, url, label, text, source, title}` 맵 생성. **`text` 필드에 `doc.page_content` 풀 텍스트 그대로 저장 (사용자 요청: 발췌 잘라내지 않음).** |
+    | `agent/section_writer.py` | `attach_marker_citations` 호출 *전* `build_marker_refs_map` 으로 맵 캡처 → `save_md_draft` 성공 후 `Path(out_path).with_suffix(".refs.json")` 에 `json.dumps(..., ensure_ascii=False, indent=2)` write. 빈 맵이면 사이드카 미생성. |
+    | `agent/chapter_writer.py` | section_writer 와 동일 패턴 적용. `Path` import 추가. |
+    | `app.py` | `GET /api/section-refs/{file_id:path}` 엔드포인트 신설. `_safe_under_artifacts` 가드 통과 후 `<file>.refs.json` 읽어 `{ok, id, refs}` 반환. **사이드카 부재 시 404 가 아닌 `{ok: True, refs: {}}`** — 옛 섹션(사이드카 없음) 호환을 프런트에서 단순화. |
+
+    **구현 (프런트)**: §12-16 (frontend `bell_agent/frontend/README-dev.md` §12-16) 와 짝 박제.
+
+    **설계 invariant**:
+    - `build_marker_refs_map` 은 `attach_marker_citations` 가 본문을 mutate 하기 *전* 의 raw `[[N]]` 마커가 박힌 gathered 에 호출되어야 동일 remap 로직이 작동. 두 함수가 같은 remap 을 독립적으로 계산하므로 입력만 일치하면 결과 marker 키가 footnote `[^N]` 과 1:1.
+    - **마커 키는 문자열**(`"1"`, `"2"`, ...) — JSON 직렬화 호환 + 프런트 `FootnoteDef.marker` (string) 와 직접 비교.
+    - 사이드카 파일명: `<section>.refs.json`. `.md.bak` 같은 백업 확장자 변형은 무시(엔드포인트가 `splitext` 후 `.refs.json` 강제).
+
+    **운영 영향**:
+    - 신규 섹션 작성 시마다 사이드카 1개 추가 생성 (보통 4~10KB). `.gitignore` 에 추가 필요한지는 별도 검토 — `sections/<topic>/*.md` 가 git 추적되면 `*.refs.json` 도 함께 추적이 일관적.
+    - 옛 섹션은 사이드카 없으므로 `/api/section-refs` 는 빈 맵 반환 → 프런트 SourcePanel 이 chunk 영역만 안 그릴 뿐 동작 정상. 옛 섹션을 다시 write 하면 자동 생성됨.
+
+    **앞으로의 가드**:
+    - 새 footnote 모드 추가 (예: quant/domain) 시 `build_marker_refs_map` 은 marker 모드 전용. 다른 모드용 사이드카가 필요하면 별도 함수로 분기.
+    - `references.docs` 항목의 `page_content` 가 비어있으면 `text: ""` 로 저장됨 (정상). 프런트는 빈 text 시 chunk 영역 숨김.
+
+22. **§12-22 — 인용 chunk 요약 (background daemon, 사이드카 점진 갱신)** — 상태: `closed (2026-05-06)` / 의존: §12-21 / 우선순위: 중
+
+    **출처**: 사용자 보고 (2026-05-06, §12-21 직후) — "인용내용이 그대로 다 나오니 오히려 더 헷갈리네. LLM이 본문에서 인용한 맥락을 고려해서 정제한 핵심 내용만 요약해서 보여주는 방법을 해보면 어떨까?" raw chunk 가 길고 dense 해서 사용자가 핵심을 즉시 파악하기 어려운 UX 문제.
+
+    **설계 결정 (write 시점 동기 vs background)**:
+    - 동기로 4~8 LLM 호출 추가 시 섹션 write 평균 +2~3초, tail latency 5~10초 + **섹션 저장 성공이 요약 LLM 가용성에 결합** — rate-limit / 일시 장애 시 섹션 저장 자체 지연.
+    - **background after save (선택)**: 섹션 저장은 즉시 완료, daemon thread 가 ThreadPoolExecutor(4)로 병렬 LLM 호출 → 완료 marker 부터 사이드카 atomic merge. 프런트가 short-poll 로 자연 갱신.
+
+    **구현**:
+    | 파일 | 변경 |
+    |---|---|
+    | `utils/chunk_summary.py` (신설) | `extract_marker_context(gathered, marker, radius=200)` — 본문 [[N]] 등장 위치 ±200자 발췌. `_summarize_one(llm, chunk_text, section_context)` — 1회 LLM invoke. `_atomic_merge_summary(sidecar, marker, summary)` — read → set `data[marker]["summary"]` → write `.tmp` → `os.replace` (atomic, reader race 차단). `_run_background(...)` — `ThreadPoolExecutor(max_workers=4)` 로 병렬 처리, 각 future per-future 60s timeout. `start_background_summarization(...)` — daemon thread spawn 후 즉시 반환. `_SIDECAR_LOCK` 으로 process-wide write 직렬화 (여러 섹션 동시 요약 contention 방어). |
+    | `agent/section_writer.py` | 사이드카 초기 write 직후 `start_background_summarization(sidecar, gathered, marker_refs_map)` 호출. 실패해도 섹션 저장 흐름엔 영향 없음 (try/except). |
+    | `agent/chapter_writer.py` | 동일 패턴. |
+
+    **요약 프롬프트 핵심**:
+    - 섹션 본문 ±200자 발췌 + chunk 원문 → 1~3문장 한국어 요약.
+    - 가드: "보고서가 출처에서 활용한 핵심 사실/주장만", "출처 원문에만 있고 보고서가 활용하지 않은 부분 제외", "요약 외 다른 텍스트(머리말·인용부호·라벨) 금지".
+
+    **운영 invariant / 장애 모델**:
+    - **LLM**: `core.llm.get_llm()` 싱글턴 재사용 (langchain ChatModel 은 thread-safe HTTP client). 별도 cheap 모델 분리는 향후 `CHUNK_SUMMARY_MODEL` env var 로 추가 가능 — 현재 미구현 (운영 비용 측면 문제 없을 것으로 판단).
+    - **부분 완료 허용**: 8개 marker 중 6개만 성공해도 사이드카에 6개 summary 박힌 상태로 저장. 프런트가 빈 summary 는 "요약 생성 중…" placeholder 로 표시.
+    - **서버 종료**: daemon thread 라 process exit 시 같이 종료. 미완성 사이드카는 다음 섹션 rewrite 시 자동 재생성.
+    - **atomic write**: tmp → `os.replace` 가 Windows/POSIX 모두 atomic. 동시 읽기 시 reader 는 항상 old 또는 new 의 완전한 JSON 만 봄.
+
+    **앞으로의 가드 / 일반화 교훈**:
+    - **write 성공과 부가 작업의 결합 차단**: LangGraph 노드의 사이드 이펙트(요약·인덱싱·후처리)는 노드 반환과 분리하는 것이 default. 본문이 즉시 visible 되어야 사용자 체감 latency 가 안 늘어남.
+    - **사이드카 점진 갱신은 atomic + lock 짝**: per-marker write 마다 read-modify-write 가 일어나므로, 동시 marker 완료 시 마지막 쓰기가 이전을 덮을 수 있음. `_SIDECAR_LOCK` 으로 직렬화 + tmp+replace 로 atomic. 둘 중 하나만 빠지면 데이터 손실.
+    - **frontend 폴링 책임 분리**: summary 미완성 시 자동 short-poll, 완성 시 자동 종료. backend 가 "완료" 신호를 push 하지 않아도 자연 수렴 (backend 단순성 우선).
+    - **§12-21 (사이드카 본체) 와 §12-22 (요약 채널) 짝**: 사이드카 기본 필드는 §12-21 에서 1회 동기 write, summary 필드는 §12-22 가 background 점진 추가. raw text 와 summary 가 함께 박제되어 프런트 UX 토글 (요약 default + 원본 보기) 이 가능.
+
+    **frontend 짝 박제**: `bell_agent/frontend/README-dev.md` §12-17.
+
+    **follow-up 후보**:
+    - `CHUNK_SUMMARY_MODEL` env var 로 cheap 모델 (Gemini Flash Lite 등) 분리 — 운영 비용 데이터 본 후 결정.
+    - 요약 품질 평가: 사용자 검증 후 프롬프트 튜닝 필요 시 §12-22 본문에 Round 2 박제.
+    - chapter (book mode) 는 본문이 길어 ±200자 컨텍스트가 부족할 수 있음 — chapter 전용 컨텍스트 반경 별도 튜닝 후보.
+
 ---
 
 ## 13) 알려진 이슈/주의사항

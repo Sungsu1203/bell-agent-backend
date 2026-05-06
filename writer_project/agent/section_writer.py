@@ -15,7 +15,8 @@ from core.state_types import State, Flags
 from core.events import emit_event
 from core.models import Task
 from utils.sanitize import sanitize_state
-from utils.refs import attach_auto_citations, attach_marker_citations, refs_preview_text as _refs_preview_text, facts_block as _facts_block
+from utils.refs import attach_auto_citations, attach_marker_citations, build_marker_refs_map, refs_preview_text as _refs_preview_text, facts_block as _facts_block
+from utils.chunk_summary import start_background_summarization
 from prompts import get_section_writer_prompt
 from content_utils import save_md_draft
 from utils.outline import get_topic_outline_text, next_unwritten_title
@@ -272,6 +273,13 @@ def section_writer(state: State):
 
     # ---- §13: 마커 기반 footer (본문 [[N]] ↔ refs 1:1) ----
     # AUTO_FOOTNOTE 가드와 무관하게 항상 시도. 본문에 마커 없으면 변경 없음.
+    # marker → chunk 메타 맵은 attach 가 본문을 mutate 하기 *전* 의 원본 gathered 에서 추출.
+    marker_refs_map: dict = {}
+    try:
+        marker_refs_map = build_marker_refs_map(gathered, state)
+    except Exception as e:
+        logger.warning("[SECTION WRITER] marker refs map 생성 실패: %s", e)
+        marker_refs_map = {}
     try:
         gathered = attach_marker_citations(gathered, state)
     except Exception as e:
@@ -315,6 +323,24 @@ def section_writer(state: State):
                 logger.warning("[SECTION WRITER fallback] saved → %s  (reason: %s)", out_path, e)
             except Exception as e2:
                 logger.exception("[SECTION WRITER] failed to save draft (both primary and fallback): %s", e2)
+
+        # 사이드카 .refs.json: marker → chunk 메타 (프런트 SourcePanel 의 'chunk 원본' 표시용)
+        # §12-22: 저장 직후 백그라운드 daemon thread 가 요약(summary 필드) 점진 추가.
+        if out_path and marker_refs_map:
+            try:
+                import json as _json
+                sidecar = Path(out_path).with_suffix(".refs.json")
+                sidecar.write_text(
+                    _json.dumps(marker_refs_map, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                logger.info("[SECTION WRITER] refs sidecar saved → %s (markers=%d)", sidecar, len(marker_refs_map))
+                try:
+                    start_background_summarization(sidecar, gathered, marker_refs_map)
+                except Exception as _e_bg:
+                    logger.warning("[SECTION WRITER] background summarization 시작 실패: %s", _e_bg)
+            except Exception as _e_side:
+                logger.warning("[SECTION WRITER] refs sidecar write failed: %s", _e_side)
 
         state["last_saved_path"] = out_path or ""
         messages.append(AIMessage(content=f"[Section Writer] '{target_title}' 초안 저장 완료 → {out_path or '(save failed)'}"))

@@ -68,6 +68,7 @@ def _as_kv_map(v: Optional[Dict[str, str]] | Optional[Iterable[Tuple[str, str]]]
 __all__ = [
     "attach_auto_citations",
     "attach_marker_citations",
+    "build_marker_refs_map",
     "merge_refs",
     "refs_preview_text",
     "facts_block",
@@ -428,6 +429,65 @@ def attach_marker_citations(gathered: str, state: Mapping[str, Any] | None = Non
 
     footer_title = _cfg_str("AUTO_FOOTNOTE_HEADER", "AUTO_FOOTNOTE_HEADER", "### 참고 문헌 / 각주")
     return new_body.rstrip() + "\n\n---\n\n" + footer_title + "\n" + "\n".join(lines) + "\n"
+
+
+def build_marker_refs_map(gathered: str, state: Mapping[str, Any] | None = None, max_n: int = 20) -> Dict[str, Dict[str, Any]]:
+    """
+    `attach_marker_citations` 와 동일한 [[N]] → original N → 본문 등장 순 재할당 로직을 사용하여,
+    재할당된 marker(문자열) → 인용된 chunk 의 풀 메타(text/url/label/source/...) 를 만들어 반환.
+
+    프런트 SourcePanel 의 'chunk 원본' 표시를 위한 사이드카 JSON 의 본체.
+    원본 gathered (LLM 이 [[N]] 마커를 박아 보낸 직후, attach_marker_citations 호출 *전*) 에 대해 호출해야 함.
+    """
+    if not gathered:
+        return {}
+
+    state_map = dict(state or {})
+    refs = (state_map.get("references") or {}).get("docs") or []
+    if not refs:
+        return {}
+
+    upper = min(len(refs), max_n)
+    order: list[int] = []
+    seen: set[int] = set()
+    for m in _MARKER_RE.finditer(gathered):
+        try:
+            n = int(m.group(1))
+        except Exception:
+            continue
+        if n < 1 or n > upper:
+            continue
+        if n not in seen:
+            seen.add(n)
+            order.append(n)
+
+    if not order:
+        return {}
+
+    out: Dict[str, Dict[str, Any]] = {}
+    for new_idx, orig in enumerate(order, start=1):
+        doc = refs[orig - 1]
+        meta = _extract_meta(doc)
+        url = (meta.get("url") or meta.get("source") or "").strip()
+        if not url:
+            continue
+        label = _auto_footnote_label(meta, url)
+        # chunk text 추출 — Document.page_content / dict.page_content 또는 dict.content
+        if hasattr(doc, "page_content"):
+            text = getattr(doc, "page_content") or ""
+        elif isinstance(doc, dict):
+            text = (doc.get("page_content") or doc.get("content") or "") or ""
+        else:
+            text = ""
+        out[str(new_idx)] = {
+            "marker": str(new_idx),
+            "url": url,
+            "label": label,
+            "text": str(text),
+            "source": (meta.get("source") or "").strip() or url,
+            "title": (meta.get("title") or "").strip(),
+        }
+    return out
 
 
 def attach_auto_citations(gathered: str, state: Mapping[str, Any] | None = None) -> str:

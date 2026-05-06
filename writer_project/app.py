@@ -1853,6 +1853,39 @@ def api_file_download(file_id: str):
         )
 
 
+@web_app.get("/api/section-refs/{file_id:path}")
+def api_section_refs(file_id: str):
+    """
+    섹션 .md 옆의 사이드카 .refs.json 을 반환.
+    file_id 예: sections/<slug>/<file>.md  (확장자 .md 무관 — 자동으로 .refs.json 매핑)
+
+    응답:
+      {"ok": True, "id": <file_id>, "refs": {"1": {marker, url, label, text, source, title}, ...}}
+      파일 없으면 {"ok": True, "id": <file_id>, "refs": {}} (404 대신 빈 맵 — 프런트 단순화)
+    """
+    import json as _json
+    target_md = os.path.join(str(current_path), file_id)
+
+    if not _safe_under_artifacts(target_md):
+        return {"ok": False, "error": "forbidden_path"}
+
+    # .md → .refs.json (다른 확장자가 들어와도 .refs.json 으로 일괄 치환)
+    base, _ext = os.path.splitext(target_md)
+    sidecar_path = base + ".refs.json"
+
+    if not os.path.exists(sidecar_path) or not os.path.isfile(sidecar_path):
+        return {"ok": True, "id": file_id, "refs": {}}
+
+    try:
+        with open(sidecar_path, "r", encoding="utf-8") as f:
+            data = _json.load(f)
+        if not isinstance(data, dict):
+            data = {}
+        return {"ok": True, "id": file_id, "refs": data}
+    except Exception as _e:
+        return {"ok": False, "error": f"read_failed: {_e}"}
+
+
 @web_app.get("/api/logs")
 def api_logs(cursor: int = 0, limit: int = 200):
     """
