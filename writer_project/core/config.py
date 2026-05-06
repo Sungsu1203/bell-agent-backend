@@ -103,6 +103,29 @@ _DEFAULT_PROJECT_ROOT = _HERE.parents[1]  # .../chap14_8
 _cfg_lock = threading.RLock()
 _dotenv_loaded = False
 
+def _apply_topic_preset(*, verbose: bool) -> None:
+    # reload_config_inplace()가 글로벌 .env를 override=True로 재로드할 때
+    # 토픽 프리셋이 빠지면 글로벌 값이 토픽 override를 덮어쓰는 버그가 생기므로,
+    # 글로벌 .env를 (재)로드한 직후마다 같은 순서로 토픽 프리셋을 다시 적용한다.
+    if not _DOTENV_READY:
+        return
+    try:
+        slug = os.getenv("TOPIC_SLUG", "").strip()
+        if not slug:
+            return
+        root = Path(os.getenv("PROJECT_ROOT", str(_DEFAULT_PROJECT_ROOT))).resolve()
+        preset_path = root / "topics" / f"{slug}.env"
+        if preset_path.exists():
+            load_dotenv(preset_path, override=True)
+            if verbose:
+                print(f"[Config] 토픽 프리셋 로드: {preset_path}")
+        elif verbose:
+            print(f"[Config] 토픽 프리셋 없음 (기본 .env 사용): {preset_path}")
+    except Exception as e:
+        if verbose:
+            print(f"[Config] 토픽 프리셋 로드 실패 (무시): {e}")
+
+
 def _load_dotenv_once() -> None:
     global _dotenv_loaded
     with _cfg_lock:
@@ -116,19 +139,8 @@ def _load_dotenv_once() -> None:
         load_dotenv(find_dotenv(usecwd=True), override=False)
     except Exception:
         pass
-    # 2) TOPIC_SLUG에 맞는 토픽 프리셋 파일 추가 로드
-    try:
-        slug = os.getenv("TOPIC_SLUG", "").strip()
-        if slug:
-            root = Path(os.getenv("PROJECT_ROOT", str(_DEFAULT_PROJECT_ROOT))).resolve()
-            preset_path = root / "topics" / f"{slug}.env"
-            if preset_path.exists():
-                load_dotenv(preset_path, override=True)
-                print(f"[Config] 토픽 프리셋 로드: {preset_path}")
-            else:
-                print(f"[Config] 토픽 프리셋 없음 (기본 .env 사용): {preset_path}")
-    except Exception as e:
-        print(f"[Config] 토픽 프리셋 로드 실패 (무시): {e}")
+    # 2) TOPIC_SLUG에 맞는 토픽 프리셋 파일 추가 로드 (override=True)
+    _apply_topic_preset(verbose=True)
 
 
 def load_topic_env() -> None:
@@ -608,6 +620,8 @@ def reload_config_inplace() -> Config:
                 load_dotenv(find_dotenv(usecwd=True), override=True)
             except Exception:
                 pass
+            # 글로벌 .env가 토픽 override를 덮어쓰지 않도록 토픽 프리셋도 재적용
+            _apply_topic_preset(verbose=False)
         new_cfg = _build_config()
         for f in fields(CFG):
             setattr(CFG, f.name, getattr(new_cfg, f.name))

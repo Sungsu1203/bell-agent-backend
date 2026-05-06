@@ -1026,7 +1026,7 @@ python tools\diagnose_chunks_deep.py
     - cap이 host 단위로도 필요할 가능성 — dailypharm.com 60.3% 같은 매체 쏠림은 source-level cap으론 못 잡음(매체 안 여러 기사 페이지가 각각 다른 source). 후속 큐 후보: `MAX_CHUNKS_PER_HOST`.
     - 효과 검증: §12-17과 동일 절차 — venfobel-vitamin-web 디스크 삭제 + 재인제스트 + `tools/diagnose_richness.py` 재측정. 다음 운영 흐름 시 자동 적용되므로 별도 실행 불필요.
 
-19. **§12-19 — Vertex grounded search 토픽 활성화 (`SKIP_VERTEX_SEARCH=0`)** — 상태: `closed (2026-05-06, 활성화 결정 / 효과 측정은 follow-up)` / 의존: §12-17 / 우선순위: 중
+19. **§12-19 — Vertex grounded search 토픽 활성화 (`SKIP_VERTEX_SEARCH=0`)** — 상태: `closed (2026-05-06, 활성화 + reload 버그 발견·수정·실측 완료 — §12-20 참조)` / 의존: §12-17 / 우선순위: 중
 
     **출처**: §12-17 효과 측정 직후 발견된 두 번째 풍부도 축 — "추출 깊이"는 ×4.2 늘렸으나 **PDF 발견량 자체가 부족** (venfobel-vitamin-web에 unique PDF 1개). 한국어 의약 매체에서 PDF가 적고, 글로벌 보고서·영어 가이드라인이 비어있는 구조적 한계. README §12-3 권장 패턴(`영어 자료 위주 토픽은 토픽별 .env에서 SKIP_VERTEX_SEARCH=0 override`)을 venfobel-vitamin에 적용.
 
@@ -1056,6 +1056,62 @@ python tools\diagnose_chunks_deep.py
     **일반화 교훈**:
     - **풍부도는 "추출 깊이"와 "발견량"의 두 축** (§12-17 본문 박제 재확인). §12-17 = 깊이, 본 §12-19 = 발견량. 둘 다 잡아야 web 인덱스 풍부도가 실질적으로 개선됨.
     - **한국어 토픽이라도 발견량 보강 목적의 Vertex 활성화는 옵션** — README §12-3 의 "영어 자료 위주 토픽" 가이드는 권장이지 제한이 아님. 토픽별 override 한 줄로 ROI 실측 가능.
+
+    **효과 실측 (2026-05-06, follow-up 1턴 결과)**:
+    - 1차 시도(commit 87ee1cf 직후): web_search 흐름에서 `[web_search] Vertex skipped (SKIP_VERTEX_SEARCH=1)` — **활성화 자체가 안 됨**. 직접 `python -c "from core.config import CFG; print(CFG.SKIP_VERTEX_SEARCH)"` 시는 `False`로 정상이라 모순 발생 → §12-20 으로 분리해 버그 root cause 추적·수정.
+    - 2차 시도 (§12-20 fix 적용 후, 같은 쿼리 2개로 재실행):
+        - `[web_search] Vertex success (5 urls)` + `Vertex success (15 urls)` ✓
+        - web 인덱스 75 → **112 (+37 chunks)**. 직전 두 런이 +2 chunks / 0 chunks 였던 것과 비교해 ×18 이상 풍부도 향상.
+        - **§12-17 + §12-19 곱셈 효과 첫 사례**: Vertex가 발견한 미래에셋 IR PDF(`securities.miraeasset.com/.../2091059.pdf`, 100p)가 §12-17 의 30p 한도까지 추출되어 1 docs → **29 chunks** 로 split. 5p 한도였다면 ~5 chunks 였을 자리.
+        - Vertex가 끌어온 신규 발견원: `securities.miraeasset.com`(IR), `w4.kirs.or.kr`(JW생명과학 IR), `whosaeng.com`(보장성 PDF). 모두 기존 Naver/Tavily 단독 체인에서는 보이지 않던 도메인.
+    - **비용 측정**: 쿼리당 dt 63.55s + 42.39s (이전 5초 ~ 6초). Vertex AFC `max remote calls=10` 로 LLM grounding 콜 10회를 거치는 비용. 당장의 ROI는 명확하지만, 라운드 수 증가 시 latency 부담 — `RESEARCH_MIN_ROUNDS` 상향 시 사전 검토 필요.
+    - **손실 (Vertex가 발견했으나 회수 못 한 후보)**:
+        - `w4.kirs.or.kr/.../JW생명과학.pdf` — `SSL: CERTIFICATE_VERIFY_FAILED` (인증서 체인 불완전). PDF-rich 토픽이라 회수 가치 큼 — 후속 task 후보: host-allowlist 기반 `verify=False` fallback.
+        - `boryung.co.kr/.../IR.pdf` — HTTP 400.
+        - `file.myasset.com`, `file.alphasquare.co.kr` — allowlist 미등록 (미래에셋·알파스퀘어 별도 PDF 호스트). allowlist 확장 후속 후보.
+        - `whosaeng.com/.../2020112311358142.pdf` — 본문 파싱 결과 너무 짧음(이전 런 3회 동일). PDF 추출기 회수 한계.
+
+20. **§12-20 — `reload_config_inplace` 토픽 .env override 누락 버그 수정** — 상태: `closed (2026-05-06)` / 의존: §12-19 / 우선순위: 상
+
+    **출처**: §12-19 follow-up 1턴 효과 측정에서 `SKIP_VERTEX_SEARCH=0` 토픽 override 가 적용된 것처럼 보였으나(직접 `python -c "import core.config; print(c.CFG.SKIP_VERTEX_SEARCH)"` 시 `False` ✓ + 콘솔에 `[Config] 토픽 프리셋 로드: ...venfobel-vitamin.env` print 출력), 정작 web_search 단계 로그에서는 `[web_search] Vertex skipped (SKIP_VERTEX_SEARCH=1)` — Vertex 호출 자체가 안 됨. 새 셸·OS env 미오염 확인(`Get-ChildItem env:SKIP_VERTEX_SEARCH` → 경로 없음) 후에도 동일.
+
+    **Root cause** (`core/config.py:598-614` `reload_config_inplace`):
+    ```python
+    def reload_config_inplace() -> Config:
+        ...
+        if _DOTENV_READY:
+            try:
+                load_dotenv(find_dotenv(usecwd=True), override=True)  # ← 글로벌 .env만 재로드
+            except Exception:
+                pass
+        new_cfg = _build_config()  # ← 그 안의 _load_dotenv_once는 _dotenv_loaded 가드로 no-op
+        ...
+    ```
+    - 첫 import 시 `CFG = _build_config()` → `_load_dotenv_once()` 정상 실행 → 글로벌(=1) → 토픽(=0)로 덮어쓰기 → `CFG.SKIP_VERTEX_SEARCH = False` ✓
+    - **`app.py:1896` `_early_config.reload_config()` 호출**:
+        - 글로벌 `.env` 만 `override=True` 로 재로드 → OS env 의 `SKIP_VERTEX_SEARCH` **0 → 1로 회귀**
+        - 그 후 `_build_config()` 호출하지만 `_load_dotenv_once()` 는 `_dotenv_loaded` 가드로 **no-op** → 토픽 .env 재로드 안 됨
+        - 결과: `CFG.SKIP_VERTEX_SEARCH = True` ❌
+    - `app.py:1971` 두 번째 `reload_config()` 호출에서 같은 문제 반복.
+    - **검출 어려웠던 이유**: 사용자가 직접 `import core.config` 하면 `_build_config()` 만 1회 실행되니 토픽 override 가 살아 있음. 모순 결과(직접 import OK, 앱 실행 fail)가 가설을 좁히는 결정적 단서.
+
+    **변경** (`core/config.py`):
+    - `_apply_topic_preset(*, verbose: bool)` 헬퍼 신설 — 토픽 .env 로드 로직(`TOPIC_SLUG` → `topics/{slug}.env` `override=True`) 을 한 곳으로 추출.
+    - `_load_dotenv_once()` — 위 헬퍼를 `verbose=True` 로 호출 (사용자에게 보이는 print 는 첫 부팅 1회만).
+    - `reload_config_inplace()` — 글로벌 `.env` 재로드 직후 `_apply_topic_preset(verbose=False)` 추가 호출 (재로드 시 print 스팸 방지).
+
+    **검증**:
+    - `python -c "import core.config as c; print('init:', c.CFG.SKIP_VERTEX_SEARCH); c.reload_config(); print('after_reload:', c.CFG.SKIP_VERTEX_SEARCH)"` → `init: False / after_reload: False` ✓ (fix 전: `False` → `True`).
+    - 새 PowerShell + `.venv_vertex` 에서 `python app.py` → `최신 자료로 RAG 업데이트` 실행. Vertex 호출 라인 (`Vertex success (N urls)`) 두 번 모두 정상. §12-19 효과 실측 가능해짐.
+
+    **일반화 교훈**:
+    - **reload 함수는 ENV 로드 흐름의 모든 단계를 재현해야 한다** — 글로벌 `.env` 만 재로드하면 토픽 override 가 글로벌로 회귀. dotenv 의 `override=True` 가 정확히 이 회귀를 일으키는 메커니즘.
+    - **첫 import 와 reload 의 경로 분기는 잠재 버그 항상 후보**. `_dotenv_loaded` 같은 once-guard 가 reload 경로에서 silent skip 되면 미묘한 상태 분기 발생. 한 곳에 통합하는 헬퍼(`_apply_topic_preset`) 가 가장 안전.
+    - **모순 관찰을 가설 분리에 활용** — "직접 import 하면 정상인데 앱 실행은 비정상"이 reload 경로 차이로 좁혀준 핵심. 같은 결과를 양쪽에서 측정하는 것이 root cause 도달 시간을 결정함.
+
+    **follow-up**:
+    - 이 fix 가 다른 토픽 단위 override (`CHROMA_*`, `LOCAL_RAG_GLOBS`, `BLOCKAGI_OBJECTIVE_*`, `RAG_DISTANCE_THRESHOLD` 등) 의 reload 경로에서도 정상 작동하는지 후속 사용 흐름에서 자연 검증 — 별도 액션 불필요.
+    - `_dotenv_loaded` once-guard 자체를 제거하고 `_load_dotenv_once` 를 idempotent 로 만들 수도 있으나, 첫 부팅 print 스팸 트레이드오프가 있어 현재 헬퍼 분리 패턴을 유지.
 
 ---
 
