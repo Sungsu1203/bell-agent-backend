@@ -960,6 +960,43 @@ python tools\diagnose_chunks_deep.py
     - 프런트 chip 디스플레이 개선: 현재 `[[1]]` 텍스트가 그대로 "1" 로만 보임 — 호버/클릭하면 fileName 보이지만 시각적으로 어떤 출처인지 즉시 식별 어려움. footnotes prop 을 `renderInline → CitationChip` 까지 drilling 해서 fileName/prettyUrl 로 표시.
     - LLM 마커 규칙 위반 fallback: LLM 이 가끔 [[N]] 외 [라벨] 로 인용할 가능성. 후처리에서 라벨→가장 가까운 ref 매칭 + 마커 변환 로직 추가 검토 (단, 거짓 매칭 위험으로 보수적 적용).
 
+17. **§12-17 — 웹 PDF 한도 상향 (5p/10000자 → 30p/50000자) + 효과 검증** — 상태: `closed (2026-05-06)` / 의존: 없음 / 우선순위: 중
+
+    **출처**: 사용자 보고 (2026-05-06) — "벡엔드 프로그램 수정 작업을 하고 싶어. ... web-search와 local-search/rag 작업에서 pdf 파일을 5페이지 이내로 한정한 것으로 기억해. 찾은 자료들의 풍부함이 염려돼." 사실관계 정정: 5페이지 한정은 **웹만** (로컬은 50p). 그러나 풍부도 부족 가설은 정량 확인됨.
+
+    **삭제 전 baseline (venfobel-vitamin-web)**:
+    - total 73 청크 (html 62 / pdf 10 / text 1)
+    - unique_pdfs=3, total_pdf_chunks=10, **avg_chunks/pdf=3.3**
+    - 산업 보고서·정부 자료 PDF가 보통 5p 이후에 핵심부 → 5p 컷에서 정보량의 ~10~20%만 인덱싱
+
+    **변경**:
+    - `.env:110-111` + `env_raw.txt:109-110` — `WEB_PDF_MAX_PAGES=5→30`, `WEB_PDF_MAX_CHARS=10000→50000`
+    - 코드 fallback(`core/config.py:518` `_env_int("WEB_PDF_MAX_PAGES", 5)`)은 미변경 — `.env`가 항상 있으므로 운영 영향 없음. 새 머신 부트스트랩 일관성 위해 후속에 동기화 검토.
+
+    **효과 측정 (재인제스트 1턴, query="법령 OTC 광고 규정")**:
+    | 지표 | 삭제 전 | 재인제스트 후 | 변화 |
+    | --- | ---: | ---: | ---: |
+    | total chunks | 73 | 73 | — |
+    | unique PDFs | 3 | 1 | (질의 스코프 좁아짐) |
+    | total PDF chunks | 10 | 14 | +40% |
+    | **avg chunks/pdf** | **3.3** | **14.0** | **×4.2** |
+    | PDF 평균 청크 길이 | 1574 | 1742 | +11% |
+    | PDF p50 길이 | 1867 | 2047 | (chunk_size=2400에 근접) |
+
+    `khidi.or.kr` PDF 한 권에서 1청크 → **14청크**. PDF 풍부도가 PPTX/XLSX 수준에 근접.
+
+    **새로 드러난 후속 후보**:
+    - **(a) 단일 source 청크 쏠림** — `dailypharm.com/user/news?category=건기식+A-Z&group=...` 카테고리 인덱스 페이지 1개가 25청크(34.2%) 차지. height-growth-supplement에 박제된 `seoul.co.kr` 40% 쏠림과 동일 패턴. → **§12-18 작업 큐**: 단일 source 청크 상한.
+    - **(b) PDF 발견량 자체 부족** — venfobel-vitamin web에 unique PDF 1개. 한국어 의약 매체 PDF 적음. 글로벌 보고서 보강은 §12-3 (Vertex grounded search) 활성화 후보.
+
+    **일반화 교훈**:
+    - **풍부도 제약은 "추출 깊이"와 "발견량"의 두 축**. 본 PR(A 옵션)은 추출 깊이를 ×4.2 늘렸고 발견량은 별도 문제로 남음.
+    - **보수적 컷이 의도한 수준 이상으로 강하게 작동했음** — 5p/10000자는 "잘 모르는 출처라 보수적"이 의도였으나, ALLOWED_DOMAINS 50개 화이트리스트로 출처 신뢰도가 이미 보장되는 운영에서는 과한 보수. 화이트리스트와 한도는 짝으로 튜닝.
+    - **"인덱스 디스크 직접 삭제 + 재인제스트" 플로우가 한도 변경 효과 검증의 표준 패턴** — `CLEAR_CHROMA_ON_START`은 vector_search 진입 시 발동이라 web ingest 단계 효과 측정엔 부족(§12-9). 디스크 직접 삭제 + `__seen_sources__.json` 같이 비우기.
+
+    **진단 도구**:
+    - `tools/diagnose_richness.py` 신설 (chromadb Rust binding이 본 환경에서 panic 내는 우회로 sqlite 직접 읽기). 모든 NS 자동 스캔, content_type별 청크 수/길이, 호스트 top, **PDF avg_chunks/pdf** 산출. 한도 변경 효과 측정 표준 도구.
+
 ---
 
 ## 13) 알려진 이슈/주의사항
