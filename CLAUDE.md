@@ -14,8 +14,10 @@ RAG 기반 광고 에이전시 딜리버리블 생성기. 현재 §12-13 (사용
 - 백엔드 최적화(§12-12 큐)는 deprioritized
 
 ## Environment
-- PowerShell: `.venv_vertex`
+- PowerShell (Vertex): `.venv_vertex` + `LLM_PROVIDER=vertexai`
+- PowerShell (OpenAI): `.venv_openai` + `LLM_PROVIDER=openai`
 - WSL: `python3`
+- Provider 토글은 §12-23 박제 참조 (`.env.<provider>` 자동 로드)
 
 ## Subagent usage
 - 모듈/함수 위치 찾기 → file-explorer
