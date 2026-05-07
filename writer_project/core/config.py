@@ -103,6 +103,30 @@ _DEFAULT_PROJECT_ROOT = _HERE.parents[1]  # .../chap14_8
 _cfg_lock = threading.RLock()
 _dotenv_loaded = False
 
+def _apply_provider_overlay(*, verbose: bool) -> None:
+    # LLM_PROVIDER 값에 맞춰 PROJECT_ROOT/.env.<provider> 오버레이를 추가 로드.
+    # 글로벌 .env 직후 / 토픽 프리셋 직전에 호출 → 우선순위: 토픽 > overlay > 글로벌.
+    # 'vertexai'는 파일명 단순화를 위해 'vertex'로 매핑. 파일 없으면 조용히 스킵.
+    if not _DOTENV_READY:
+        return
+    try:
+        prov = (os.getenv("LLM_PROVIDER", "") or "").strip().lower()
+        if not prov:
+            return
+        prov_file = "vertex" if prov in {"vertex", "vertexai"} else prov
+        root = Path(os.getenv("PROJECT_ROOT", str(_DEFAULT_PROJECT_ROOT))).resolve()
+        overlay_path = root / f".env.{prov_file}"
+        if overlay_path.exists():
+            load_dotenv(overlay_path, override=True)
+            if verbose:
+                print(f"[Config] LLM provider overlay 로드: {overlay_path}")
+        elif verbose:
+            print(f"[Config] LLM provider overlay 없음 (글로벌 .env만 사용): {overlay_path}")
+    except Exception as e:
+        if verbose:
+            print(f"[Config] provider overlay 로드 실패 (무시): {e}")
+
+
 def _apply_topic_preset(*, verbose: bool) -> None:
     # reload_config_inplace()가 글로벌 .env를 override=True로 재로드할 때
     # 토픽 프리셋이 빠지면 글로벌 값이 토픽 override를 덮어쓰는 버그가 생기므로,
@@ -139,7 +163,9 @@ def _load_dotenv_once() -> None:
         load_dotenv(find_dotenv(usecwd=True), override=False)
     except Exception:
         pass
-    # 2) TOPIC_SLUG에 맞는 토픽 프리셋 파일 추가 로드 (override=True)
+    # 2) LLM provider 오버레이 (override=True) — 토픽 프리셋 전에 적용
+    _apply_provider_overlay(verbose=True)
+    # 3) TOPIC_SLUG에 맞는 토픽 프리셋 파일 추가 로드 (override=True)
     _apply_topic_preset(verbose=True)
 
 
@@ -620,7 +646,8 @@ def reload_config_inplace() -> Config:
                 load_dotenv(find_dotenv(usecwd=True), override=True)
             except Exception:
                 pass
-            # 글로벌 .env가 토픽 override를 덮어쓰지 않도록 토픽 프리셋도 재적용
+            # 우선순위 유지: 글로벌 → provider overlay → 토픽 프리셋
+            _apply_provider_overlay(verbose=False)
             _apply_topic_preset(verbose=False)
         new_cfg = _build_config()
         for f in fields(CFG):

@@ -1182,6 +1182,48 @@ python tools\diagnose_chunks_deep.py
     - 요약 품질 평가: 사용자 검증 후 프롬프트 튜닝 필요 시 §12-22 본문에 Round 2 박제.
     - chapter (book mode) 는 본문이 길어 ±200자 컨텍스트가 부족할 수 있음 — chapter 전용 컨텍스트 반경 별도 튜닝 후보.
 
+23. **§12-23 — OpenAI provider end-to-end 검증 (`.venv_openai` + venfobel 토픽)** — 상태: `closed (2026-05-07)` / 의존: 없음 / 우선순위: 상
+
+    **출처**: 사용자 요청 (2026-05-07) — "벡엔드에서 LLM Model을 현재는 vertex ai를 쓰고 있어. chatgpt 모델도 번갈아 쓰고 싶어. … vertex ai쓸때 가상환경 잡는데 고생을 많이했었어. dependency 충돌 문제가 많았었어." Vertex 와 OpenAI 양쪽을 venv·의존성·collection 단위로 분리 운용하는 것이 목표.
+
+    **분리 전략 (코어)**:
+    | 레이어 | Vertex | OpenAI | 비고 |
+    |---|---|---|---|
+    | venv | `.venv_vertex` (기존) | `.venv_openai` (신설) | 의존성 충돌 차단 |
+    | requirements | `requirements.vertex.txt` | `requirements.openai.txt` | 둘 다 `-r requirements.base.txt` 참조 |
+    | .env overlay | `.env.vertex` | `.env.openai` | `LLM_PROVIDER` 값에 따라 `core/config._apply_provider_overlay()` 가 자동 로드 (글로벌 .env 직후, 토픽 프리셋 직전) |
+    | Chroma collection | `venfobel-vitamin{,-web,-local}` (768d) | `venfobel-vitamin-oa{,-web,-local}` (3072d) | 임베딩 차원 다르므로 namespace 분리 필수 (`.env.openai` 의 `CHROMA_NAMESPACE` 블록 활성화) |
+
+    **결정적 코드 변경**:
+    | 파일 | 변경 |
+    |---|---|
+    | `core/config.py` | `_apply_provider_overlay()` 추가. 우선순위: 글로벌 → overlay → 토픽 프리셋. `_load_dotenv_once()` 와 `reload_config_inplace()` 양쪽에 결선. |
+    | `core/llm.py` | `_none_if_blank()` 헬퍼 추가. `get_llm` / `get_embedding_model` 의 OpenAI 분기에서 `base_url=''` / `organization=''` 빈 문자열을 None 으로 정규화. **OpenAIEmbeddings 가 빈 문자열을 그대로 httpcore 까지 흘려 `Request URL is missing http(s)://` panic** 을 일으키던 문제 해결 (ChatOpenAI 는 자체 정규화로 통과했었음). |
+    | `tools/web_rag/vertex_search.py` | `from google import genai` 등 모듈 최상단 import 를 `try/except` lazy guard 로 전환. `_GENAI_AVAILABLE=False` 시 `vertex_web_search()` 는 빈 dict (`summary='', urls=[]`) graceful degrade. OpenAI venv 부팅 시 ImportError 차단. |
+    | `requirements.base.txt` | `chromadb==1.2.0 → 1.5.1`. 1.2.0 의 Windows + 신규 collection Rust panic (`pyo3_runtime.PanicException: range start index 10 out of range for slice of length 9` from `chromadb_rust_bindings.Bindings`) 회피. 추가 누락 패키지 보충: `fastapi==0.131.0`, `starlette==0.52.1`, `Jinja2==3.1.6`, `MarkupSafe==3.0.2`. |
+
+    **venfobel 토픽 검색 정책 (실측 기반 튜닝, `topics/venfobel-vitamin.env`)**:
+    - `text-embedding-3-large` + Chroma `hnsw.space=l2`(squared L2) 실측 분포 (10쿼리 × top10):
+        - **local(349 docs)**: min=0.523 p25=0.899 median=1.046 p75=1.142 p90=1.364 max=1.414
+        - **web(61 docs)**: min=0.800 p25=1.129 median=1.233 p75=1.309 p90=1.439 max=1.505
+    - `RAG_DISTANCE_THRESHOLD=1.10` — local 68% / web 21% kept. 0.45→0.80→0.95→1.10 단계적으로 측정·조정 (vertex `text-multilingual-embedding-002` 의 0.65 와 분포 차원 자체가 다름).
+    - `MERGE_RETRIEVE_MODE=local_first` + **`RETRIEVE_WEB_RATIO=0.33`** — 토픽이 사용자 자료(refs PDF/XLSX)에 정답이 집중되어 있어 local quota 우선. **mode 변수는 머지 정렬 우선순위만 결정하고 k 분배는 ratio 가 단독 결정**한다는 것을 실험으로 발견 (mode 만 바꿔서는 분배 안 뒤집어짐).
+    - `RAG_TOP_K=10` — 광고비 xlsx 의 chunk=4 두 개 (`벤포벨_2024/2025 월별 채널별 예산`) 가 query 와 임베딩 공간에서 부적절하게 가까워 quota 자리를 잡아먹는 문제 우회. k=6 → 10 으로 늘리니 split(web=3, local=7) 확보.
+
+    **검증 결과 (4장 섹션 작성)**:
+    - merged=7 청크, 인용 마커 `[[1]]~[[5]]` 본문 분포, 각주 5개 모두 다른 출처 (팩트북 PDF, 광고전략 PDF, **`03_활성형B1_클레임_백업.md`**, **`04_3강_제품라인업_비교.md`**, Ipsos 광고효과 PPTX). 약 4,400자 섹션이 `sections/venfobel-vitamin/4장-...md` 에 저장. refs 폴더의 사용자 정리 자산이 보고서에 도달함을 확인.
+
+    **follow-up 후보 (별건)**:
+    - **`vector_search [DIRECT QA]` prompt context cap**: `merged=7` 인데 직답 prompt 에는 3개 청크만 들어감. 그래서 직답 길이는 짧아지지만 `research_synthesizer` 는 7개 모두 사용해 findings 풍부 — 단계 분리 자체는 정상 동작이고 cap 이 빠진 청크가 본문에 안 들어가는 것이 별건.
+    - **OBJ3 구체 수치 누락**: 토픽 프리셋 OBJ3 의 핵심 차별화 자산 (벤포티아민 100mg + 비스벤티아민 30mg / 메코발라민 500μg / UDCA 60mg / '어른들의 비타민' 슬로건 / 약사 권매 1위 56%) 가 4장 본문에 못 들어감. 인용된 `03_활성형B1_클레임_백업.md` 가 chunk=1 (일반론) 이고 성분 표는 chunk=5 인데 distance 1.10 컷 위. chunk 분할 재조정 또는 section_writer prompt 에 OBJ 사실 가드 추가 후보.
+    - **cosine metric 통일**: 현재 chromadb 기본 `l2` 사용 중. `_get_vs` 의 `Chroma()` 호출에 `collection_metadata={"hnsw:space": "cosine"}` 추가하면 직관적 임계 0.5~0.6 로 정렬 가능. 단 collection 생성 시점에 박히는 메타데이터라 **1회 재인덱싱 필요** — 검증 단계 비용 부담으로 보류.
+
+    **앞으로의 가드 / 일반화 교훈**:
+    - **provider 분리는 venv + .env overlay + Chroma namespace 3중**: 의존성·환경변수·인덱스 차원이 모두 충돌하므로 한 축만 분리해선 부족. 차원 다른 임베딩(768 vs 3072)을 같은 collection 에 쓰면 dim mismatch 또는 silent 0-vector 오염 발생.
+    - **Chroma distance metric 이 임베딩 모델별로 다르게 받아들여진다**: `RAG_DISTANCE_THRESHOLD` 는 임베딩 모델 + metric (`hnsw:space`) 페어로만 의미가 있는 값. 모델 바꿀 때 임계값을 같이 측정·조정하지 않으면 silent 0-hit 가 무한 supervisor 루프(`no_summary_min_qa` → 새 web_search round) 로 이어진다 — 5단계 디버깅 중 가장 큰 함정.
+    - **mode 와 ratio 의 책임 분리 인지**: `MERGE_RETRIEVE_MODE` 는 정렬, `RETRIEVE_WEB_RATIO` 는 분배. 동작 변수가 이름과 다르게 분리되어 있는 케이스 — 토픽별 검색 정책 튜닝 시 둘을 짝으로 봐야.
+    - **provider overlay 의 토픽 프리셋과의 우선순위**: 토픽 프리셋이 마지막에 적용되므로 토픽이 `LLM_PROVIDER` / `CHROMA_NAMESPACE` 등을 명시하면 venv 토글과 무관하게 토픽이 이김. venfobel 의 `SKIP_VERTEX_SEARCH=0` 라인이 OpenAI 모드에선 노이즈를 만들지만 graceful degrade 로 해결됨 (vertex_search lazy guard).
+
 ---
 
 ## 13) 알려진 이슈/주의사항

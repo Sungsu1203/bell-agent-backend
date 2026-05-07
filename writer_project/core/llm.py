@@ -22,6 +22,19 @@ def _mask(v: Optional[str]) -> str:
     return v[:3] + "…" + v[-2:]
 
 
+def _none_if_blank(v: Any) -> Optional[str]:
+    """빈 문자열/공백을 None으로 정규화.
+
+    langchain-openai 1.0.0의 OpenAIEmbeddings 는 base_url='' 가 들어오면 그대로
+    OpenAI client → httpcore 까지 흘러가 'Request URL is missing http(s)://' 로
+    panic 한다. ChatOpenAI 는 자체 정규화로 통과하지만 Embeddings 는 그렇지 않으므로
+    여기서 ENV/CFG 단계에서 미리 None 으로 변환해 ctor 에 전달되지 않게 한다.
+    """
+    if isinstance(v, str) and v.strip():
+        return v.strip()
+    return None
+
+
 def _provider() -> str:
     """실행 시점의 공급자명(소문자)"""
     try:
@@ -262,17 +275,17 @@ else:
         # API 키 로딩: 직접 인자 > config.CFG > None
         api_key = api_key or (getattr(config.CFG, APIKeyName, None) if APIKeyName else None)
 
-        # OpenAI 전용 변수 로딩
+        # OpenAI 전용 변수 로딩 (빈 문자열은 None으로 정규화)
         if prov == "openai":
             base_url = (
-                base_url
-                or getattr(config.CFG, "OPENAI_BASE_URL", None)
-                or getattr(config.CFG, "OPENAI_API_BASE", None)
+                _none_if_blank(base_url)
+                or _none_if_blank(getattr(config.CFG, "OPENAI_BASE_URL", None))
+                or _none_if_blank(getattr(config.CFG, "OPENAI_API_BASE", None))
             )
             organization = (
-                organization
-                or getattr(config.CFG, "OPENAI_ORG_ID", None)
-                or getattr(config.CFG, "OPENAI_ORGANIZATION", None)
+                _none_if_blank(organization)
+                or _none_if_blank(getattr(config.CFG, "OPENAI_ORG_ID", None))
+                or _none_if_blank(getattr(config.CFG, "OPENAI_ORGANIZATION", None))
             )
 
         # 공통 추가 옵션 로딩
@@ -380,8 +393,16 @@ else:
             kwargs_list = []
 
             if prov == "openai":
-                base_url = getattr(config.CFG, "OPENAI_BASE_URL", None) or getattr(config.CFG, "OPENAI_API_BASE", None)
-                organization = getattr(config.CFG, "OPENAI_ORG_ID", None) or getattr(config.CFG, "OPENAI_ORGANIZATION", None)
+                # 빈 문자열은 None 으로 정규화 — Embeddings 는 base_url='' 를 그대로
+                # httpcore 까지 흘려보내 'missing http(s)://' panic 을 일으킨다.
+                base_url = (
+                    _none_if_blank(getattr(config.CFG, "OPENAI_BASE_URL", None))
+                    or _none_if_blank(getattr(config.CFG, "OPENAI_API_BASE", None))
+                )
+                organization = (
+                    _none_if_blank(getattr(config.CFG, "OPENAI_ORG_ID", None))
+                    or _none_if_blank(getattr(config.CFG, "OPENAI_ORGANIZATION", None))
+                )
                 kwargs_list = [
                     dict(model=model_name, api_key=api_key, base_url=base_url, organization=organization),
                     dict(model_name=model_name, openai_api_key=api_key, openai_api_base=base_url, openai_organization=organization),

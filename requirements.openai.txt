@@ -1,0 +1,12 @@
+# RAG Writer — OpenAI(LLM_PROVIDER=openai) 전용 의존성
+# 사용법:
+#   python -m venv .venv_openai
+#   .\.venv_openai\Scripts\Activate.ps1   # PowerShell
+#   pip install -r requirements.openai.txt
+#
+# 인증: OPENAI_API_KEY 환경변수 또는 writer_project/.env.openai
+-r requirements.base.txt
+
+openai==2.5.0
+langchain-openai==1.0.0
+tiktoken==0.12.0

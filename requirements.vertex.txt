@@ -1,0 +1,14 @@
+# RAG Writer — Vertex AI(LLM_PROVIDER=vertexai) 전용 의존성
+# 사용법:
+#   python -m venv .venv_vertex
+#   .\.venv_vertex\Scripts\Activate.ps1   # PowerShell
+#   pip install -r requirements.vertex.txt
+#
+# 인증: GOOGLE_APPLICATION_CREDENTIALS 로 서비스 계정 JSON 경로 지정 (writer_project/.env.vertex)
+-r requirements.base.txt
+
+google-cloud-aiplatform==1.121.0
+google-genai==1.45.0
+google-ai-generativelanguage==0.8.0
+langchain-google-vertexai==3.0.0
+langchain-google-genai==3.0.0
