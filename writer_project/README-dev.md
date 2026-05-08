@@ -1361,10 +1361,34 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
   - 표 슬라이드의 placeholder shape 잔존이 디자인상 거슬리면 placeholder 자체 제거 분기 추가.
 - **다음 의존**: §13-4 (planner) 가 `render_deck` 을 import 해서 e2e 호출, §13-5 (CLI) 가 그 entrypoint 노출.
 
-13-4. **`planner.py` 구현 (v1: OpenAI 단독)** — 상태: `pending` / 의존: §13-2 / 우선순위: 상
+13-4. **`planner.py` 구현 (v1: OpenAI 단독)** — 상태: `closed (2026-05-08)` / 의존: §13-2 / 우선순위: 상
 - `plan_deck(md_text, *, slug, topic_title) -> SlideDeckSpec`. `core.llm.get_llm()` + `with_structured_output(SlideDeckSpec)`.
 - 프롬프트는 `prompts.get_pptx_planner_prompt()` 분리. 헤딩 깊이 → layout_id 매핑 규칙(결정론적)을 prompt 안에 명시 (LLM 자율 결정 회피).
 - LLM wrapper 는 §12-13-6 metric 패턴 그대로 (`record_llm_call(... section_title="pptx_plan")`).
+
+**close 후기 (2026-05-08)**:
+- 신설 파일: `agent/export/planner.py` (87 라인). `prompts.py` 에 `get_pptx_planner_prompt()` 추가 (572~635 라인).
+- **결정론적 매핑 규칙은 프롬프트 내 hardcode** — LLM 자율 layout_id 결정 회피:
+  - 첫 슬라이드 = `layout_id=0` (TITLE) — title=topic_title, body=부제/생성일
+  - `## N.` 등장시 = `layout_id=2` (SECTION_HEADER) 1장
+  - `### N.M.` / 본문 = `layout_id=1` (TITLE_CONTENT) — bullets > body > table 우선순위
+  - layout_hint v1 항상 None
+- 추가 규칙: 압축(bullet 3~6개·항목 80자), 출처 인용(`[파일명]`, `[^N]`)을 본문 대신 notes 로 분리, 원문 복사 금지.
+- **검증 — quick-test (작은 합성 md, 1챕터, 표 1개, 출처 마커 포함)**:
+  - 환경: `.venv_vertex` 셸이지만 `.env.openai` 자동 overlay 로드되어 **실제로 OpenAI(gpt-4o) 로 호출됨** — v1 spec "OpenAI 단독" 그대로 만족.
+  - latency: **6.44s** (slow 임계 90s 대비 충분히 빠름, retry_hint 빈 문자열).
+  - 산출 deck: 4 slides, layout 분포 `{0:1, 2:1, 1:2}` — 매핑 규칙 정확 적용.
+  - 첫 슬라이드: layout_id=0, body=`'2026-05-08 / RAG Writer'` (프롬프트 예시 그대로 인용).
+  - bullet 슬라이드: 5개로 압축 (원문 단락 + 3 bullet → 5개 bullet 으로 재요약 — LLM 이 bullet 권장 범위 3~6개 안에 들음).
+  - table 슬라이드: 3×3 (header `['브랜드', '2024 매출(억원)', 'YoY']` + 3 rows) — Markdown 표 정확히 구조화.
+  - **notes 분리 동작 확인**: 본문 인용 마커 `[종근당_팩트북.pdf]` 와 footnote `[^1]: 2024 약국 매출 통계` 가 슬라이드 본문이 아닌 notes 로 빠짐.
+  - metrics ndjson 1행 기록: `provider='openai' model='gpt-4o' latency=6.44s success=True section='pptx_plan'` (필드 11종 모두 정상).
+- **알려진 경고 (non-blocking)**:
+  - `with_structured_output` 호출 시 `PydanticSerializationUnexpectedValue` UserWarning 1건 (`field_name='parsed'`) — langchain 내부 직렬화 경로 알림. 동작/결과에 영향 없음. langchain 후속 버전에서 자동 해결 예상.
+- **재진입 조건**:
+  - 큰 문서(venfobel 71KB) 진입 시 LLM 응답이 잘릴 수 있음 — §13-6 e2e 단계에서 출력 길이/완전성 확인. 잘림 발견 시 chunked planning(챕터별 분리 호출 + 합치기) 검토.
+  - bullet 6개 초과 / 본문 200자 초과 등 압축 규칙 위반 사례 발견 시 `model_validator` 후처리 또는 프롬프트 강화.
+  - v2 (Gemini A/B) 진입 시: `.env.gemini` overlay 추가 + `LLM_PROVIDER=gemini` 셸로 호출하면 동일 코드로 동작 가능 (provider 분기 로직 변경 불필요 — `with_structured_output` 추상화 덕분).
 
 13-5. **CLI 진입점 구현** — 상태: `pending` / 의존: §13-3, §13-4 / 우선순위: 상
 - `python -m agent.export.cli <slug> [--report <md_path>] [--out <pptx_path>]`.

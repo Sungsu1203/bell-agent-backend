@@ -569,3 +569,67 @@ def get_research_synthesizer_prompt() -> PromptTemplate:
     pt = PromptTemplate.from_template(tmpl)
     logger.debug("Research synthesizer prompt ready. vars=%s", pt.input_variables)
     return pt
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PPTX planner (§13-4)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_pptx_planner_prompt() -> PromptTemplate:
+    """Markdown 보고서 → SlideDeckSpec 변환용 프롬프트.
+
+    헤딩 깊이 → layout_id 매핑은 결정론적 (LLM 자율 결정 회피).
+    템플릿 layout (templates/agency_default.pptx, §13-1 close):
+      - 0 = TITLE          (CENTER_TITLE + SUBTITLE)
+      - 1 = TITLE_CONTENT  (TITLE + OBJECT)
+      - 2 = SECTION_HEADER (placeholder 0개, 디자인 단독)
+    """
+    tmpl = _tmpl(
+        """
+        역할: 광고 에이전시 발표용 PowerPoint 슬라이드 deck 기획자
+        현재 주제(절대 준수): {topic_title}
+        슬러그: {slug}
+
+        너는 아래의 Markdown 보고서를 SlideDeckSpec 으로 변환한다.
+        변환 규칙은 결정론적으로 적용하라 — layout_id 자율 결정 금지.
+
+        [헤딩 → layout_id 결정론 매핑]
+        1. 첫 슬라이드는 반드시 layout_id=0 (TITLE):
+           - title = topic_title
+           - body = 부제 또는 생성일 (예: "2026-05-08 / RAG Writer")
+        2. `## N.` 헤딩(챕터)이 등장할 때마다 layout_id=2 (SECTION_HEADER) 슬라이드 1장 추가:
+           - title = `## N.` 줄의 챕터 제목 그대로
+        3. `### N.M.` 헤딩 또는 챕터 본문은 layout_id=1 (TITLE_CONTENT):
+           - title = 섹션 제목 (없으면 의미 있는 한국어 한 줄)
+           - bullets / body / table 중 하나 사용
+
+        [layout_id=1 OBJECT 우선순위]
+        - 마크다운 표(`| col | col |`)가 있으면 → table 사용
+        - 표 없고 짧은 항목 3~6개 추출 가능 → bullets 사용
+        - 단락 본문만 있어 bullet 분해 부적절 → body 사용 (200자 이내)
+
+        [압축 규칙]
+        - 한 슬라이드는 시각적으로 한 화면에 들어가야 함.
+        - bullets: 슬라이드당 3~6개, 항목당 80자 이내. 초과시 슬라이드 분할.
+        - 원문 그대로 복사 금지 — 핵심만 요약.
+        - 출처 인용(예: [파일명], [^1]) 은 본문에 노출하지 말고 notes 에 분리.
+
+        [notes 활용]
+        - 각주·인용 마커·출처명 등 발표자 참고 정보를 notes 에 기록.
+        - 본문에는 깔끔한 한국어 요약만 노출.
+
+        [layout_hint]
+        - v1 에서는 항상 None.
+
+        [입력 보고서 (Markdown)]
+        {md_text}
+
+        위 보고서를 SlideDeckSpec 으로 산출하라.
+        - slug={slug}
+        - topic_title={topic_title}
+        - slides 의 첫 항목은 layout_id=0 (TITLE), 두 번째 항목부터 본문.
+        """
+    )
+    pt = PromptTemplate.from_template(tmpl)
+    logger.debug("PPTX planner prompt ready. vars=%s", pt.input_variables)
+    return pt
