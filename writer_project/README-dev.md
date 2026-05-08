@@ -1395,7 +1395,8 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 - **레이아웃 이름 컨벤션: 영문 대문자 SNAKE_CASE 통일** — `TITLE` / `TITLE_CONTENT` / `SECTION_HEADER` / `TITLE_TABLE`. 한국어 layout 명("제목만") 사용 금지. 향후 새 layout 추가 시 동일 규칙.
 - **모든 본문 layout 의 제목 placeholder 좌표 통일**: `(2.00, 1.50, 29.87, 1.50) cm`. layout 1 (TITLE_CONTENT) 와 layout 5 (TITLE_TABLE) 모두 동일. 향후 새 본문 layout 도 이 좌표.
 - **모든 본문 layout 에 제목 아래 버건디 강조 라인** — AUTO_SHAPE 도형, 좌표 `(2.00, 3.20, 0.80, 0.10) cm`, RGB 139,41,66. layout master 에 박제(슬라이드 인스턴스에 자동 inherit, 코드 별도 처리 불필요).
-- **페이지 번호 placeholder 좌표 통일** — idx=12, type=SLIDE_NUMBER, 좌표 `(30.37, 18.00, 1.50, 0.60) cm` (모든 layout 공통).
+- **페이지 번호 placeholder 좌표 통일** — type=SLIDE_NUMBER, 좌표 `(left=30.37, top=18.00, w=1.50, h=0.60) cm` 모든 layout 공통. **idx 는 layout 마다 다름** (TITLE/TITLE_CONTENT idx=10, TITLE_TABLE idx=12, layout 3~10 idx=12) — idx 단독 식별 금지, 좌표 또는 type 기준. **검증 완료 (2026-05-09)**: §13-3 v3-fix1 으로 `_ensure_slide_number()` 명시 복사 코드 추가 + test_v4.pptx (4 slides, S1/S3/S4 OK + S2 SECTION_HEADER EXEMPT) 및 venfobel_v2.pptx (23 slides, 16개 OK + 7개 SECTION_HEADER EXEMPT) 모두 PASS.
+- **python-pptx `add_slide()` 의 SLIDE_NUMBER placeholder 자동 상속 안 함** — TITLE/CENTER_TITLE/BODY/OBJECT 등은 모두 자동 상속하지만 SLIDE_NUMBER 만 예외. layout 의 sp XML (자동 필드 `<a:fld type="slidenum">` 포함) 을 deep-copy 해서 슬라이드 spTree 에 명시 추가하는 `_ensure_slide_number(slide, layout)` 헬퍼로 처리. SECTION_HEADER (layout 2) 는 layout 자체에 SLIDE_NUMBER 가 없어 자동 skip — 의도적 제외. cNvPr id 충돌 회피를 위해 추가 시 슬라이드 spTree max id + 1 로 재할당.
 
 **구체 변경 사항 (renderer.py)**:
 - 상수 rename: `LAYOUT_TITLE_ONLY = 5` → `LAYOUT_TITLE_TABLE = 5` (코멘트도 `'제목만'` → `'TITLE_TABLE'`).
@@ -1422,7 +1423,35 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 | latency | 21.77s | 32.86s |
 | TITLE_TABLE | 0 | 0 |
 
-비결정성 영향은 슬라이드 수 ±2장, 토큰 ±300, latency 50% 편차. v2 (Gemini A/B) 평가 시 단일 sample 비교 X, **3회 이상 평균** 권장.
+**잠정 관찰 (n=2)**: 슬라이드 수 ±2장, 토큰 ±300, latency 50% 편차. **n=2 결과는 정량 결론이 아닌 임시 baseline 으로만 사용** — §12-12-1 sweep 정신과 일관되게 **n>=5 재실시 필요**. 정식 수치는 §13-7 (Gemini A/B) 평가와 동시에 측정. 현재 시점에서는 v2 (Gemini A/B) 평가 시 단일 sample 비교 금지·**3회 이상 평균** 만 안전 권장.
+
+**v3-fix1 (2026-05-09, SLIDE_NUMBER 누락 fix)** — 상태: `closed (2026-05-09)`:
+
+사용자 시각 검증으로 v3 산출물 4개 슬라이드·venfobel 22 슬라이드 모두 페이지 번호 placeholder 누락 발견. v3 박제 #4 ("idx=12 모든 layout 공통") 와 실제 동작이 어긋나 진단 후 fix.
+
+**원인 진단 (`scripts/diag_slide_number.py`)**:
+- python-pptx `add_slide(layout)` 가 SLIDE_NUMBER placeholder 만 슬라이드 인스턴스로 자동 상속하지 않음 (TITLE/CENTER_TITLE/BODY/OBJECT 등은 정상 상속).
+- 추가 발견: 박제 #4 자체가 부정확. layout[0] TITLE / layout[1] TITLE_CONTENT 의 SLIDE_NUMBER **idx=10**, layout[5] TITLE_TABLE 만 idx=12. 좌표 (top=18.00, left=30.37, w=1.50, h=0.60 cm) 만 일관.
+- layout 의 SLIDE_NUMBER sp XML 안에 `<a:fld id="..." type="slidenum">` 자동 필드 보존 — sp 통째 deep-copy 만 하면 PowerPoint 가 자동 슬라이드 번호 표시.
+
+**Fix (`agent/export/renderer.py`)**:
+- 헬퍼 추가: `_ensure_slide_number(slide, layout)` — layout 에 SLIDE_NUMBER placeholder 가 있으면 sp XML deep-copy 해서 슬라이드 spTree 에 명시 추가. 이미 슬라이드에 있으면 idempotent skip. cNvPr id 충돌 회피 위해 슬라이드 spTree 의 max(cNvPr@id) + 1 로 재할당.
+- `render_deck` 의 layout 분기 끝 (notes 처리 직전) 에서 모든 슬라이드에 호출. SECTION_HEADER (layout 2) 는 layout 자체에 SLIDE_NUMBER 미정의이므로 자동 skip — 의도적 제외.
+- 상수 `PH_TYPE_SLIDE_NUMBER = 13` 추가 (PP_PLACEHOLDER.SLIDE_NUMBER 매직넘버 회피).
+
+**검증 (`scripts/verify_slide_number_fix.py`, `scripts/verify_pptx_slide_numbers.py`)**:
+- 합성 spec 4 슬라이드 (TITLE/SECTION_HEADER/TITLE_CONTENT/TITLE_TABLE) — TITLE/TITLE_CONTENT idx=10, TITLE_TABLE idx=12 로 추가, 좌표 (18.00, 30.37, 1.50, 0.60) cm 일관, SECTION_HEADER 만 EXEMPT — **PASS**.
+- `test_v4.pptx` (LLM 1회, gpt-4o, 7.03s, 40.2 KB, 4 slides): S1 TITLE OK / S2 SECTION_HEADER EXEMPT / S3 TITLE_CONTENT OK / S4 TITLE_TABLE OK — **PASS**.
+- `venfobel_v2.pptx` (LLM 1회, gpt-4o, 19.27s, 75.2 KB, 23 slides): 일반 슬라이드 16개 모두 OK + SECTION_HEADER 7개 EXEMPT — **PASS**.
+
+**박제 정정**:
+- 박제 #4 본문 갱신 (좌표만 layout 공통, idx 는 layout 별 상이) + "검증 완료" 표시 추가.
+- 새 박제 추가: "python-pptx add_slide() 의 SLIDE_NUMBER 자동 상속 안 함" + `_ensure_slide_number()` 헬퍼 사용 룰.
+
+**재진입 조건**:
+- (F1) 새 layout 추가 시 SLIDE_NUMBER 좌표가 (18.00, 30.37, 1.50, 0.60) cm 와 다르면 박제 갱신 필요 (동일하면 자동 동작).
+- (F2) SECTION_HEADER 에도 페이지 번호 표시 결정시 layout 2 의 master 에 SLIDE_NUMBER placeholder 추가하면 자동 동작 — 코드 변경 불필요.
+- (F3) PowerPoint 시각 확인에서 페이지 번호 위치/크기 어긋남 발견시 layout master 의 placeholder 좌표 수정으로 처리 (renderer 코드는 좌표 수정 X — sp XML 통째 복사 방식이므로 layout 만 변경하면 됨).
 
 13-4. **`planner.py` 구현 (v1: OpenAI 단독)** — 상태: `closed (2026-05-08)` / 의존: §13-2 / 우선순위: 상
 - `plan_deck(md_text, *, slug, topic_title) -> SlideDeckSpec`. `core.llm.get_llm()` + `with_structured_output(SlideDeckSpec)`.
@@ -1552,14 +1581,64 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 13-8. **(v3) Claude 평가** — 상태: `deferred` / 의존: §13-7 close / 우선순위: 후
 - 별도 evaluation 트랙. Anthropic provider 추가 시점은 §12-13-6 (b) Anthropic fallback 도입과 묶어 검토 가능 (의존도 큰 변경이므로 단독 트랙은 비효율).
 
-**Conclusion (v1 close 조건)**:
-§13-1 ~ §13-6 6개 task 모두 close + 첫 검증 deck 사용자 평가 통과. close 후기에 (a) layout 인덱스→이름 매핑 표, (b) 실측 latency / token / cost, (c) 생성된 pptx 슬라이드 수·구조, (d) 인용 표현·표 변환 결과 정성 평가 박제.
+13-9. **출력 언어 비결정성 (한국어 ↔ 영어) + 표 추출 비결정성** — 상태: `open (2026-05-09)` / 의존: §13-3 v3-fix1 close / 우선순위: 중
+- **현상 (출력 언어)**: 동일한 venfobel `.md` 입력에 대해 1차 실행은 한국어 슬라이드 제목 (`'3C 분석 및 시장 동향'`), 2차 실행은 영어 (`'3C Analysis & Market Trends'`) — temp=0.3 비결정성 단독으로 설명 어려운 출력 언어 자체 swap. v2 (Gemini A/B) 평가 진입 전 prompt 안정화 필요.
+- **추정 원인**: `prompts.get_pptx_planner_prompt()` 가 출력 언어를 명시하지 않음 → LLM 이 입력 md 의 mixed-language(한국어 본문 + 영어 고유명사) 에서 임의 선택. 입력 md 자체에 영어 단어 비율이 높을수록 영어 출력 확률 상승 가설.
+- **현상 (표 추출 비결정성, 2026-05-09 추가 데이터)**: 동일 venfobel md 3회 실행 결과 — 1차 22 slides / 표 0개, 2차 23 slides / 표 1개, 3차 **32 slides / 표 1개**. 슬라이드 수 편차가 **±10** 로 §13-3 v3 amendment 의 박제 "n=2 ±2 슬라이드" 보다 훨씬 큼. 표 추출 빈도도 `{0, 1, 1}` 로 비결정적. 같은 markdown 표 (Vitamin B 매출 5×6) 가 LLM 자율 판단으로 bullet 압축 / 표 보존 / 분할 등 다양하게 매핑됨. **n=3 잠정 — n>=5 재실시 필요 (§13-7 동시 진행)**.
+- **재진입 조건**: §13-7 (Gemini A/B) 평가 시작 전 검토. fix 안 1) prompt 에 `"출력 슬라이드 제목·본문은 모두 입력 md 의 주요 언어와 일치"` 또는 `"출력은 한국어"` 명시. 안 2) `topic_title` 의 언어를 LLM 에 hint 로 전달. 안 3) prompt 에 표 보존 규칙 강화 (`"입력 markdown 표가 있으면 모두 layout_id=1 + table 로 보존, bullet 압축 금지"`). fix 후 동일 입력 5회 실행 → 출력 언어 일치율 + 슬라이드 수 편차 + 표 추출 일치율 측정.
+- **블로커 영향**: §13-7 (v2 Gemini A/B) 진입 전 fix 권장. v1 close 자체는 차단하지 않음 (기능적으로 양 언어 / 슬라이드 수 변동 모두 정상 렌더링).
+
+13-10. **표 렌더링 품질 개선 (스타일·컬럼 너비)** — 상태: `closed (2026-05-09)` / 의존: §13-3 v3-fix1 close / 우선순위: 중
+- **Goal**: venfobel_v2.pptx S7 검사에서 발견된 표 품질 이슈 (균등 5.97cm 컬럼 → 긴 텍스트 잘림, 헤더 강조 X, 18pt default 폰트 과대) 해소.
+- **표 디자인 정의 위치 결정 (박제)**: **표 디자인은 템플릿이 아닌 코드에 정의**.
+  - python-pptx 의 `add_table()` 은 PowerPoint "표 스타일" 갤러리 적용을 직접 지원하지 않음 (확인됨).
+  - 마스터 테마에서 자동 상속되는 것: 폰트 종류(Pretendard), 색 팔레트.
+  - 마스터 테마에서 상속 안 되는 것: 폰트 크기, 컬럼 너비, 헤더 배경 강조, 줄무늬.
+  - 결론: 템플릿에 박을 수 있는 부분(폰트 종류·색)은 이미 활용 중. 박을 수 없는 부분(폰트 크기·헤더 강조·컬럼 너비)만 코드 명시. 향후 python-pptx 가 표 스타일 적용을 지원하면 그때 마이그레이션.
+  - 대안 (방법 3 "참조 표 슬라이드 deep copy") 검토 → 행/열 가변 LLM 출력에 부적합, v1 마무리 단계 도입 비용 > 이득. 적용하지 않음.
+- **Phase 1 — 헤더/본문 스타일 + 행 높이 자동 조정 (renderer.py)**:
+  - 헤더 행 (row=0): Pretendard Bold 12pt, 글자 RGB(255,255,255), 셀 배경 RGB(26,26,26) 차콜.
+  - 본문 행 (row≥1): Pretendard 10pt, 글자 RGB(26,26,26).
+  - 행 수 ≥ 8 일 때 fallback: 헤더 11pt / 본문 9pt (placeholder 영역 12.5cm 보호).
+  - 행 높이 명시적 고정 X — 최소값 0.6cm 만 설정해 PowerPoint 자동 맞춤 활성화.
+  - 상수: `TABLE_HEADER_FONT_SIZE/_FALLBACK`, `TABLE_BODY_FONT_SIZE/_FALLBACK`, `TABLE_HEADER_BG/_FG`, `TABLE_BODY_FG`, `TABLE_ROW_HEIGHT_MIN_CM`, `TABLE_FALLBACK_THRESHOLD_ROWS`.
+- **Phase 2 — 컬럼 너비 비례 분할 (`_set_column_widths`)**:
+  - 알고리즘: 1) 각 컬럼 (header + 본문 셀) 평균 char 길이. 2) 비율 × 29.87cm = ideal. 3) max(ideal, 2.5cm) 으로 최소 너비 보장. 4) 합계 / 29.87 로 항상 비례 scale → 합계 정확히 29.87cm 유지.
+  - 상수: `TABLE_COL_MIN_WIDTH_CM = 2.5`.
+- **검증 결과**:
+  - 합성 spec 2 케이스 — 4행×3열 (일반) + 11행×4열 (fallback): 헤더 배경/글자/Bold/12pt(or 11pt) + 본문 10pt(or 9pt) + 컬럼 합계 29.87 + spread 4.65~16.38cm + 행 높이 0.60cm 모두 PASS.
+  - test_v5.pptx (LLM, gpt-4o, 4 slides, 39.3 KB) — 표 1개 (4행×3열): 컬럼 [9.29, 12.61, 7.97] cm spread 4.65 PASS, 페이지 번호 회귀 OK.
+  - venfobel_v3.pptx (LLM, gpt-4o, 32 slides, 84.2 KB) — 표 1개 (6행×4열): 컬럼 [3.98, 4.16, **13.94**, 7.78] cm spread 9.96 PASS — venfobel_v2 의 균등 5.97cm 모두 → 길었던 동향 컬럼이 13.94cm 로 확장. 페이지 번호 회귀 OK (25 + 7 EXEMPT).
+- **Conclusion**: 표 디자인을 코드에 위임하는 패턴 박제. 이후 표 디자인 변경은 `agent/export/renderer.py` 의 `TABLE_*` 상수 + `_style_cell_*` / `_set_column_widths` 만 수정.
+- **Re-entry conditions**:
+  - (T1) 표 행 수 매우 많은 케이스 (>15) 발견 시 ellipsis / 페이지 분할 전략 검토.
+  - (T2) 셀 병합 요구 발생 시 별도 task — TableSpec 확장 + add_merge_cells 처리.
+  - (T3) python-pptx 0.7.x 이상에서 표 스타일 갤러리 적용 지원 시 마이그레이션 — `TABLE_HEADER_BG` 등 상수 제거 후 layout master 표 스타일 참조.
+  - (T4) Phase 3 (출처 URL → notes 이동) 은 별도 — §13-9 prompt 안정화 task 와 묶어 처리.
+
+**Conclusion (v1 close)** — 상태: `closed (2026-05-09)`:
+§13-1 ~ §13-6 6개 task + §13-3 v3-fix1 (SLIDE_NUMBER) + §13-10 (표 품질) 모두 close. 사용자 시각 검증 통과 (test_v5.pptx 4 slides, venfobel_v3.pptx 32 slides — 헤더 차콜+흰글씨, 컬럼 비례 분할로 동향 컬럼 13.94cm 확장 잘림 해소, 페이지 번호 정상, 줄무늬 자동 적용). v1 (gpt-4o 단독) 생산 가능 상태.
+
+**v1 박제 요약**:
+- (a) layout 인덱스 → 이름 매핑: 0=TITLE, 1=TITLE_CONTENT, 2=SECTION_HEADER, 5=TITLE_TABLE (코드 dispatch). 3/4/6~10 미사용.
+- (b) 실측 (gpt-4o, temp=0.3, n=3 잠정 — n>=5 정식 측정 §13-9 close 후 §13-6 v3 로 재실시 필요):
+  - venfobel md (71 KB) → 22 / 23 / 32 slides (편차 ±10), 표 0 / 1 / 1, latency 21.77 / 19.27 / 32.86s, cost ~$0.07~$0.075/run.
+  - test md (572 B) → 4 slides 안정, latency 5~7s, cost ~$0.005/run.
+- (c) pptx 구조: title 1 + section 5~7 + content 14~24 + table 0~1 (가변).
+- (d) 정성 평가:
+  - 인용 표현: `[파일명]`, `[^N]` 정확히 슬라이드 노트로 분리 (본문 침투 없음).
+  - 표 변환: Markdown 표 → TableSpec 매핑 정확하나 추출 자체가 비결정적 (LLM 자율 압축 / 보존 / 분할 선택 § 13-9 처리).
+  - 챕터 번호 추출: `^\d+\. ` regex 매칭 + zero-pad (`1.` → `01`) 정확.
+  - 출력 언어: 한국어 ↔ 영어 swap (§13-9 처리).
+- 코드 라인: spec.py 108 / planner.py 87 / renderer.py 296 (§13-10 +120) / cli.py 108 = **599 라인**. prompts.py +63 (`get_pptx_planner_prompt()`).
 
 **Re-entry conditions**:
 - (R1) v1 deck 사용자 평가에서 layout 매핑 / table / 인용 표현 중 하나라도 재작업 필요 → 해당 §13-N task 재오픈.
 - (R2) Gemini A/B 진입 결정 시 §13-7 활성화.
 - (R3) 다른 토픽(pet-food-premium, height-growth-supplement)으로 재사용 시 토픽별 차이(refs 패턴, 챕터 수, 표 빈도) 정량 측정 후 spec 확장 검토.
 - (R4) Anthropic provider 추가 시 §13-8 활성화. §12-13-6 (b) 와 묶어 결정.
+- (R5) 출력 언어 비결정성·표 추출 비결정성 fix 필요 시 §13-9 활성화 (§13-7 진입 전).
+- (R6) 표 디자인 변경 (셀 병합/페이지 분할/python-pptx 표 스타일 마이그레이션) 시 §13-10 재오픈 (T1~T4 조건).
 
 ---
 

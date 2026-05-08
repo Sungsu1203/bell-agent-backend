@@ -1,12 +1,18 @@
 # agent/export/renderer.py
 from __future__ import annotations
 import re
+from copy import deepcopy
 from pathlib import Path
 from typing import Optional, Union
 
 from pptx import Presentation
-from pptx.util import Cm
+from pptx.dml.color import RGBColor
+from pptx.oxml.ns import qn
+from pptx.util import Cm, Pt
 from .spec import SlideDeckSpec, SlideSpec, TableSpec
+
+# python-pptx PP_PLACEHOLDER.SLIDE_NUMBER == 13 (sldNum). 명시 상수로 매직넘버 회피.
+PH_TYPE_SLIDE_NUMBER = 13
 
 
 # §13-3 v2 amendment (2026-05-08): 템플릿 재정비 후 placeholder 기반 식별로 전환.
@@ -33,6 +39,26 @@ TABLE_AREA_WIDTH_CM = 29.87
 TABLE_AREA_HEIGHT_CM = 12.5
 
 LAYOUT_TITLE_TABLE = 5  # 'TITLE_TABLE' — 표 슬라이드 dispatch 대상 (v3: 'TITLE_CONTENT' 와 제목 좌표 통일)
+
+# §13-10 표 스타일 상수 (코드 정의 — python-pptx 가 표 스타일 갤러리 적용 미지원하기 때문).
+# 마스터 테마는 폰트 종류·색 팔레트만 상속, 폰트 크기·헤더 강조·컬럼 너비는 코드 명시.
+TABLE_HEADER_FONT_NAME = "Pretendard"
+TABLE_HEADER_FONT_SIZE = Pt(12)
+TABLE_HEADER_FONT_SIZE_FALLBACK = Pt(11)  # 행 수 ≥ TABLE_FALLBACK_THRESHOLD_ROWS
+TABLE_HEADER_BG = RGBColor(0x1A, 0x1A, 0x1A)  # 차콜
+TABLE_HEADER_FG = RGBColor(0xFF, 0xFF, 0xFF)  # 흰색
+
+TABLE_BODY_FONT_NAME = "Pretendard"
+TABLE_BODY_FONT_SIZE = Pt(10)
+TABLE_BODY_FONT_SIZE_FALLBACK = Pt(9)  # 행 수 ≥ TABLE_FALLBACK_THRESHOLD_ROWS
+TABLE_BODY_FG = RGBColor(0x1A, 0x1A, 0x1A)
+
+# 행 높이는 명시적 고정 X (PowerPoint 자동 맞춤 활성화). 최소값만 설정.
+TABLE_ROW_HEIGHT_MIN_CM = 0.6
+# 컬럼 너비 휴리스틱: 셀 텍스트 평균 길이 비례 분배. 최소 너비 보장.
+TABLE_COL_MIN_WIDTH_CM = 2.5
+# 행 수 임계 — 이상이면 폰트 크기 fallback (헤더 11pt / 본문 9pt) 적용.
+TABLE_FALLBACK_THRESHOLD_ROWS = 8
 
 
 def render_deck(
@@ -72,6 +98,10 @@ def render_deck(
                 _render_content_slide(slide, s)
             elif s.layout_id == 2:
                 _render_section_header_slide(slide, s)
+        # python-pptx add_slide() 가 SLIDE_NUMBER placeholder 를 자동 상속하지 않음 →
+        # layout 에 정의돼 있으면 sp XML 을 deep-copy 해서 슬라이드 spTree 에 명시 추가.
+        # SECTION_HEADER (layout 2) 는 layout 자체에 SLIDE_NUMBER 가 없어 자동 skip — 의도적 제외.
+        _ensure_slide_number(slide, layout)
         if s.notes:
             slide.notes_slide.notes_text_frame.text = s.notes
 
@@ -95,6 +125,56 @@ def _placeholder_by_idx(slide, idx: int):
         if ph.placeholder_format.idx == idx:
             return ph
     return None
+
+
+def _ensure_slide_number(slide, layout) -> None:
+    """layout 에 SLIDE_NUMBER placeholder 가 있으면 슬라이드 인스턴스로 명시 복사.
+
+    python-pptx add_slide() 동작: TITLE/CENTER_TITLE/BODY/OBJECT 등 일반 placeholder 는
+    layout → 슬라이드 자동 상속하지만, SLIDE_NUMBER 만 자동 상속 제외 (검증 결과).
+    layout 의 sp XML (자동 필드 <a:fld type="slidenum"> 포함) 을 deep-copy 해서
+    슬라이드 spTree 에 추가하면 PowerPoint 가 슬라이드 번호 자동 표시.
+
+    cNvPr id 충돌 회피: layout sp 의 id (보통 4 or 5) 가 슬라이드 spTree 의 다른
+    shape 과 겹칠 수 있어 max(existing) + 1 로 재할당.
+    """
+    # layout 에서 SLIDE_NUMBER placeholder 찾기
+    layout_sp = None
+    for ph in layout.placeholders:
+        try:
+            if int(ph.placeholder_format.type) == PH_TYPE_SLIDE_NUMBER:
+                layout_sp = ph._element
+                break
+        except Exception:
+            continue
+    if layout_sp is None:
+        return  # SECTION_HEADER 등 SLIDE_NUMBER 미정의 layout — 의도적 제외
+
+    # 이미 슬라이드에 SLIDE_NUMBER 가 있으면 skip (중복 방지·idempotent)
+    for ph in slide.placeholders:
+        try:
+            if int(ph.placeholder_format.type) == PH_TYPE_SLIDE_NUMBER:
+                return
+        except Exception:
+            continue
+
+    sp_clone = deepcopy(layout_sp)
+
+    # cNvPr id 재할당 — 슬라이드 spTree 내 모든 cNvPr id max + 1
+    spTree = slide.shapes._spTree
+    existing_ids: list[int] = []
+    for cnv in spTree.iter(qn("p:cNvPr")):
+        try:
+            existing_ids.append(int(cnv.get("id", "0")))
+        except (ValueError, TypeError):
+            continue
+    new_id = max(existing_ids, default=1) + 1
+
+    cnv_clone = sp_clone.find(".//" + qn("p:cNvPr"))
+    if cnv_clone is not None:
+        cnv_clone.set("id", str(new_id))
+
+    spTree.append(sp_clone)
 
 
 def _placeholder_by_top_cm(slide, top_cm: float, *, tol_cm: float = 0.5):
@@ -162,29 +242,107 @@ def _fill_bullets(placeholder, bullets) -> None:
 
 def _render_title_table_slide(slide, s: SlideSpec) -> None:
     """layout 5 ('TITLE_TABLE') — 제목 placeholder 만 채우고 표는 별도 add_table 로 그림.
-    layout master 가 TITLE_CONTENT 와 동일 제목 좌표 + 버건디 강조 라인 + 슬라이드 번호 보유."""
+    layout master 가 TITLE_CONTENT 와 동일 제목 좌표 + 버건디 강조 라인 + 슬라이드 번호 보유.
+
+    §13-10 스타일 적용:
+      - 헤더 행: Pretendard Bold 12pt, RGB(255,255,255) 글자, RGB(26,26,26) 차콜 배경.
+      - 본문 행: Pretendard 10pt, RGB(26,26,26) 글자.
+      - 행 수 ≥ 8: 헤더 11pt / 본문 9pt fallback (placeholder 영역 12.5cm 보호).
+      - 컬럼 너비: 셀 텍스트 평균 길이 비례 (최소 2.5cm 보장, 합계 29.87cm 유지).
+      - 행 높이: 최소만 설정 (PowerPoint 자동 맞춤 활성화).
+    """
     title_ph = _placeholder_by_idx(slide, 0)
     if title_ph is not None:
         title_ph.text = s.title
     if not s.table or not s.table.header:
         return
-    rows = len(s.table.rows) + 1
-    cols = len(s.table.header)
-    if cols == 0:
+    n_rows = len(s.table.rows) + 1
+    n_cols = len(s.table.header)
+    if n_cols == 0:
         return
+
     slide.shapes.add_table(
-        rows, cols,
+        n_rows, n_cols,
         Cm(TABLE_AREA_LEFT_CM), Cm(TABLE_AREA_TOP_CM),
         Cm(TABLE_AREA_WIDTH_CM), Cm(TABLE_AREA_HEIGHT_CM),
     )
     table = slide.shapes[-1].table
+
+    use_fallback = n_rows >= TABLE_FALLBACK_THRESHOLD_ROWS
+    header_size = TABLE_HEADER_FONT_SIZE_FALLBACK if use_fallback else TABLE_HEADER_FONT_SIZE
+    body_size = TABLE_BODY_FONT_SIZE_FALLBACK if use_fallback else TABLE_BODY_FONT_SIZE
+
     for c, h in enumerate(s.table.header):
-        table.cell(0, c).text = h
+        cell = table.cell(0, c)
+        cell.text = h
+        _style_cell_header(cell, header_size)
+
     for r, row in enumerate(s.table.rows):
-        for c, cell in enumerate(row):
-            if c >= cols:
+        for c, cell_text in enumerate(row):
+            if c >= n_cols:
                 break
-            table.cell(r + 1, c).text = cell
+            cell = table.cell(r + 1, c)
+            cell.text = cell_text
+            _style_cell_body(cell, body_size)
+
+    _set_column_widths(table, s.table, n_cols)
+
+    for r in range(n_rows):
+        table.rows[r].height = Cm(TABLE_ROW_HEIGHT_MIN_CM)
+
+
+def _style_cell_header(cell, size) -> None:
+    cell.fill.solid()
+    cell.fill.fore_color.rgb = TABLE_HEADER_BG
+    for para in cell.text_frame.paragraphs:
+        for run in para.runs:
+            run.font.name = TABLE_HEADER_FONT_NAME
+            run.font.bold = True
+            run.font.size = size
+            run.font.color.rgb = TABLE_HEADER_FG
+
+
+def _style_cell_body(cell, size) -> None:
+    for para in cell.text_frame.paragraphs:
+        for run in para.runs:
+            run.font.name = TABLE_BODY_FONT_NAME
+            run.font.size = size
+            run.font.color.rgb = TABLE_BODY_FG
+
+
+def _set_column_widths(table, table_spec: TableSpec, n_cols: int) -> None:
+    """컬럼 너비를 셀 텍스트 평균 길이에 비례 분배.
+
+    알고리즘:
+      1) 각 컬럼의 (header + 모든 본문 셀) 평균 char 길이 계산.
+      2) 비율 × TABLE_AREA_WIDTH_CM 으로 ideal width 계산.
+      3) 최소 너비 TABLE_COL_MIN_WIDTH_CM 보장.
+      4) 합계가 area width 초과 시 비례 축소 (총합 = area width 유지).
+    """
+    avg_lengths: list[float] = []
+    for c in range(n_cols):
+        lengths = [len(table_spec.header[c])]
+        for row in table_spec.rows:
+            if c < len(row):
+                lengths.append(len(row[c]))
+        avg_lengths.append(sum(lengths) / len(lengths) if lengths else 1.0)
+
+    total_len = sum(avg_lengths)
+    if total_len <= 0:
+        return  # all empty — leave default
+
+    total_w = TABLE_AREA_WIDTH_CM
+    ideal = [(l / total_len) * total_w for l in avg_lengths]
+    adjusted = [max(w, TABLE_COL_MIN_WIDTH_CM) for w in ideal]
+    # 항상 합계 = total_w 유지 (확대·축소 모두 비례 적용).
+    # 짧은 텍스트만 있어 sum_adj < total_w 인 경우에도 area 를 꽉 채우도록.
+    sum_adj = sum(adjusted)
+    if sum_adj > 0:
+        scale = total_w / sum_adj
+        adjusted = [w * scale for w in adjusted]
+
+    for c in range(n_cols):
+        table.columns[c].width = Cm(adjusted[c])
 
 
 def _render_section_header_slide(slide, s: SlideSpec) -> None:
