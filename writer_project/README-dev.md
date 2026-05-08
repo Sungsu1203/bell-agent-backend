@@ -1337,10 +1337,29 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
   - v2 진입 시 `layout_hint` 의 Literal narrowing (`Literal['compare','caption',...]`) 검토.
   - 슬라이드 길이 제한 (bullets 6개 / 항목 80자) 강제가 필요해지면 `model_validator` 추가 검토.
 
-13-3. **`renderer.py` 구현** — 상태: `pending` / 의존: §13-2 / 우선순위: 상
+13-3. **`renderer.py` 구현** — 상태: `closed (2026-05-08)` / 의존: §13-2 / 우선순위: 상
 - `render_deck(spec, *, template_path, out_path)`. `Presentation(template_path)` 로드 → `spec.slides` 순회 → `slide_layouts[layout_id]` 적용 → placeholder 채움.
 - table 슬라이드: `slide.shapes.add_table(rows, cols, left, top, width, height)` 후 셀별 텍스트 주입.
 - 결정론적, LLM 호출 0. 단위 테스트(소규모 spec → pptx 생성 후 zipfile 로 XML 라인 검증) 가능.
+
+**close 후기 (2026-05-08)**:
+- 신설 파일: `agent/export/renderer.py` (122 라인). 외부 의존 추가 없음 (`python-pptx` 만 사용).
+- **인스펙트 발견 2건 반영**:
+  - 템플릿에 starter slide 1장 (layout=TITLE) 존재 → `_clear_template_slides()` 가 `prs.slides._sldIdLst` + `drop_rel` 로 silent 삭제. python-pptx 공식 API 우회 패턴이지만 안전함.
+  - layout[2] (SECTION_HEADER) 에 layout master 의 `TextBox 7` 좌표 `(720000, 3779999, 9000000, 646331)` EMU 발견 → `SECTION_HEADER_TITLE_BOX` 상수로 박제, `add_textbox` 가 정확히 이 위치에 챕터 제목 주입.
+- **e2e 검증 결과 (4슬라이드 합성 deck → `reports/_render_test/synthetic_4slides.pptx`, 39,486 B, .gitignore 자동 제외)**:
+  - slide 수: 4 (starter 삭제 정상)
+  - layout 매핑: `TITLE` / `SECTION_HEADER` / `TITLE_CONTENT` / `TITLE_CONTENT` 정확
+  - TITLE 슬라이드: idx=0 `'Venfobel-Vitamin 광고 기획 리포트'`, idx=1 `'2026-05-08 / RAG Writer 합성 검증'` (body 우선 → topic_title fallback 분기 동작)
+  - SECTION_HEADER: placeholder 0개 유지, 우리 add_textbox 가 `TextBox 1` 로 추가됨, 텍스트 `'2. 시장 환경 및 규제'` 정확
+  - TITLE_CONTENT bullets: idx=1 OBJECT 의 text_frame 내 paragraph 3개로 직렬화 — `'항목 A...\n항목 B...\n항목 C...'` (한국어 em-dash 보존)
+  - TITLE_CONTENT table: placeholder text 빈 문자열로 숨김, 별도 table shape 4행×3열 (header + 3 rows) 정확. `'벤포벨','100','+5%'` 등 한국어/숫자/% 보존.
+  - notes: TITLE 슬라이드 + bullets 슬라이드의 `notes_slide.notes_text_frame.text` readback 정확.
+- **재진입 조건** (사용자 피드백 후 조정):
+  - SECTION_HEADER textbox 위치/폰트(현재 36pt bold, 색상 기본=검정)가 디자인 위에 시각적으로 어떻게 보이는지 확인 필요. 버건디(RGB 139,41,66) 적용 여부 판단.
+  - TITLE_CONTENT bullets 가 layout master 의 list style(불릿 마커)을 실제로 받아오는지 PowerPoint 에서 시각 확인.
+  - 표 슬라이드의 placeholder shape 잔존이 디자인상 거슬리면 placeholder 자체 제거 분기 추가.
+- **다음 의존**: §13-4 (planner) 가 `render_deck` 을 import 해서 e2e 호출, §13-5 (CLI) 가 그 entrypoint 노출.
 
 13-4. **`planner.py` 구현 (v1: OpenAI 단독)** — 상태: `pending` / 의존: §13-2 / 우선순위: 상
 - `plan_deck(md_text, *, slug, topic_title) -> SlideDeckSpec`. `core.llm.get_llm()` + `with_structured_output(SlideDeckSpec)`.
