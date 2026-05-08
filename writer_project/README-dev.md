@@ -1385,7 +1385,44 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 
 **재진입 조건 (v2)**:
 - 챕터 번호 추출이 안 되는 케이스 — 예: `## Executive Summary` (번호 없음) 또는 `## A.` (알파벳) 등 — 현재 regex 매칭 실패시 `('', title)` 로 fallback 해 number placeholder 가 빈 문자열로 채워짐. 디자인상 큰 빈 슬롯이 거슬리면 fallback 으로 자동 1, 2, ... 카운터 부여 검토.
-- v2 (Gemini A/B) 진입 시 layout_hint 활용으로 layout 5 ('제목만') 외 layout 3 ('콘텐츠 2개') 등으로 확장 가능 — `SlideSpec.layout_id` Literal 확장은 그때 결정.
+- v2 (Gemini A/B) 진입 시 layout_hint 활용으로 layout 5 ('TITLE_TABLE') 외 layout 3 ('콘텐츠 2개') 등으로 확장 가능 — `SlideSpec.layout_id` Literal 확장은 그때 결정.
+
+**v3 amendment (2026-05-08, 레이아웃 이름·좌표 컨벤션 통일)** — 상태: `closed (2026-05-08)`:
+
+사용자가 templates/agency_default.pptx 를 한번 더 정비. layout 5 의 이름·좌표·디자인 일관성을 다른 본문 layout 과 통일.
+
+**박제 (재사용 불가능한 컨벤션)**:
+- **레이아웃 이름 컨벤션: 영문 대문자 SNAKE_CASE 통일** — `TITLE` / `TITLE_CONTENT` / `SECTION_HEADER` / `TITLE_TABLE`. 한국어 layout 명("제목만") 사용 금지. 향후 새 layout 추가 시 동일 규칙.
+- **모든 본문 layout 의 제목 placeholder 좌표 통일**: `(2.00, 1.50, 29.87, 1.50) cm`. layout 1 (TITLE_CONTENT) 와 layout 5 (TITLE_TABLE) 모두 동일. 향후 새 본문 layout 도 이 좌표.
+- **모든 본문 layout 에 제목 아래 버건디 강조 라인** — AUTO_SHAPE 도형, 좌표 `(2.00, 3.20, 0.80, 0.10) cm`, RGB 139,41,66. layout master 에 박제(슬라이드 인스턴스에 자동 inherit, 코드 별도 처리 불필요).
+- **페이지 번호 placeholder 좌표 통일** — idx=12, type=SLIDE_NUMBER, 좌표 `(30.37, 18.00, 1.50, 0.60) cm` (모든 layout 공통).
+
+**구체 변경 사항 (renderer.py)**:
+- 상수 rename: `LAYOUT_TITLE_ONLY = 5` → `LAYOUT_TITLE_TABLE = 5` (코멘트도 `'제목만'` → `'TITLE_TABLE'`).
+- 함수 rename: `_render_title_only_with_table` → `_render_title_table_slide` (의미 명확화).
+- docstring update: layout 5 설명을 `'TITLE_TABLE'` 로 갱신.
+- placeholder idx / 표 좌표 / 분기 로직 변경 없음 — layout master 만 변경되어 slide 인스턴스가 자동으로 새 디자인 inherit.
+
+**검증 (`test_v3.pptx` + venfobel 재실행)**:
+- test_v3.pptx (작은 합성 md):
+  - 4 slides, layout 분포 `{TITLE:1, SECTION_HEADER:1, TITLE_CONTENT:1, TITLE_TABLE:1}` (rename 적용)
+  - S03 TITLE_TABLE: 제목 `(2.00, 1.50, 29.87, 1.50)` cm — TITLE_CONTENT 와 정확히 일치 ✓
+  - 표 `(2.00, 4.00, 29.87, 12.50)` cm 그대로 ✓
+  - 버건디 강조 라인은 layout master 도형 → 슬라이드에 자동 inherit (코드 검증 X, PowerPoint 시각 확인용)
+- venfobel.pptx 재실행 (gpt-4o, 32.86s, 24,391 tokens, $0.0700, 22 slides):
+  - layout 분포 `{TITLE:1, SECTION_HEADER:7, TITLE_CONTENT:14}` — TITLE_TABLE=0 (§13-6 박제 패턴 "큰 표 → bullet 자율 압축" 재현)
+  - 7장 chapter coverage 동일
+
+**§13-6 측정값 비교 (temp=0.3 비결정성)**:
+| 측정 | 1차 (§13-6) | 2차 (v3) |
+|---|---|---|
+| slides | 24 | 22 |
+| tokens | 24,648 | 24,391 |
+| cost USD | 0.0751 | 0.0700 |
+| latency | 21.77s | 32.86s |
+| TITLE_TABLE | 0 | 0 |
+
+비결정성 영향은 슬라이드 수 ±2장, 토큰 ±300, latency 50% 편차. v2 (Gemini A/B) 평가 시 단일 sample 비교 X, **3회 이상 평균** 권장.
 
 13-4. **`planner.py` 구현 (v1: OpenAI 단독)** — 상태: `closed (2026-05-08)` / 의존: §13-2 / 우선순위: 상
 - `plan_deck(md_text, *, slug, topic_title) -> SlideDeckSpec`. `core.llm.get_llm()` + `with_structured_output(SlideDeckSpec)`.

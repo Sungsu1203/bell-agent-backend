@@ -32,7 +32,7 @@ TABLE_AREA_TOP_CM = 4.0
 TABLE_AREA_WIDTH_CM = 29.87
 TABLE_AREA_HEIGHT_CM = 12.5
 
-LAYOUT_TITLE_ONLY = 5  # '제목만' — 표 슬라이드 dispatch 대상
+LAYOUT_TITLE_TABLE = 5  # 'TITLE_TABLE' — 표 슬라이드 dispatch 대상 (v3: 'TITLE_CONTENT' 와 제목 좌표 통일)
 
 
 def render_deck(
@@ -45,7 +45,7 @@ def render_deck(
 
     layout_id 분기:
       - 0 (TITLE): idx=0 CENTER_TITLE = title, idx=1 SUBTITLE = body or topic_title
-      - 1 (TITLE_CONTENT) + table: layout 5 ('제목만') 으로 dispatch + add_table
+      - 1 (TITLE_CONTENT) + table: layout 5 ('TITLE_TABLE') 로 dispatch + add_table
       - 1 (TITLE_CONTENT) bullets/body: idx=0 TITLE, idx=1 OBJECT 채움
       - 2 (SECTION_HEADER): placeholder 3개 (top 좌표 식별) — 번호/제목/부제
     """
@@ -59,10 +59,10 @@ def render_deck(
 
     for s in spec.slides:
         if s.layout_id == 1 and s.table:
-            # 표 슬라이드 — layout 5 ('제목만') 로 dispatch (placeholder/표 좌표 겹침 회피)
-            layout = prs.slide_layouts[LAYOUT_TITLE_ONLY]
+            # 표 슬라이드 — layout 5 ('TITLE_TABLE') 로 dispatch (placeholder/표 좌표 겹침 회피)
+            layout = prs.slide_layouts[LAYOUT_TITLE_TABLE]
             slide = prs.slides.add_slide(layout)
-            _render_title_only_with_table(slide, s)
+            _render_title_table_slide(slide, s)
         else:
             layout = prs.slide_layouts[s.layout_id]
             slide = prs.slides.add_slide(layout)
@@ -160,8 +160,9 @@ def _fill_bullets(placeholder, bullets) -> None:
         p.text = b
 
 
-def _render_title_only_with_table(slide, s: SlideSpec) -> None:
-    """layout 5 ('제목만') — 제목 placeholder 만 채우고 표는 별도 add_table 로 그림."""
+def _render_title_table_slide(slide, s: SlideSpec) -> None:
+    """layout 5 ('TITLE_TABLE') — 제목 placeholder 만 채우고 표는 별도 add_table 로 그림.
+    layout master 가 TITLE_CONTENT 와 동일 제목 좌표 + 버건디 강조 라인 + 슬라이드 번호 보유."""
     title_ph = _placeholder_by_idx(slide, 0)
     if title_ph is not None:
         title_ph.text = s.title
