@@ -1286,10 +1286,30 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 
 **Tasks** — 각 항목 메타 형식: 상태 / 의존 / 우선순위.
 
-13-1. **템플릿 layout 매핑 1회 점검** — 상태: `pending` / 의존: 없음 / 우선순위: 상
+13-1. **템플릿 layout 매핑 1회 점검** — 상태: `closed (2026-05-08)` / 의존: 없음 / 우선순위: 상
 - `.venv_vertex` (또는 `.venv_openai`) 활성 후 `python-pptx` 로 1회 인스펙트: 11개 layout 의 실제 이름·placeholder 인덱스·placeholder type 추출. 사용자가 명시한 TITLE / TITLE_CONTENT / SECTION_HEADER 가 어느 layout 인덱스에 매핑되는지 확정.
 - 산출: 인덱스→이름 매핑 표를 본 박제 close 후기에 추가.
 - 진입 트리거: 박제 OK 즉시.
+
+**close 후기 (2026-05-08 §13-1 인스펙트 1회 실행, `.venv_vertex` python 3 + python-pptx 1.0.2)**:
+
+- 슬라이드 크기 12,192,000 × 6,858,000 EMU = 13.33 × 7.5 in → **16:9** 확정 (사용자 명시 일치).
+- 레이아웃 11개. **사용자 명시 3종이 인덱스 0/1/2 에 정확히 매핑**:
+
+| 인덱스 | layout 이름 | placeholder 구조 |
+|---|---|---|
+| 0 | `TITLE` | idx=0 `CENTER_TITLE`(type 3), idx=1 `SUBTITLE`(type 4) |
+| 1 | `TITLE_CONTENT` | idx=0 `TITLE`(type 1), idx=1 `OBJECT`(type 7) — 본문/표/그림 공용 |
+| 2 | `SECTION_HEADER` | **placeholder 0개** (디자인 단독) |
+| 3~10 | PowerPoint 한국어 기본 마스터 (콘텐츠 2개·비교·제목만·빈 화면·캡션 있는 콘텐츠·캡션 있는 그림·인용 텍스트·작가 및 인용) | v1 미사용 |
+
+- **SECTION_HEADER 의 placeholder 부재는 의식적 디자인**: layout master 에 챕터 구획용 그래픽(버건디 강조 등)이 직접 그려진 형태로 추정. v1 renderer 는 layout 2 슬라이드 추가 후 챕터 제목을 별도 `add_textbox` 로 주입하여 디자인 위에 텍스트를 얹는 방식 채택 — 정확한 위치(left/top/width/height) 와 폰트는 §13-3 첫 시도 후 사용자 피드백 반복으로 조정.
+- layout 3~10 한국어 이름은 본 인스펙트 명령에서 콘솔 cp949 출력으로 깨졌으나 v1 미사용이라 무관. v2 이후 "비교"·"캡션 있는 그림" 등 활용 시 재인스펙트 (UTF-8 stdout 강제 또는 ndjson dump 권장).
+- **v1 결정론적 매핑 확정** (Design § 의 (A) 안 구체화):
+  - 첫 슬라이드 → layout `0 (TITLE)`: CENTER_TITLE = 보고서 제목, SUBTITLE = 부제/생성일
+  - `## N.` 챕터 → layout `2 (SECTION_HEADER)`: 챕터 제목을 textbox 주입 (placeholder 부재로 직접 텍스트박스)
+  - `### N.M.` / 본문 → layout `1 (TITLE_CONTENT)`: TITLE = 섹션 제목, OBJECT = 본문 텍스트·bullets·table
+- §13-2 spec 에서 `SlideSpec.layout_id` 는 `Literal[0, 1, 2]` 로 좁혀 LLM structured output 의 hallucination(layout 3~10 잘못 선택) 방지 — close 후기 단계에서 결정.
 
 13-2. **`spec.py` 정의** — 상태: `pending` / 의존: §13-1 / 우선순위: 상
 - `SlideSpec(BaseModel)`: `layout_id: int`, `title: str`, `bullets: list[str]`, `body: str | None`, `table: Optional[TableSpec]`, `notes: str | None`, `layout_hint: str | None` (v2 reserve).
