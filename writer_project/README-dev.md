@@ -1311,11 +1311,31 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
   - `### N.M.` / 본문 → layout `1 (TITLE_CONTENT)`: TITLE = 섹션 제목, OBJECT = 본문 텍스트·bullets·table
 - §13-2 spec 에서 `SlideSpec.layout_id` 는 `Literal[0, 1, 2]` 로 좁혀 LLM structured output 의 hallucination(layout 3~10 잘못 선택) 방지 — close 후기 단계에서 결정.
 
-13-2. **`spec.py` 정의** — 상태: `pending` / 의존: §13-1 / 우선순위: 상
+13-2. **`spec.py` 정의** — 상태: `closed (2026-05-08)` / 의존: §13-1 / 우선순위: 상
 - `SlideSpec(BaseModel)`: `layout_id: int`, `title: str`, `bullets: list[str]`, `body: str | None`, `table: Optional[TableSpec]`, `notes: str | None`, `layout_hint: str | None` (v2 reserve).
 - `SlideDeckSpec(BaseModel)`: `slug: str`, `topic_title: str`, `slides: list[SlideSpec]`.
 - `TableSpec(BaseModel)`: `header: list[str]`, `rows: list[list[str]]`.
 - `Field(description=...)` 풍부하게 — LLM structured output 의 필드 가이드로 사용.
+
+**close 후기 (2026-05-08)**:
+- 신설 파일: `agent/export/__init__.py` (빈 패키지), `agent/export/spec.py` (108 라인). 둘 다 신규로 commit 대상.
+- 모델 3종 정의 완료. **`SlideSpec.layout_id` 는 README-dev §13-1 close 결정대로 `Literal[0, 1, 2]` 로 좁힘** — Pydantic v2 `model_json_schema()` 출력에서 `enum: [0, 1, 2]` 로 직렬화 확인 (LLM structured output 시 layout 3~10 hallucination 차단).
+- **검증 결과 (`.venv_vertex` 기준, PYTHONIOENCODING=utf-8)**:
+  - imports OK — 7 + 3 + 2 = 총 12개 필드 모두 노출
+  - 4슬라이드 샘플 deck 인스턴스 생성 OK (TITLE/SECTION_HEADER/TITLE_CONTENT bullets/TITLE_CONTENT table 4종 조합)
+  - `layout_id` ∈ {-1, 3, 5, 100} 모두 `ValidationError` 로 거부 — Literal 강제 정상
+  - `model_json_schema()` 직렬화 OK, 한국어 description 보존, 전체 schema 약 **3,277 chars** (LLM structured-output payload 부담 미미).
+- **필드 우선순위 규칙** (description 에 명시 + planner 프롬프트에서 재강조 예정):
+  - layout_id=1(TITLE_CONTENT) 의 OBJECT placeholder 채우기 우선순위: **`bullets` > `body` > `table`** (둘 이상 동시 지정 시 앞쪽 우선, table 은 별도 분기)
+  - `notes` 는 본문 노출 X — 출처 인용·footnote 보존용 (slide notes 영역)
+  - `layout_hint` v1 미사용(None 기본) — v2 (Gemini A/B) 에서 'compare'/'caption' 등 활용 예약
+- **다음 의존 작업**:
+  - §13-3 (`renderer.py`): `SlideDeckSpec` 받아 결정론적 렌더. layout_id=2 (SECTION_HEADER, placeholder 0개) 는 `add_textbox` 직접 주입 분기.
+  - §13-4 (`planner.py`): `with_structured_output(SlideDeckSpec)` 로 직접 import. JSON schema 가 그대로 LLM 가이드.
+- **재진입 조건** (open 사유):
+  - planner 시험 결과 LLM 이 자주 누락하는 필드가 발견되면 description 보강 필요.
+  - v2 진입 시 `layout_hint` 의 Literal narrowing (`Literal['compare','caption',...]`) 검토.
+  - 슬라이드 길이 제한 (bullets 6개 / 항목 80자) 강제가 필요해지면 `model_validator` 추가 검토.
 
 13-3. **`renderer.py` 구현** — 상태: `pending` / 의존: §13-2 / 우선순위: 상
 - `render_deck(spec, *, template_path, out_path)`. `Presentation(template_path)` 로드 → `spec.slides` 순회 → `slide_layouts[layout_id]` 적용 → placeholder 채움.
