@@ -1361,6 +1361,32 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
   - 표 슬라이드의 placeholder shape 잔존이 디자인상 거슬리면 placeholder 자체 제거 분기 추가.
 - **다음 의존**: §13-4 (planner) 가 `render_deck` 을 import 해서 e2e 호출, §13-5 (CLI) 가 그 entrypoint 노출.
 
+**v2 amendment (2026-05-08, template 재정비 후)** — 상태: `closed (2026-05-08)`:
+
+사용자가 `templates/agency_default.pptx` 를 재정비 — SECTION_HEADER 에 placeholder 3개 추가(번호/제목/부제), '제목만'(layout 5) 신설 검증, TITLE 부제 좌표 정렬. v1 renderer 코드를 새 템플릿 구조에 맞춰 갱신.
+
+**박제 (재사용 불가능한 invariants)**:
+- **v1 SECTION_HEADER 가 placeholder 기반으로 전환됨** — 이전 textbox 방식(`SECTION_HEADER_TITLE_BOX = (720000, 3779999, ...)` 상수) **deprecated**, renderer.py 에서 제거.
+- **placeholder 식별 규칙: layout name + top 좌표 기준 (idx 단독 사용 금지)** — SECTION_HEADER 의 placeholder idx 10/11/12 가 다른 layout 에서 DATE/FOOTER/SLIDE_NUMBER 와 충돌하므로 idx 단독 식별 시 잘못된 placeholder 선택 위험. `_placeholder_by_top_cm(slide, top_cm, tol=0.5)` 헬퍼로 top 좌표 ±0.5cm 매칭 식별.
+- **향후 다른 레이아웃에 placeholder 추가 시 같은 규칙 적용** — 새 layout 추가 시 top 좌표 상수를 renderer 모듈 상단에 박제 (현재: `SECTION_HEADER_NUMBER_TOP_CM=5.0`, `SECTION_HEADER_TITLE_TOP_CM=10.5`, `SECTION_HEADER_SUBTITLE_TOP_CM=13.0`).
+
+**구체 변경 사항**:
+- `_render_section_header_slide`: textbox 추가 폐기 → `_placeholder_by_top_cm` 으로 3개 placeholder 식별 + 채움. 챕터 번호는 `_split_chapter_title("1. Executive Summary")` → `("01", "Executive Summary")` regex 추출(`^\\s*(\\d+)\\.\\s*(.+)$`, zero-pad). 부제는 `s.body or ""` (None 도 빈 문자열로 강제 채워 마스터 default text "한 줄 부제 또는 챕터 요약" 숨김).
+- 표 슬라이드 dispatch: `_render_content_slide` 의 table 분기 폐기 → main loop 에서 `(layout_id==1 and s.table)` 조합 감지 시 `LAYOUT_TITLE_ONLY=5` ('제목만') 으로 dispatch 후 `_render_title_only_with_table` 호출. 표 좌표는 layout 1 OBJECT 와 동일(`(2.0, 4.0, 29.87, 12.5)cm`)로 디자인 일관성 유지. **`SlideSpec.layout_id` Literal 변경 없음** — planner spec 그대로, renderer 가 내부 routing.
+- `_render_title_slide`: 부제 placeholder 의 `left/top/width/height` **4개 모두 명시** (`Cm(2.0)/Cm(9.09)/Cm(29.87)/Cm(1.50)`). **새 함정 발견 박제**: python-pptx 에서 placeholder 의 일부 좌표만 set 하면 `spPr` 신설로 master inherit 끊겨 나머지가 0 으로 추락. 첫 시도에서 left/width 만 set 했더니 top=0/h=0 으로 깨져 부제가 안 보임 → 4개 모두 명시로 해결. **향후 placeholder 좌표 수정 시 4개 좌표 모두 set 의무**.
+
+**검증 (2차) — `test_v2.pptx` (`python -m agent.export.cli _cli_test --out ...`)**:
+- 11개 assertion 전 통과:
+  - S1 subtitle 좌표 `(2.00, 9.09, 29.87, 1.50) cm` 정확 (4-coord fix 검증)
+  - S2 SECTION_HEADER placeholder 3개 — 번호 `'01'` (top=5.00), 제목 `'Executive Summary'` (top=10.50, "1. " prefix 제거), 부제 `''` (top=13.00, default 숨김)
+  - S4 layout=`'제목만'` dispatch 정확, 표 1개 at `(2.00, 4.00, 29.87, 12.50) cm`, 4×3 데이터 보존
+- 4 slides 총, latency 4.16s (gpt-4o), 37.9 KB pptx
+- LLM 재호출 1회 발생 (planner spec 변경 없으므로 재plan 동일 결과 기대 가능 — 본 fix 는 renderer-only).
+
+**재진입 조건 (v2)**:
+- 챕터 번호 추출이 안 되는 케이스 — 예: `## Executive Summary` (번호 없음) 또는 `## A.` (알파벳) 등 — 현재 regex 매칭 실패시 `('', title)` 로 fallback 해 number placeholder 가 빈 문자열로 채워짐. 디자인상 큰 빈 슬롯이 거슬리면 fallback 으로 자동 1, 2, ... 카운터 부여 검토.
+- v2 (Gemini A/B) 진입 시 layout_hint 활용으로 layout 5 ('제목만') 외 layout 3 ('콘텐츠 2개') 등으로 확장 가능 — `SlideSpec.layout_id` Literal 확장은 그때 결정.
+
 13-4. **`planner.py` 구현 (v1: OpenAI 단독)** — 상태: `closed (2026-05-08)` / 의존: §13-2 / 우선순위: 상
 - `plan_deck(md_text, *, slug, topic_title) -> SlideDeckSpec`. `core.llm.get_llm()` + `with_structured_output(SlideDeckSpec)`.
 - 프롬프트는 `prompts.get_pptx_planner_prompt()` 분리. 헤딩 깊이 → layout_id 매핑 규칙(결정론적)을 prompt 안에 명시 (LLM 자율 결정 회피).
