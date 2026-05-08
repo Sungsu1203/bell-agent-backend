@@ -1248,4 +1248,97 @@ $PSDefaultParameterValues['Add-Content:Encoding'] = 'UTF8'
 
 ---
 
+## 14) §13 — pptx export 모듈 신설
+
+**§13 — `.md` 보고서 → `.pptx` 슬라이드 덱 자동 변환** — 상태: `in-progress (2026-05-08)` / 의존: 없음 / 우선순위: 상
+
+**Goal**:
+RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜리버리블(보고서 .md)을 자체 PowerPoint 템플릿(`templates/agency_default.pptx`, 16:9 / Pretendard / 버건디 RGB 139,41,66)에 자동 매핑하여 클라이언트 전달용 `.pptx` 산출물을 생성한다. v1 = OpenAI 단독 end-to-end 동작 확인. 모델 비교(v2 Gemini A/B, v3 Claude)는 후속 단계.
+
+**Context (출처)**:
+- 사용자 요청 (2026-05-08): "광고 에이전시 딜리버리블용. 자체 PowerPoint 템플릿 제작 완료." `agency_default.pptx`(33,922 B) `templates/` 로 이동 완료. zip 구조상 `ppt/slideLayouts/slideLayout1~11.xml` 11개 슬롯 — 사용자가 명시한 3종(TITLE / TITLE_CONTENT / SECTION_HEADER) 의 layout 인덱스 확정은 §13-1 에서 1회 점검.
+- 첫 검증 대상: `reports/venfobel-vitamin/20260505-063304_report.md` (71,134 B / 395 lines / 7장 구조). 챕터 패턴 일관(`## N.` 큰 챕터 + `### N.M.` 하위 + `### Actionable Recommendations` + `### 참고 문헌 / 각주`), Markdown table 1건(2.2 경쟁 제품 매출 동향), 인라인 인용 마커(`[종근당_팩트북.pdf]`, `[dailypharm.com/...]`) + footnote(`[^1]:`) 분리.
+- §12-23 close 직후 신규 트랙. §12 시리즈와 독립된 §13 시리즈로 분기 (CLAUDE.md task 체계 `§<섹션>-<항목>`).
+
+**Design**:
+- **3단 분리 (신규 어댑터 도입 없이 `core.llm.get_llm()` 추상화 재사용)**:
+  1. **planner (LLM)** — `.md` + slug + topic_title → `SlideDeckSpec`(JSON). provider 토글(`LLM_PROVIDER` env + venv)은 `core/llm.py` 가 이미 처리.
+  2. **spec (Pydantic)** — `SlideSpec` / `SlideDeckSpec` BaseModel. `core/models.py:Task` 와 동일 스타일(`Field(..., description=...)`). LLM `with_structured_output(SlideDeckSpec)` 로 직접 파싱.
+  3. **renderer (python-pptx)** — spec + template path → `.pptx`. LLM 호출 0, 결정론적.
+- **레이아웃 매핑 전략 (두 안 비교)**:
+  - (A) **결정론적 규칙** — 첫 슬라이드 = TITLE, `## N.` = SECTION_HEADER 슬라이드 + 다음 본문 슬라이드(들) = TITLE_CONTENT, `### N.M.` = TITLE_CONTENT. 단순·일관·테스트 가능, LLM 비용 0.
+  - (B) **LLM 결정 hint** — planner 가 슬라이드별 `layout_hint` 채움. 유연하나 v1 검증 흐림.
+  - **결정**: v1 = (A) 단독. (B) 필드는 spec 에 optional 로 reserve 만, v2 이후 활성화.
+- **LLM 호출 wrapper**: `agent/section_writer.py:235~261` 패턴 그대로 (`time.monotonic()` 측정 + `tools.metrics.record_llm_call(provider, model, latency_s, success, error_class, section_title="pptx_plan", retry_hint=...)`). retry 는 LangChain 내부 처리. `OPENAI_REQUEST_TIMEOUT` / `OPENAI_MAX_RETRIES` / `VERTEX_REQUEST_TIMEOUT` ctor 전달은 `get_llm()` 이 이미 수행.
+- **표(Table) 처리 v1**: Markdown table → renderer 가 native pptx Table shape 으로 변환 (행/열 그대로). 셀 폰트는 layout placeholder 폰트(Pretendard) 상속.
+- **인용 마커 / footnote 처리 v1**: 본문 그대로 슬라이드 텍스트에 보존. footnote 매핑은 마지막 슬라이드 1장에 통합 또는 슬라이드별 notes pane 에 부착(렌더러 옵션). 클릭 가능 hyperlink 는 v2 이후.
+- **출력 산물 흐름**: 입력 md 와 같은 디렉터리 + 동일 basename + `.pptx` (`reports/<slug>/<basename>.pptx`). 기존 `.md` 합본 흐름과 짝. 자동 트리거(예: `report_builder.py` 직후 호출)는 v1 에서 도입하지 않음 — 별도 CLI 명령으로 분리하여 검증 단순화.
+
+**Files (planned)** — `agent/export/` 신설 (의존 방향 `utils → tools → agent`, agent↔agent 직접 import 없음 — export 는 외부 진입점이라 무관):
+| 파일 | 역할 |
+|---|---|
+| `agent/export/__init__.py` | 패키지 초기화 |
+| `agent/export/spec.py` | `SlideSpec`, `SlideDeckSpec`, `TableSpec` Pydantic 모델 |
+| `agent/export/planner.py` | `plan_deck(md_text, *, slug, topic_title) -> SlideDeckSpec` (LLM 호출) |
+| `agent/export/renderer.py` | `render_deck(spec, *, template_path, out_path) -> Path` (python-pptx) |
+| `agent/export/cli.py` | `python -m agent.export.cli <slug> [--report <md>] [--out <pptx>]` |
+| `prompts.py` (수정) | `get_pptx_planner_prompt()` 추가 (기존 `get_section_writer_prompt` 와 동일 패턴) |
+
+**Tasks** — 각 항목 메타 형식: 상태 / 의존 / 우선순위.
+
+13-1. **템플릿 layout 매핑 1회 점검** — 상태: `pending` / 의존: 없음 / 우선순위: 상
+- `.venv_vertex` (또는 `.venv_openai`) 활성 후 `python-pptx` 로 1회 인스펙트: 11개 layout 의 실제 이름·placeholder 인덱스·placeholder type 추출. 사용자가 명시한 TITLE / TITLE_CONTENT / SECTION_HEADER 가 어느 layout 인덱스에 매핑되는지 확정.
+- 산출: 인덱스→이름 매핑 표를 본 박제 close 후기에 추가.
+- 진입 트리거: 박제 OK 즉시.
+
+13-2. **`spec.py` 정의** — 상태: `pending` / 의존: §13-1 / 우선순위: 상
+- `SlideSpec(BaseModel)`: `layout_id: int`, `title: str`, `bullets: list[str]`, `body: str | None`, `table: Optional[TableSpec]`, `notes: str | None`, `layout_hint: str | None` (v2 reserve).
+- `SlideDeckSpec(BaseModel)`: `slug: str`, `topic_title: str`, `slides: list[SlideSpec]`.
+- `TableSpec(BaseModel)`: `header: list[str]`, `rows: list[list[str]]`.
+- `Field(description=...)` 풍부하게 — LLM structured output 의 필드 가이드로 사용.
+
+13-3. **`renderer.py` 구현** — 상태: `pending` / 의존: §13-2 / 우선순위: 상
+- `render_deck(spec, *, template_path, out_path)`. `Presentation(template_path)` 로드 → `spec.slides` 순회 → `slide_layouts[layout_id]` 적용 → placeholder 채움.
+- table 슬라이드: `slide.shapes.add_table(rows, cols, left, top, width, height)` 후 셀별 텍스트 주입.
+- 결정론적, LLM 호출 0. 단위 테스트(소규모 spec → pptx 생성 후 zipfile 로 XML 라인 검증) 가능.
+
+13-4. **`planner.py` 구현 (v1: OpenAI 단독)** — 상태: `pending` / 의존: §13-2 / 우선순위: 상
+- `plan_deck(md_text, *, slug, topic_title) -> SlideDeckSpec`. `core.llm.get_llm()` + `with_structured_output(SlideDeckSpec)`.
+- 프롬프트는 `prompts.get_pptx_planner_prompt()` 분리. 헤딩 깊이 → layout_id 매핑 규칙(결정론적)을 prompt 안에 명시 (LLM 자율 결정 회피).
+- LLM wrapper 는 §12-13-6 metric 패턴 그대로 (`record_llm_call(... section_title="pptx_plan")`).
+
+13-5. **CLI 진입점 구현** — 상태: `pending` / 의존: §13-3, §13-4 / 우선순위: 상
+- `python -m agent.export.cli <slug> [--report <md_path>] [--out <pptx_path>]`.
+- `<slug>` 만 주면 `reports/<slug>/` 의 가장 최근 `.md` 자동 선택 + `.pptx` 동일 basename 출력.
+- `--report` 명시 시 해당 md 사용 (첫 검증은 `--report reports/venfobel-vitamin/20260505-063304_report.md`).
+
+13-6. **첫 e2e 검증 (venfobel-vitamin 1주일 전 보고서)** — 상태: `pending` / 의존: §13-5 / 우선순위: 상
+- 입력: `reports/venfobel-vitamin/20260505-063304_report.md` (71,134 B / 395 lines / 7장).
+- 검증 항목:
+  (i) CLI 1회 호출로 `.pptx` 생성
+  (ii) PowerPoint 정상 열림 (파일 corrupt 아님)
+  (iii) 7장 모두 슬라이드화 (Executive Summary / 시장 환경·규제 / 경쟁 브랜드 / 차별화 자산 / 3040 직장인 / 2026 광고기획 / 실행 로드맵·KPI)
+  (iv) 2.2 매출 동향 표가 native pptx Table shape 으로 변환
+  (v) 인용 마커(`[종근당_팩트북.pdf]` 등) 본문 보존
+  (vi) footnote 매핑이 슬라이드 또는 notes pane 으로 출력
+- 산출물: `reports/venfobel-vitamin/20260505-063304_report.pptx`.
+- close 조건: 위 6개 모두 통과 + 사용자 시각 확인. close 후기에 latency / 슬라이드 수 / 발견된 corner case 박제.
+
+13-7. **(v2) Gemini A/B 비교** — 상태: `deferred` / 의존: §13-6 close / 우선순위: 중
+- v1 deck 사용자 평가 통과 후 진입. `.venv_vertex` + `LLM_PROVIDER=vertexai` 토글로 동일 입력에 대한 deck 비교. spec/renderer 동일, planner LLM 만 교체.
+
+13-8. **(v3) Claude 평가** — 상태: `deferred` / 의존: §13-7 close / 우선순위: 후
+- 별도 evaluation 트랙. Anthropic provider 추가 시점은 §12-13-6 (b) Anthropic fallback 도입과 묶어 검토 가능 (의존도 큰 변경이므로 단독 트랙은 비효율).
+
+**Conclusion (v1 close 조건)**:
+§13-1 ~ §13-6 6개 task 모두 close + 첫 검증 deck 사용자 평가 통과. close 후기에 (a) layout 인덱스→이름 매핑 표, (b) 실측 latency / token / cost, (c) 생성된 pptx 슬라이드 수·구조, (d) 인용 표현·표 변환 결과 정성 평가 박제.
+
+**Re-entry conditions**:
+- (R1) v1 deck 사용자 평가에서 layout 매핑 / table / 인용 표현 중 하나라도 재작업 필요 → 해당 §13-N task 재오픈.
+- (R2) Gemini A/B 진입 결정 시 §13-7 활성화.
+- (R3) 다른 토픽(pet-food-premium, height-growth-supplement)으로 재사용 시 토픽별 차이(refs 패턴, 챕터 수, 표 빈도) 정량 측정 후 spec 확장 검토.
+- (R4) Anthropic provider 추가 시 §13-8 활성화. §12-13-6 (b) 와 묶어 결정.
+
+---
+
 © Bell Agent · writer_project — Developer Guide
