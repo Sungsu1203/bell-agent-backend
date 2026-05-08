@@ -1452,7 +1452,7 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
   - `latest.md` 가 stale 인 경우(가장 최근 mtime 보다 오래됨) auto-discovery 가 잘못된 보고서를 픽업할 수 있음 — 필요 시 mtime 비교 추가.
   - Windows 경로에서 `reports/_cli_test/test.md` 가 `\\` 로 표시되는 것은 cosmetic, 동작 영향 없음.
 
-13-6. **첫 e2e 검증 (venfobel-vitamin 1주일 전 보고서)** — 상태: `pending` / 의존: §13-5 / 우선순위: 상
+13-6. **첫 e2e 검증 (venfobel-vitamin 1주일 전 보고서)** — 상태: `closed (2026-05-08)` / 의존: §13-5 / 우선순위: 상
 - 입력: `reports/venfobel-vitamin/20260505-063304_report.md` (71,134 B / 395 lines / 7장).
 - 검증 항목:
   (i) CLI 1회 호출로 `.pptx` 생성
@@ -1463,6 +1463,51 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
   (vi) footnote 매핑이 슬라이드 또는 notes pane 으로 출력
 - 산출물: `reports/venfobel-vitamin/20260505-063304_report.pptx`.
 - close 조건: 위 6개 모두 통과 + 사용자 시각 확인. close 후기에 latency / 슬라이드 수 / 발견된 corner case 박제.
+
+**close 후기 (2026-05-08, 1차 e2e — sub-condition (iv) 부분 통과)**:
+
+**실측 (`get_openai_callback` 컨텍스트로 wrap 한 plan_deck → render_deck 1회)**:
+| 항목 | 값 |
+|---|---|
+| 입력 .md | 71,134 B (디스크 UTF-8) / 34,866 chars (메모리) / 396 lines |
+| LLM | gpt-4o (`.env.openai` overlay 자동 로드, v1 spec 그대로) |
+| LLM 호출 횟수 | **1회** |
+| prompt tokens | **22,850** |
+| completion tokens | **1,798** |
+| total tokens | **24,648** |
+| **cost (USD)** | **$0.0751** |
+| plan latency | 21.64s |
+| render latency | 0.12s |
+| total latency | **21.77s** |
+| 산출 슬라이드 수 | **24** (TITLE 1 + SECTION_HEADER 7 + TITLE_CONTENT 16) |
+| 산출 .pptx 크기 | 74,033 B |
+
+**검증 결과**:
+- (i) CLI 1회 호출로 `.pptx` 생성 ✅ (cli.py 직접 호출 대신 plan_deck → render_deck wrapper 동일 동작)
+- (ii) PowerPoint 정상 열림 (파일 corrupt 아님) — 재오픈 readback 통과 ✅
+- (iii) **7장 모두 슬라이드화** ✅ — SECTION_HEADER 7개 챕터 제목 정확:
+  1. Executive Summary
+  2. 고함량 활성비타민 시장 환경 및 규제 동향 분석
+  3. 경쟁 브랜드 전략 비교 및 메시지 빈 공간 도출
+  4. 벤포벨S 핵심 차별화 자산 기반 광고 클레임 개발
+  5. 3040 직장인 만성피로 인식 및 비타민 구매 행동 분석
+  6. 벤포벨S 2026 광고기획 전략 방향 및 채널 운영 방안
+  7. 실행 로드맵 및 핵심 성과 지표(KPI)
+- (iv) **표 변환 ⚠️ 부분 통과** — 원본 md L43-49 의 5컬럼×6행 Markdown 표 ("브랜드별 매출 동향" — 임팩타민/아로나민/비맥스/벤포벨/메가트루) 가 `TableSpec` 으로 추출되지 않고 LLM 이 **bullet 으로 압축** (S07 "경쟁 환경 변화" 슬라이드의 `'임팩타민, 아로나민 매출 감소'`, `'비맥스, 메가트루 성장세 둔화'` 등). 데이터 보존 측면에선 손실, 발표 deck 관점에선 합리적 압축.
+- (v) 인용 마커 본문 보존 — **본문에는 미노출 (의도된 룰), notes 에 보존** ✅. 16/24 슬라이드(모든 본문 슬라이드)에 notes 작성됨.
+- (vi) footnote 가 notes pane 으로 출력 ✅ (`[종근당_팩트북.pdf]` 등 출처/`[^N]` footnote 모두 notes 영역).
+
+**박제 (corner case + invariants)**:
+- **표 추출 누락 패턴** — Markdown 표가 5컬럼 이상이거나 6행 이상이면 LLM 이 슬라이드 가독성 우려로 자율 bullet 압축 결정. 현재 프롬프트 우선순위 ("표 있으면 → table") 가 strict 하지 않게 동작. v2 단계에서 (a) 프롬프트에 "행/열 수 제약 없이 무조건 table" 명시 강화, (b) `model_validator` 후처리로 md 의 표 line count vs deck table count 비교 경고, (c) 표가 너무 크면 슬라이드 분할 명시 — 중 택1 검토.
+- **챕터당 평균 2.3개 본문 슬라이드** — 71KB 보고서를 24슬라이드로 압축. 광고 발표 deck 으로는 적정선이나, 더 풍부한 deck 이 필요하면 프롬프트에 "챕터당 최소 5슬라이드" 등 하한 추가 검토.
+- **비용 효율** — gpt-4o 24K tokens 처리 ~22초 / $0.075 — 일상 사용 가능 수준. v2 (Gemini) 비교 시 latency / 비용 / 품질 3축 평가.
+- **completion tokens 1,798** — 24슬라이드 × 평균 75 토큰/슬라이드. 응답 잘림 없음. 더 긴 보고서(예: 100KB+)에서도 충분히 여유 (gpt-4o output 한도 16K tokens 대비).
+- **render latency 0.12s** — LLM-free renderer 가 매우 빠름. e2e 비용 거의 전부 plan 단계.
+
+**재진입 조건**:
+- 표 추출 누락이 critical 한 사용 케이스 발견 시 — 프롬프트 강화 + post-validate 추가.
+- 다른 토픽 보고서로 검증 — 산출 스타일이 토픽 종류에 따라 일관성 유지되는지.
+- v2 (Gemini A/B) 진입 시 동일 md 로 비교 측정 (이 표가 §13-7 baseline).
 
 13-7. **(v2) Gemini A/B 비교** — 상태: `deferred` / 의존: §13-6 close / 우선순위: 중
 - v1 deck 사용자 평가 통과 후 진입. `.venv_vertex` + `LLM_PROVIDER=vertexai` 토글로 동일 입력에 대한 deck 비교. spec/renderer 동일, planner LLM 만 교체.
