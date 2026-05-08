@@ -1390,10 +1390,41 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
   - bullet 6개 초과 / 본문 200자 초과 등 압축 규칙 위반 사례 발견 시 `model_validator` 후처리 또는 프롬프트 강화.
   - v2 (Gemini A/B) 진입 시: `.env.gemini` overlay 추가 + `LLM_PROVIDER=gemini` 셸로 호출하면 동일 코드로 동작 가능 (provider 분기 로직 변경 불필요 — `with_structured_output` 추상화 덕분).
 
-13-5. **CLI 진입점 구현** — 상태: `pending` / 의존: §13-3, §13-4 / 우선순위: 상
+13-5. **CLI 진입점 구현** — 상태: `closed (2026-05-08)` / 의존: §13-3, §13-4 / 우선순위: 상
 - `python -m agent.export.cli <slug> [--report <md_path>] [--out <pptx_path>]`.
 - `<slug>` 만 주면 `reports/<slug>/` 의 가장 최근 `.md` 자동 선택 + `.pptx` 동일 basename 출력.
 - `--report` 명시 시 해당 md 사용 (첫 검증은 `--report reports/venfobel-vitamin/20260505-063304_report.md`).
+
+**close 후기 (2026-05-08)**:
+- 신설 파일: `agent/export/cli.py` (108 라인). argparse(stdlib) 만 사용, 신규 패키지 없음.
+- **CLI 옵션** (`--help`):
+  - 필수: `slug` (positional)
+  - 옵션: `--report` (md 명시), `--out` (pptx 명시), `--template` (default `templates/agency_default.pptx`), `--topic-title` (제목 명시), `-v` (DEBUG 로깅)
+- **auto-discovery 우선순위 (`_resolve_md`)**: `--report` > `reports/<slug>/latest.md` > top-level `*.md` 가장 최근 mtime (qa/ 등 하위 디렉토리 제외).
+- **topic_title 도출 (`_topic_title_for`)**: md 의 첫 단일 `#` 헤딩 (단, `##` 헤딩은 무시) > slug → Title Case fallback.
+- **검증 결과**:
+  - **(A) `--help`** : argparse 정상 출력, exit=0, 한국어 description 깨짐 없음.
+  - **(B) path resolution unit**:
+    - auto-discovery: `latest.md` (71,134 B) 정확히 픽업 (mtime 무관, latest.md 우선)
+    - explicit `--report`: 절대 경로/상대 경로 모두 처리
+    - 없는 slug → `FileNotFoundError: reports/<slug>/ not found`
+    - 없는 `--report` 파일 → `FileNotFoundError`
+    - 기본 `--out`: `md_path.with_suffix(".pptx")` (latest.md → latest.pptx)
+    - 기본 `--template`: `templates/agency_default.pptx` 픽업, 없으면 에러
+    - topic_title: `# 벤포벨 광고 리포트` → `'벤포벨 광고 리포트'`, # 없으면 `pet-food-premium` → `'Pet Food Premium'`
+  - **(C) e2e CLI 1회 호출** (`python -m agent.export.cli _cli_test`, 합성 md `reports/_cli_test/test.md` 572 B):
+    - 총 실행 시간 ~6s (LLM 1회 + render)
+    - LLM: gpt-4o, plan_deck latency 5.45s, 4 slides 산출
+    - 산출 .pptx: 37.6 KB, 재오픈(`Presentation()`) 검증 통과
+    - 산출 검증:
+      - slide[0] TITLE: `'CLI 합성 검증 — Vitamin B 시장 미니 리포트'` (md 의 # 헤딩 정확히 인용) + `'2026-05-08 / RAG Writer'`
+      - slide[1] SECTION_HEADER: placeholder 0개, TextBox 1 = `'1. Executive Summary'`
+      - slide[2] TITLE_CONTENT bullets: 제목 LLM 자체 생성(`'벤포벨-비타민 매출 및 시장 위치'`), 4 bullets 압축
+      - slide[3] TITLE_CONTENT table: 4×3 (header + 3 rows), 한국어/숫자/% 보존, **notes 에 `[종근당_팩트북.pdf], [^1]: 2024 약국 매출 통계` 분리** (본문 노출 없음)
+- **재진입 조건**:
+  - 큰 보고서(venfobel 71KB) 진입 → §13-6 e2e 단계에서 슬라이드 수·압축 품질·LLM 응답 잘림 여부 확인.
+  - `latest.md` 가 stale 인 경우(가장 최근 mtime 보다 오래됨) auto-discovery 가 잘못된 보고서를 픽업할 수 있음 — 필요 시 mtime 비교 추가.
+  - Windows 경로에서 `reports/_cli_test/test.md` 가 `\\` 로 표시되는 것은 cosmetic, 동작 영향 없음.
 
 13-6. **첫 e2e 검증 (venfobel-vitamin 1주일 전 보고서)** — 상태: `pending` / 의존: §13-5 / 우선순위: 상
 - 입력: `reports/venfobel-vitamin/20260505-063304_report.md` (71,134 B / 395 lines / 7장).
