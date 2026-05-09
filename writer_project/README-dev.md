@@ -1944,6 +1944,28 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
   - `scripts/_measure_anthropic_tokens.py:_verify_llm_attrs` — 측정 진입 직후 LLM 인스턴스의 `max_retries`/`default_request_timeout` 속성 직접 검증, 미일치 시 WARN.
 - 박제 가치: 새 provider 어댑터 추가 시 표준 체크리스트 — (a) ctor 의 retry default 확인, (b) `CFG.<PROVIDER>_MAX_RETRIES` 환경변수 분기 박제, (c) init log 에 적용 값 가시화, (d) 측정 도구에 ctor attrs 검증 진입 단계 박제.
 
+*함정 5 — structured output schema overhead (usage_metadata 가 console 실측 underestimate)*:
+- 증상: phase 1 + phase 2 합산 토큰 추정 vs Anthropic Console Usage 실측 비교 시 input/output 둘 다 30~54% 추가 토큰 청구 발견.
+  · 추정 input (스크립트 합산): 6 × 36,929 (n=1 + n=5) + 2 × ~1K (warmup) ≈ 225,574
+  · 실측 input (console 2026-05-09 UTC): **347,873** (+54%)
+  · 추정 output: 6 × 12,633 + 2 × ~600 ≈ 76,998
+  · 실측 output: **102,352** (+33%)
+  · 절대 비용: 추정 $2.40 vs 실측 $2.57 (+7.1%) — 토큰 카운트 underestimate 가 가격 차로 부분 상쇄됨
+- 원인 가설: `with_structured_output(SlideDeckSpec, include_raw=True)` 가 주입하는 schema (tool_use definition) 가 `usage_metadata.input_tokens` 카운트에 미반영. Anthropic API 의 실제 청구는 schema 포함 전체 토큰 — langchain 측 metadata 는 raw prompt 만 표기.
+- 검증 데이터:
+  · 토큰 기반 역산: 347,873 × $3/Mtok + 102,352 × $15/Mtok = $2.5789 ≈ console 실측 $2.57 (오차 0.35%) → **Anthropic 가격 모델 자체는 정확**, 차이는 토큰 카운트 방식
+  · 잔액 차감: $25.00 → $22.43 (−$2.57) 일치
+- 영향:
+  · §13-8 phase 1/2 cost 추정치 ($0.299/$1.50) 는 underestimate. 실측 보정 시 **per_run ≈ $0.43** (보정 계수 1.4x).
+  · §13-9 운영 cost 예측 시 동일 underestimate 가능 — provider 무관 langchain `with_structured_output` 사용처 모두.
+  · §13-7-4 gpt-4o baseline cost ($0.075/run) 도 동일 underestimate 가능성 → §13-7-4-cost-revisit 후속 task 검증 필요.
+- 대응:
+  · 잠정 보정 계수: **1.4x** (실측 input/output 토큰 평균 +43%). cost 추정 시 곱.
+  · 정확 검증: §13-8-cost-recalibration (후속 task) — Anthropic raw API `messages.count_tokens` (schema 포함) 와 `usage_metadata.input_tokens` 비교 정량화.
+  · provider 별 차이 측정: gpt-4o (`tiktoken` count vs OpenAI Usage) / Vertex (`vertexai.tokenization` vs Cloud Console) 도 동일 검증.
+  · 박제 정책: cost 추정값 표기 시 `(추정, 실측 +43% 보정 미적용)` 명시. 운영 cost 예측은 console 실측 기반 박제 우선.
+- 박제 가치: structured output 사용처의 cost 추정은 **항상 실측 검증 필요**. langchain `usage_metadata` 는 prompt 토큰만 보장 — schema/tool_use 토큰은 별도 카운트. §13-9 운영 cost 예측 자산의 무결성 확보 핵심.
+
 **§13-8 결론 (2026-05-10, claude-sonnet-4-6)**:
 
 | 측면 | 평가 | 데이터 |
