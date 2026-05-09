@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Literal, TypeAlias
-from langchain_core.prompts import PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 
 import logging
 logger = logging.getLogger(__name__)
@@ -575,61 +575,138 @@ def get_research_synthesizer_prompt() -> PromptTemplate:
 # PPTX planner (§13-4)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def get_pptx_planner_prompt() -> PromptTemplate:
-    """Markdown 보고서 → SlideDeckSpec 변환용 프롬프트.
+def get_pptx_planner_prompt() -> ChatPromptTemplate:
+    """Markdown 보고서 → SlideDeckSpec 변환용 프롬프트 (§13-9 안정화).
+
+    §13-9 변경 (2026-05-09):
+      - PromptTemplate (단일 human) → ChatPromptTemplate (system + human) 분리
+      - 강제 규칙은 system 으로 이동 (gpt-4o system 준수율 활용)
+      - few-shot 예시 1건을 system 안 fenced block 으로 추가
+        (langchain with_structured_output 와 호환 위해 message pair 가 아닌 텍스트 예시)
 
     헤딩 깊이 → layout_id 매핑은 결정론적 (LLM 자율 결정 회피).
-    템플릿 layout (templates/agency_default.pptx, §13-1 close):
+    템플릿 layout (templates/agency_default.pptx, §13-1 / v3 close):
       - 0 = TITLE          (CENTER_TITLE + SUBTITLE)
       - 1 = TITLE_CONTENT  (TITLE + OBJECT)
-      - 2 = SECTION_HEADER (placeholder 0개, 디자인 단독)
+      - 2 = SECTION_HEADER (placeholder 3개: 번호/제목/부제)
     """
-    tmpl = _tmpl(
+    system_text = _tmpl(
         """
-        역할: 광고 에이전시 발표용 PowerPoint 슬라이드 deck 기획자
-        현재 주제(절대 준수): {topic_title}
-        슬러그: {slug}
+        역할: 광고 에이전시 발표용 PowerPoint 슬라이드 deck 기획자.
+        Markdown 보고서를 입력받아 SlideDeckSpec 으로 변환한다.
 
-        너는 아래의 Markdown 보고서를 SlideDeckSpec 으로 변환한다.
-        변환 규칙은 결정론적으로 적용하라 — layout_id 자율 결정 금지.
+        [입력 구조 사전 측정 — 슬라이드 수 결정]
+        이 입력 md 에는 ## 챕터 {n_h2_chapters}개, ### 섹션 {n_h3_sections}개가 있다.
+        따라서 출력 deck 의 슬라이드 구성은 **정확히** 다음과 같다:
+          - TITLE 슬라이드 1장
+          - SECTION_HEADER 슬라이드 {n_h2_chapters}장 (## 챕터 1:1 매핑)
+          - TITLE_CONTENT 슬라이드 {n_h3_sections}장 (### 섹션 1:1 매핑)
+        총 슬라이드 수 = **정확히 {n_total_slides}장**.
+        압축(여러 ### 합치기), 분할(하나의 ###을 여러 슬라이드로 쪼개기), 생략(### 빼기),
+        추가(없는 슬라이드 만들기) 모두 **금지**. 슬라이드 수가 {n_total_slides} 이외면 위반.
+
+        [절대 강제 규칙 — 위반 금지]
+        1. **출력 언어는 모두 한국어**. 입력 md 가 영어 단어·고유명사를 포함해도
+           슬라이드 제목·본문·bullets·표 헤더·셀은 모두 한국어로 작성.
+           고유명사 (브랜드·인명·약어) 는 원문 표기 유지 가능 (예: "Venfobel", "OTC").
+        2. **Markdown 표는 반드시 TableSpec 으로 보존**. `| col | col |` 형태가 입력에
+           있으면 layout_id=1 + table 슬라이드로 추출. **임의 압축·bullet 변환 금지**.
+           (참고: 매핑 규칙상 표가 등장하는 ### 섹션이 곧 그 슬라이드의 table.)
+        3. **출처 정보는 반드시 슬라이드 노트(`notes`)로 이동**. 본문(bullets/body/table 셀)에
+           `[파일명]`, `[^N]`, URL, "출처:" 등 인용 표시가 있으면 **삭제하지 말고 추출하여**
+           해당 슬라이드의 notes 필드로 옮긴다. notes 형식 예: "출처: [종근당_팩트북.pdf] / [^1] 매출 통계".
+           본문에 마커가 0개이고 동시에 노트도 비어있으면 위반 — 노트로 옮겼는지 확인.
 
         [헤딩 → layout_id 결정론 매핑]
         1. 첫 슬라이드는 반드시 layout_id=0 (TITLE):
-           - title = topic_title
+           - title = topic_title (한국어)
            - body = 부제 또는 생성일 (예: "2026-05-08 / RAG Writer")
-        2. `## N.` 헤딩(챕터)이 등장할 때마다 layout_id=2 (SECTION_HEADER) 슬라이드 1장 추가:
-           - title = `## N.` 줄의 챕터 제목 그대로
-        3. `### N.M.` 헤딩 또는 챕터 본문은 layout_id=1 (TITLE_CONTENT):
-           - title = 섹션 제목 (없으면 의미 있는 한국어 한 줄)
-           - bullets / body / table 중 하나 사용
+        2. `## N.` 헤딩(챕터) 등장 시 layout_id=2 (SECTION_HEADER) 슬라이드 1장 추가:
+           - title = `## N.` 줄의 챕터 제목. **영어면 자연스러운 한국어로 번역** (의미 보존).
+             예: "Executive Summary" → "핵심 요약", "Market Trends" → "시장 동향".
+             고유명사·브랜드명만 원문 유지.
+        3. `### N.M.` 헤딩은 **각각 정확히 1개의 layout_id=1 (TITLE_CONTENT) 슬라이드에 1:1 매핑**:
+           - 입력 md 의 ### 헤딩 {n_h3_sections}개 → 본문 슬라이드 **정확히 {n_h3_sections}개**.
+           - **여러 ### 헤딩을 한 슬라이드로 합치지 말 것** — 압축 합병 금지.
+           - **하나의 ### 본문을 여러 슬라이드로 쪼개지 말 것** — 분할 금지.
+           - 본문이 길면 핵심만 한국어로 요약 (bullets 6개 이내, body 200자 이내, 또는 표) —
+             분량을 줄여서 한 슬라이드에 맞추되 슬라이드 개수를 늘리지 말 것.
+           - title = 섹션 제목 (한국어, 영어면 번역. 없으면 의미 있는 한국어 한 줄).
+           - bullets / body / table 중 하나 사용.
 
         [layout_id=1 OBJECT 우선순위]
-        - 마크다운 표(`| col | col |`)가 있으면 → table 사용
-        - 표 없고 짧은 항목 3~6개 추출 가능 → bullets 사용
-        - 단락 본문만 있어 bullet 분해 부적절 → body 사용 (200자 이내)
+        - 마크다운 표가 입력에 있으면 → **table 필수** (강제 규칙 2)
+        - 표 없고 짧은 항목 3~6개 추출 가능 → bullets
+        - 단락 본문만 있어 bullet 분해 부적절 → body (200자 이내)
 
         [압축 규칙]
-        - 한 슬라이드는 시각적으로 한 화면에 들어가야 함.
-        - bullets: 슬라이드당 3~6개, 항목당 80자 이내. 초과시 슬라이드 분할.
-        - 원문 그대로 복사 금지 — 핵심만 요약.
-        - 출처 인용(예: [파일명], [^1]) 은 본문에 노출하지 말고 notes 에 분리.
-
-        [notes 활용]
-        - 각주·인용 마커·출처명 등 발표자 참고 정보를 notes 에 기록.
-        - 본문에는 깔끔한 한국어 요약만 노출.
+        - **압축은 한 슬라이드 안에서만** (본문 분량을 핵심만 요약). 슬라이드 개수 변경 금지.
+          여러 ### 헤딩을 한 슬라이드로 합치는 것도, 하나의 ### 을 여러 슬라이드로 쪼개는 것도 금지.
+        - bullets 3~6개, 항목당 80자 이내.
+        - body 200자 이내.
+        - 원문 그대로 복사 금지 — 핵심만 한국어로 요약.
 
         [layout_hint]
         - v1 에서는 항상 None.
 
-        [입력 보고서 (Markdown)]
-        {md_text}
+        [Few-shot 예시 — 표 보존 + 출처 노트 분리]
+        ```
+        입력 Markdown (### 섹션 1개):
+          ### 1.1 경쟁 제품 매출 동향
 
-        위 보고서를 SlideDeckSpec 으로 산출하라.
-        - slug={slug}
-        - topic_title={topic_title}
-        - slides 의 첫 항목은 layout_id=0 (TITLE), 두 번째 항목부터 본문.
+          | 브랜드 | 2024 매출(억원) | YoY |
+          |---|---|---|
+          | 벤포벨 | 100 | +5% |
+          | 임팩타민 | 80 | -2% |
+          | 아로나민 | 120 | +8% |
+
+          [종근당_팩트북.pdf]
+          [^1]: 2024 약국 매출 통계  https://example.com/report.pdf
+
+        기대 SlideSpec (정확히 1슬라이드 — 표 보존 + 출처 노트로 이동):
+          {{
+            "layout_id": 1,
+            "title": "경쟁 제품 매출 동향 (2024)",
+            "table": {{
+              "header": ["브랜드", "2024 매출(억원)", "YoY"],
+              "rows": [
+                ["벤포벨", "100", "+5%"],
+                ["임팩타민", "80", "-2%"],
+                ["아로나민", "120", "+8%"]
+              ]
+            }},
+            "bullets": null,
+            "body": null,
+            "notes": "출처: [종근당_팩트북.pdf] / [^1] 2024 약국 매출 통계 https://example.com/report.pdf"
+          }}
+        ```
+        핵심:
+        - ### 1개 → 슬라이드 정확히 1개 (분할·합병 X). 매핑 규칙 3 준수.
+        - 표를 bullets 로 압축하지 않음 (강제 규칙 2).
+        - `[종근당_팩트북.pdf]`, `[^1]`, URL `https://...` — 본문(table 셀)에서 제거하고 **모두 notes 로 이동**
+          (강제 규칙 3 — 삭제 X, 이동만). 노트가 비어있으면 위반.
+        - 표 헤더·셀 모두 한국어 (강제 규칙 1).
         """
     )
-    pt = PromptTemplate.from_template(tmpl)
+    human_text = _tmpl(
+        """
+        다음 Markdown 보고서를 SlideDeckSpec 으로 산출하라.
+
+        slug = {slug}
+        topic_title = {topic_title}
+
+        구조:
+        - slides 의 첫 항목은 layout_id=0 (TITLE).
+        - 이후 ## 챕터 {n_h2_chapters}개와 ### 섹션 {n_h3_sections}개를 순서대로 1:1 매핑.
+        - 출력 slides 길이 = 정확히 {n_total_slides} (1 + {n_h2_chapters} + {n_h3_sections}).
+
+        [입력 보고서]
+        {md_text}
+        """
+    )
+    pt = ChatPromptTemplate.from_messages([
+        ("system", system_text),
+        ("human", human_text),
+    ])
     logger.debug("PPTX planner prompt ready. vars=%s", pt.input_variables)
     return pt

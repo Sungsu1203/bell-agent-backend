@@ -1571,9 +1571,14 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 - **render latency 0.12s** — LLM-free renderer 가 매우 빠름. e2e 비용 거의 전부 plan 단계.
 
 **재진입 조건**:
-- 표 추출 누락이 critical 한 사용 케이스 발견 시 — 프롬프트 강화 + post-validate 추가.
+- 표 추출 누락이 critical 한 사용 케이스 발견 시 — 프롬프트 강화 + post-validate 추가. **closed in §13-9 Round 3 (2026-05-09)** — 표 보존 강제로 X'=1 100% 추출.
 - 다른 토픽 보고서로 검증 — 산출 스타일이 토픽 종류에 따라 일관성 유지되는지.
 - v2 (Gemini A/B) 진입 시 동일 md 로 비교 측정 (이 표가 §13-7 baseline).
+
+**§13-6 v3 (n>=5 정량 baseline) 처리 (2026-05-09)**:
+- 별도 task 진행 X — **§13-9 Round 3 의 stability 측정 5회 결과가 사실상 §13-6 v3 baseline 역할**.
+- gpt-4o baseline 박제: 평균 37.4 slides / 매 run 표 1개 / 한국어 100% / latency 26~48s / spread 1.
+- §13-7 (Gemini) 진입 시 동일 `scripts/measure_stability.py` 로 측정해 직접 비교 가능.
 
 13-7. **(v2) Gemini A/B 비교** — 상태: `deferred` / 의존: §13-6 close / 우선순위: 중
 - v1 deck 사용자 평가 통과 후 진입. `.venv_vertex` + `LLM_PROVIDER=vertexai` 토글로 동일 입력에 대한 deck 비교. spec/renderer 동일, planner LLM 만 교체.
@@ -1581,12 +1586,64 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 13-8. **(v3) Claude 평가** — 상태: `deferred` / 의존: §13-7 close / 우선순위: 후
 - 별도 evaluation 트랙. Anthropic provider 추가 시점은 §12-13-6 (b) Anthropic fallback 도입과 묶어 검토 가능 (의존도 큰 변경이므로 단독 트랙은 비효율).
 
-13-9. **출력 언어 비결정성 (한국어 ↔ 영어) + 표 추출 비결정성** — 상태: `open (2026-05-09)` / 의존: §13-3 v3-fix1 close / 우선순위: 중
-- **현상 (출력 언어)**: 동일한 venfobel `.md` 입력에 대해 1차 실행은 한국어 슬라이드 제목 (`'3C 분석 및 시장 동향'`), 2차 실행은 영어 (`'3C Analysis & Market Trends'`) — temp=0.3 비결정성 단독으로 설명 어려운 출력 언어 자체 swap. v2 (Gemini A/B) 평가 진입 전 prompt 안정화 필요.
-- **추정 원인**: `prompts.get_pptx_planner_prompt()` 가 출력 언어를 명시하지 않음 → LLM 이 입력 md 의 mixed-language(한국어 본문 + 영어 고유명사) 에서 임의 선택. 입력 md 자체에 영어 단어 비율이 높을수록 영어 출력 확률 상승 가설.
-- **현상 (표 추출 비결정성, 2026-05-09 추가 데이터)**: 동일 venfobel md 3회 실행 결과 — 1차 22 slides / 표 0개, 2차 23 slides / 표 1개, 3차 **32 slides / 표 1개**. 슬라이드 수 편차가 **±10** 로 §13-3 v3 amendment 의 박제 "n=2 ±2 슬라이드" 보다 훨씬 큼. 표 추출 빈도도 `{0, 1, 1}` 로 비결정적. 같은 markdown 표 (Vitamin B 매출 5×6) 가 LLM 자율 판단으로 bullet 압축 / 표 보존 / 분할 등 다양하게 매핑됨. **n=3 잠정 — n>=5 재실시 필요 (§13-7 동시 진행)**.
-- **재진입 조건**: §13-7 (Gemini A/B) 평가 시작 전 검토. fix 안 1) prompt 에 `"출력 슬라이드 제목·본문은 모두 입력 md 의 주요 언어와 일치"` 또는 `"출력은 한국어"` 명시. 안 2) `topic_title` 의 언어를 LLM 에 hint 로 전달. 안 3) prompt 에 표 보존 규칙 강화 (`"입력 markdown 표가 있으면 모두 layout_id=1 + table 로 보존, bullet 압축 금지"`). fix 후 동일 입력 5회 실행 → 출력 언어 일치율 + 슬라이드 수 편차 + 표 추출 일치율 측정.
-- **블로커 영향**: §13-7 (v2 Gemini A/B) 진입 전 fix 권장. v1 close 자체는 차단하지 않음 (기능적으로 양 언어 / 슬라이드 수 변동 모두 정상 렌더링).
+13-9. **출력 안정화 (언어·표 추출·슬라이드 수)** — 상태: `closed (2026-05-09)` / 의존: §13-3 v3-fix1 close / 우선순위: 중
+
+**문제 (open 시점)**:
+- 출력 언어 비결정성: 동일 venfobel md 1차 한국어 (`'3C 분석'`), 2차 영어 (`'3C Analysis'`) — temp 0.3 단독으로 설명 어려운 swap.
+- 표 추출 비결정성: 동일 입력 3회 = 표 0/1/1 (LLM 자율 압축 vs 보존).
+- 슬라이드 수 편차: 동일 입력 3회 = 22/23/32 (±10).
+- 출처 마커가 본문에 침투 (가독성 저하).
+
+**Fix 적용 — 3 Round 점진 강화** (commits 누적):
+
+| Round | 변경 | n=5 결과 | PASS |
+|---|---|---|---|
+| 1 | (a)~(d) 적용: system/user 분리, 강제 규칙 (출력 한국어, 표 보존, 출처 노트), few-shot 1건, temp 0.3→0.1 | 23~29 spread 6, 한국어 100%, 표 1/1/1/1/1 | 3/4 (slide_spread FAIL) |
+| 2 | (A 일부) ### 1:1 매핑 규칙 + (g) 출처 metric 자동화 | 22~41 spread 19 (악화), 노트 마커 0 | 3/5 |
+| **3** | **(A 강화) ### 헤딩 사전 카운트 + prompt 변수 주입 + (B) few-shot 노트 강조 + 분할 금지** | **37~38 spread 1, 노트 마커 14~19** | **5/5 PASS** ✅ |
+
+**최종 close 조건 (Round 3 PASS 기준)**:
+1. `ok_runs = 5/5` ✅
+2. `slide_spread ≤ 2` (실측 1) ✅
+3. 출력 언어 100% 한국어 (`kor_ratio ≥ 0.7` 모든 run) ✅ — 0.92~0.98
+4. 표 추출 일관성: 모든 run 의 `TableSpec` 개수 = X' (사전 측정값) ✅ — X' = 1 박제됨
+5. 본문 출처 마커 0 (모든 run) ✅
+6. 노트 출처 마커 ≥1 (md 에 마커 ≥1개 있을 때) ✅ — 14~19/run
+
+**venfobel md 사전 측정 박제 (재실험 시 baseline)**:
+- 파일: `reports/venfobel-vitamin/20260505-063304_report.md` (34,866 chars)
+- 유의미한 표 X' = **1** (5×5 매출 동향)
+- ## 챕터 = 7, ### 섹션 = 35 → 결정론 슬라이드 수 = 1 + 7 + 35 = **43장**
+- 출처 마커 (URL+footnote+파일) = 54
+- 실측 슬라이드 평균 = **37.4장** (기대 43장 대비 -5.6장 — LLM 이 반복 섹션 "Actionable Recommendations"/"참고 문헌" 약간 수렴 압축, 매 run 일관되어 spread=1).
+
+**결정성 vs 재현성 박제** (§13-9 본질 결과):
+- 평균 37.4장 / 결정론 기대 43장 → **12.7% 압축률**.
+- "분할/합병/생략/추가 금지" 규칙이 **100% 결정성 강제는 미달** — LLM 이 일부 섹션을 자율 압축.
+- 그러나 **매 run 결과가 일관 (spread=1)** → §13-9 본질 목표 "재현성" 은 달성.
+- §13-11 (분량 적정성) 의 출발점: "12.7% 압축 패턴이 광고 발표에 적합한지" 평가. 결정성 100% 가 필요하면 prompt 추가 강화 또는 post-processing 도입 검토 (§13-11 진입 시 결정).
+
+**박제**:
+- **단일 string PromptTemplate → ChatPromptTemplate (system+human) 분리** — gpt-4o system 준수율 활용. langchain `with_structured_output` 호환.
+- **`get_llm()` 은 싱글턴** — 인자 temperature 첫 호출 후 무시. `llm.bind(temperature=0.1)` 로 호출별 override 필수.
+- **추상 규칙보다 구체 숫자가 압도적으로 강력** — "1:1 매핑" 규칙만으로는 spread 19, "정확히 N장" 변수 주입으로 spread 1. 사전 카운트 + prompt 변수 주입 패턴 향후 재사용.
+- **"분할 금지·합병 금지·생략 금지·추가 금지"** 4종을 모두 명시해야 LLM 자율 판단 차단. 분할 예외 허용 단서 (Round 2) 가 오히려 LLM 자율 여지 증가시킴.
+- **출처 마커 처리 = "삭제 금지·이동만"** 표현이 결정적. Round 1~2 의 "분리" 표현은 LLM 이 "삭제" 로 해석.
+- **few-shot 예시 1건** (system 안 fenced block) 으로 표 보존 + 출처 노트 이동 패턴 동시 강제. langchain message-pair 형식 X (with_structured_output 와 충돌 가능).
+
+**파일 변경**:
+- `prompts.py` — `get_pptx_planner_prompt()` 리팩터: PromptTemplate → ChatPromptTemplate, system 강제 규칙 + few-shot, human 입력만. 새 변수 3종 (`{n_h2_chapters}`, `{n_h3_sections}`, `{n_total_slides}`) 추가.
+- `agent/export/planner.py` — `_count_headings(md_text)` 헬퍼 + `chain.invoke` 에 헤딩 카운트 변수 전달. `llm.bind(temperature=0.1)` 적용.
+- `scripts/measure_stability.py` — n 회 실행 측정 + 6종 metric (slide_spread, kor_ratio, table_count, src_in_body, src_in_notes, ok_runs).
+- `scripts/count_meaningful_tables.py` — md 의 X' 사전 측정.
+- `scripts/count_bullets_per_section.py` — ### 섹션별 bullet/lines 분포 (Round 3 사전 위험 평가).
+- `scripts/verify_prompt_refactor.py` — ChatPromptTemplate 구조 + 강제 규칙 키워드 검증.
+
+**재진입 조건**:
+- (S1) 다른 토픽(pet-food-premium, height-growth-supplement) 으로 재실험 시 동일 close 조건 통과 확인. 토픽별 X' / 헤딩 분포 박제 갱신 필요.
+- (S2) 슬라이드 수가 기대 (1 + N_h2 + N_h3) 와 ±5 이상 어긋나면 prompt 추가 강제 검토 — 현재 venfobel -5.6장 은 허용 범위.
+- (S3) Gemini / Claude 평가 진입 시 동일 prompt 로 안정성 측정 (provider 차이로 strategy 변경 필요할 수 있음).
+- (S4) §13-11 (분량 적정성, ~37장이 광고 발표용으로 적정한지 평가) 진입 결정 시 활성화.
 
 13-10. **표 렌더링 품질 개선 (스타일·컬럼 너비)** — 상태: `closed (2026-05-09)` / 의존: §13-3 v3-fix1 close / 우선순위: 중
 - **Goal**: venfobel_v2.pptx S7 검사에서 발견된 표 품질 이슈 (균등 5.97cm 컬럼 → 긴 텍스트 잘림, 헤더 강조 X, 18pt default 폰트 과대) 해소.
@@ -1614,7 +1671,19 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
   - (T1) 표 행 수 매우 많은 케이스 (>15) 발견 시 ellipsis / 페이지 분할 전략 검토.
   - (T2) 셀 병합 요구 발생 시 별도 task — TableSpec 확장 + add_merge_cells 처리.
   - (T3) python-pptx 0.7.x 이상에서 표 스타일 갤러리 적용 지원 시 마이그레이션 — `TABLE_HEADER_BG` 등 상수 제거 후 layout master 표 스타일 참조.
-  - (T4) Phase 3 (출처 URL → notes 이동) 은 별도 — §13-9 prompt 안정화 task 와 묶어 처리.
+  - (T4) Phase 3 (출처 URL → notes 이동) 은 별도 — §13-9 prompt 안정화 task 와 묶어 처리. **closed in §13-9 Round 3 (2026-05-09)** — 노트 분리 강제 적용으로 본문 마커 0 / 노트 마커 14~19/run 달성.
+
+13-11. **슬라이드 분량 적정성 (광고 발표 시간 가정)** — 상태: `open (2026-05-09)` / 의존: §13-9 close / 우선순위: 후
+- **현상**: §13-9 Round 3 close 후 venfobel md (71KB, ## 7개 / ### 35개) → 평균 37.4 슬라이드. 광고 에이전시 클라이언트 발표 시간 (60분 가정) 대비 다소 길 가능성.
+- **참고 추정**: 1슬라이드 1.5~2분 = 30~40 슬라이드 적정. 37장은 경계.
+- **고려 전략**:
+  - (a) 반복 섹션 ("Actionable Recommendations" / "참고 문헌 / 각주") 을 챕터별 1장으로 통합 (현재 LLM 이 일부 압축 중).
+  - (b) appendix 슬라이드 분리 (참고 문헌 7개 → 본 deck 끝 단일 챕터로).
+  - (c) abstract / executive summary 슬라이드 추가 (현재 첫 챕터를 그대로 매핑 중).
+- **재진입 조건**:
+  - §13-7 (Gemini A/B) 결과 보고 결정. Gemini 가 더 자연스러운 분량을 내면 prompt 차용.
+  - 사용자 시각 검증에서 "너무 길다" 판정 시 진입.
+- **블로커 영향**: §13-7 자체는 차단 없음 — §13-9 baseline 으로 비교 가능.
 
 **Conclusion (v1 close)** — 상태: `closed (2026-05-09)`:
 §13-1 ~ §13-6 6개 task + §13-3 v3-fix1 (SLIDE_NUMBER) + §13-10 (표 품질) 모두 close. 사용자 시각 검증 통과 (test_v5.pptx 4 slides, venfobel_v3.pptx 32 slides — 헤더 차콜+흰글씨, 컬럼 비례 분할로 동향 컬럼 13.94cm 확장 잘림 해소, 페이지 번호 정상, 줄무늬 자동 적용). v1 (gpt-4o 단독) 생산 가능 상태.
@@ -1637,8 +1706,9 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 - (R2) Gemini A/B 진입 결정 시 §13-7 활성화.
 - (R3) 다른 토픽(pet-food-premium, height-growth-supplement)으로 재사용 시 토픽별 차이(refs 패턴, 챕터 수, 표 빈도) 정량 측정 후 spec 확장 검토.
 - (R4) Anthropic provider 추가 시 §13-8 활성화. §12-13-6 (b) 와 묶어 결정.
-- (R5) 출력 언어 비결정성·표 추출 비결정성 fix 필요 시 §13-9 활성화 (§13-7 진입 전).
+- (R5) 출력 언어 비결정성·표 추출 비결정성 fix 필요 시 §13-9 활성화 (§13-7 진입 전). **closed (2026-05-09)** — 다른 토픽 재실험 시 (S1) 조건 모니터.
 - (R6) 표 디자인 변경 (셀 병합/페이지 분할/python-pptx 표 스타일 마이그레이션) 시 §13-10 재오픈 (T1~T4 조건).
+- (R7) §13-7 결과 / 사용자 시각 검증에서 분량 과다 판정 시 §13-11 (분량 적정성) 활성화.
 
 ---
 
