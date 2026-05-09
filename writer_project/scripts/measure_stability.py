@@ -310,7 +310,12 @@ def main() -> int:
     # 호출자 환경변수 덮어씀. provider 보존을 위해 reload 전후 명시 capture·복원.
     #
     # §13-7-3-bypass (2026-05-09): VERTEX_MAX_RETRIES 도 함께 env 전달 → reload 후 CFG 반영.
-    if args.region or args.max_retries is not None:
+    #
+    # §13-7-3-regress (2026-05-09): bypass 블록은 Vertex 측정 전용. OpenAI 측정 (회귀 테스트 등)
+    # 시 진입 시 reload_config_inplace 두 번째 호출이 .env 의 LLM_PROVIDER=vertexai 를
+    # 덮어써 ImportError 유발. provider 분기로 OpenAI 경로에서는 bypass 블록 skip.
+    _provider = (os.environ.get("LLM_PROVIDER") or "").strip().lower()
+    if _provider == "vertexai" and (args.region or args.max_retries is not None):
         if args.region:
             os.environ["GCP_REGION"] = args.region
         if args.max_retries is not None:
@@ -329,6 +334,8 @@ def main() -> int:
         reset_llm()
         _print(f"[bypass] GCP_REGION={args.region!r}  VERTEX_MAX_RETRIES={args.max_retries}  "
                f"LLM_PROVIDER 보존={os.environ.get('LLM_PROVIDER','')!r}")
+    elif _provider != "vertexai":
+        _print(f"[bypass] skip — LLM_PROVIDER={_provider!r} (Vertex 전용 bypass 블록 미진입)")
 
     summary = measure_run(
         Path(args.md), slug=args.slug, topic_title=args.topic_title,

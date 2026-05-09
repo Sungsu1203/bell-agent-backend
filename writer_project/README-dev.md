@@ -1602,7 +1602,7 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 **§13-7-3d (closed 2026-05-09)**: asia-northeast3 sanity check
 - `_cli_test/test.md` (350 chars) Flash latency 20.7s — region 정상.
 
-**§13-7-2 (partial close 2026-05-09)**: gemini-2.5-pro n=5 평가 (asia-northeast3, warmup 1회, timeout 300s, sleep 60s)
+**§13-7-2 (close 2026-05-09, Pro 평가 진정 종결)**: gemini-2.5-pro n=5 평가 (asia-northeast3, warmup 1회, timeout 300s, sleep 60s) — Flash deferred 결정으로 Pro warm 3 run baseline 박제 후 §13-7-2 진정 close.
 
 | Run | Latency | slides | tables | lang | body marker | notes marker | ok |
 |---|---|---|---|---|---|---|---|
@@ -1635,10 +1635,11 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 | latency | 26~48s | 91~100s | gpt-4o (2-3x faster) |
 | cost / run | $0.075 | $0.046 | Pro (38% saving) |
 
-**§13-7-3 (in-progress 2026-05-09)**: gemini-2.5-flash n=5 평가 진행
-- Pro partial close 후 즉시 진입. 3-way 결과로 §13-7-2-tune 분기 결정 (Vertex 모델군 공통 이슈인지, Pro 특이 이슈인지).
-- warmup 처리 옵션 (1) 채택: `plan_deck(_record_metrics=False)` + `logs/warmup_log.ndjson` 별도 보존.
-- 운영 default 결정 보류 — Flash 결과 후.
+**§13-7-3 (deferred 2026-05-09)**: gemini-2.5-flash n=5 평가
+- Pro partial close 후 즉시 진입 시도 → quota 한도 도달로 deferred.
+- warmup 처리 옵션 (1) 채택: `plan_deck(_record_metrics=False)` + `logs/warmup_log.ndjson` 별도 보존. 코드 박제 완료, 재진입 시 즉시 활용.
+- 운영 default 결정 보류 — 현재 §13-7 close 시점에서 gpt-4o 가 baseline (안정성 검증 완료 + 운영 deck 사용 중).
+- **재진입 조건**: (a) GCP project quota 회복 (24h+ cool-down) 또는 (b) 별도 GCP project 신규 생성. 재진입 시 §13-7-3-retry task 재오픈.
 
 **§13-7-3-asia-fail (2026-05-09)**: asia-northeast3 1차 시도 실패 — quota retry 누적 확정
 - 1차 명령어 (sleep 60, region asia-northeast3, retry default 6): run 1 timeout 240s + run 2 동일 패턴.
@@ -1657,7 +1658,7 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
   - **Step 1 (§13-7-3-regress)**: 회귀 테스트 gpt-4o n=1 — 코드 변경 (core/llm.py·config.py·planner.py·measure_stability.py) 후 OpenAI 흐름 무손실 검증. error 없으면 PASS.
   - **Step 2 (§13-7-3-sanity)**: Sanity check Flash n=1 (짧은 입력 test.md) — `max_retries=0` 효과 검증. 즉시 성공/실패 판정 가능한지 확인. PASS = retry 차단이 root cause 박제 + Step 3 진입. FAIL = sleep 180s 또는 다른 원인 진단.
   - **Step 3 (§13-7-3-retry)**: Flash n=5 본 측정 — Step 1·2 모두 PASS 시에만 진입.
-  - 본 측정 진입 후: §13-7-4 (3-way 비교) → §13-7-restore (.env 복원).
+  - 본 측정 진입 후: §13-7-4 (gpt-4o vs Pro 2-way 비교, Flash deferred) → §13-7-restore (.env 복원).
 - **재개 명령어**:
   ```
   # Step 1: 회귀 테스트 (gpt-4o, OpenAI 흐름 무손실 검증)
@@ -1683,8 +1684,41 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 - 시간 추정: Step 1 ~30s, Step 2 ~30s, Step 3 ~10분.
 - 비용 추정: ~$0.06 (warmup 무시, Step 1/2 무시 가능).
 
+**§13-7-3-bypass-fix (2026-05-09)**: bypass 블록 provider 분기 추가 — `measure_stability.py:313` 에서
+`if args.region or args.max_retries is not None:` → provider=='vertexai' 조건 추가. OpenAI 경로에서
+`reload_config_inplace` 가 .env override=True 로 LLM_PROVIDER 를 덮어써 ImportError 유발하는 문제 회피.
+회귀 테스트 시 `$env:LLM_PROVIDER="openai"` PowerShell 명시 → bypass 블록 skip 분기 진입.
+- 박제: **reload_config_inplace 의 .env override=True 함정** — 호출자 env var 보존 위해 두 번째 reload 호출하지만 .env 가 다시 덮어씀. provider 별 분기로 회피.
+
+**§13-7-3-regress 결과 (PASS, 2026-05-09)**: gpt-4o n=1, test.md (348 chars)
+- bypass skip 분기 정상 작동 (`[bypass] skip — LLM_PROVIDER='openai'` 출력)
+- run 1: slides=4, tables=1, src(body=0,notes=4), lat=16.1s. ImportError 없음, structured output 정상.
+- lang_consistency=False (kor=0.55, mixed) — test.md "Executive Summary" 영문 헤딩 보존 (코드 변경과 무관).
+- 결론: 코드 변경 (core/llm·config·planner·measure_stability) 후에도 OpenAI 흐름 무손실.
+
+**§13-7-3-sanity 결과 (PASS, 2026-05-09)**: gemini-2.5-flash n=1, test.md, us-central1, max_retries=0
+- 1차 (per-run-timeout 60s) FAIL — TIMEOUT. 60s 는 Flash cold start 에 빡빡.
+- 2차 (per-run-timeout 180s) PASS — run 1 lat=33.3s, slides=4, tables=1, src(body=0,notes=2). 즉시 응답 (retry 누적 패턴 아님).
+- 결론: max_retries=0 단독으로 즉시 성공/실패 판정 가능. Step 3 본 측정 진입 조건 충족.
+- cold start 영향: 본 측정 시 warmup 2 회 + per-run-timeout 240s 로 완화.
+
+**§13-7-3-retry 결과 (FAIL, 2026-05-09 — quota 한도 도달, Flash deferred 결정 근거)**:
+- 명령: venfobel-vitamin/latest.md (34,866 chars), n=5, us-central1, sleep 60, max_retries 0, warmup 2.
+- warmup: 2/2 OK (25.5s + 16.0s, test.md 348 chars).
+- 본 측정: run 1~4 모두 `ResourceExhausted: 429 Resource exhausted` FAIL (run 5 시작 전 사용자 중단).
+- inter-run-sleep 60s 도 회복 못 함 → RPM 한도 보다 **TPM 한도 도달** 가능성 (warmup 2 + 큰 입력 ×4 burst 에서 토큰 누적).
+- **max_retries=0 효과 검증됨**: retry 누적 없이 즉시 fail (이전 `_completion_with_retry` 무한 backoff 패턴 재현 안 됨). bypass 코드는 의도대로 동작.
+- 결론: quota 한도 자체가 별도 차원. Flash 측정은 §13-7-3-deferred 로 분리 — gpt-4o vs Pro 2-way 비교만으로 §13-7 진정 close.
+- 박제: **`max_retries=0` 은 retry 누적 차단에는 유효하나 quota 한도 도달 시 4xx 가 그대로 노출됨**. 이는 진단 가치 (혼란 제거) 측면에서 정상 동작.
+
+**§13-7-3-bypass-fix (2026-05-09, 회귀 안전성 보강)**: bypass 블록 provider 분기 추가 — `measure_stability.py:313` 에서
+`if args.region or args.max_retries is not None:` → `provider == 'vertexai'` 조건 추가. OpenAI 경로에서
+`reload_config_inplace` 가 .env override=True 로 LLM_PROVIDER 를 덮어써 ImportError 유발하는 문제 회피.
+회귀 테스트 시 `$env:LLM_PROVIDER="openai"` PowerShell 명시 → bypass 블록 skip 분기 진입.
+- 박제: **`reload_config_inplace` 의 .env override=True 함정** — 호출자 env var 보존 위해 두 번째 reload 호출하지만 .env 가 다시 덮어씀. provider 별 분기로 회피.
+
 **§13-7-restore (open)**: 측정 종료 후 `.env` 의 `LLM_PROVIDER=vertexai` → `openai` 복원 필수 (현재 측정용 임시 변경).
-- `.env.bak` 백업 보존 중.
+- `.env.bak` 백업 보존 중 (현재 동일 vertexai). 실 복원은 `.env` 의 LLM_PROVIDER 한 줄 직접 수정 (overlay 는 LLM_PROVIDER 따라 자동 선택).
 
 **§13-7-3 진단 박제 (재진입 시 참조)**:
 1. **진단 도구의 한계**:
@@ -1703,11 +1737,12 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
    - warmup 1~2 회 (cold start 차단)
    - 모델 간 cool-down 30분+ (quota 회복)
 
-**§13-7-2-tune (open, conditional)**: Pro src_body 비결정성 prompt 튜닝
-- Flash 결과 분석으로 진입 조건 결정:
+**§13-7-2-tune (deferred 2026-05-09, Flash 결과 없이 분기 결정 불가)**: Pro src_body 비결정성 prompt 튜닝
+- 재진입 조건: §13-7-3-deferred 회복 후 Flash n=5 측정 완료. 그때 가설 A/B/C 분기 결정.
   - 가설 A (Flash 도 src_body 비결정): Vertex 모델군 공통 이슈 → prompt 의 "마커 → notes 이동" 강화 (예: "본문 마커 발견 시 100% notes 이동, 본문 절대 잔존 금지")
   - 가설 B (Flash PASS): Pro 특이 이슈 → Pro 전용 미세 조정 또는 Flash 운영 default
   - 가설 C (Flash 더 심함): Pro baseline → Flash 추가 튜닝
+- 현재 운영 default: gpt-4o (안정성 + 속도, body marker 5/5 PASS, latency 26~48s).
 
 13-8. **(v3) Claude 평가** — 상태: `deferred` / 의존: §13-7 close / 우선순위: 후
 - 별도 evaluation 트랙. Anthropic provider 추가 시점은 §12-13-6 (b) Anthropic fallback 도입과 묶어 검토 가능 (의존도 큰 변경이므로 단독 트랙은 비효율).
