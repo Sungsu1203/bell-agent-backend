@@ -1803,7 +1803,7 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 
 → §13-7 close. §13-8 Claude 평가는 `deferred` 유지 (의존: §13-7 close 충족).
 
-13-8. **(v3) Claude 평가** — 상태: `진행 중 (2026-05-10 진입)` / 의존: §13-7 close ✅ (2026-05-09) / 우선순위: 후
+13-8. **(v3) Claude 평가 (claude-sonnet-4-6)** — 상태: `closed (2026-05-10, deferred 재진입 조건 명시)` / 의존: §13-7 close ✅ (2026-05-09) / 우선순위: 후
 - 별도 evaluation 트랙. Anthropic provider 추가 시점은 §12-13-6 (b) Anthropic fallback 도입과 묶어 검토 가능 (의존도 큰 변경이므로 단독 트랙은 비효율).
 - baseline 박제 완료 (§13-7-4 항목 4): gpt-4o n=5 baseline + 측정 인프라 재사용. 진입 시 `--model claude-*` + Anthropic overlay 만 추가.
 
@@ -1943,6 +1943,51 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
   - `core/llm.py:get_llm` Anthropic 분기 init log 추가 — `[LLM] init provider=anthropic | model=... | timeout=240 | max_retries=0` 출력. ctor 적용 값 가시화.
   - `scripts/_measure_anthropic_tokens.py:_verify_llm_attrs` — 측정 진입 직후 LLM 인스턴스의 `max_retries`/`default_request_timeout` 속성 직접 검증, 미일치 시 WARN.
 - 박제 가치: 새 provider 어댑터 추가 시 표준 체크리스트 — (a) ctor 의 retry default 확인, (b) `CFG.<PROVIDER>_MAX_RETRIES` 환경변수 분기 박제, (c) init log 에 적용 값 가시화, (d) 측정 도구에 ctor attrs 검증 진입 단계 박제.
+
+**§13-8 결론 (2026-05-10, claude-sonnet-4-6)**:
+
+| 측면 | 평가 | 데이터 |
+|---|---|---|
+| **결정성** | gpt-4o **동등 또는 우월** | slide spread 2 (gpt-4o 1) / input_tokens std **0.0** / latency CV 3.6% |
+| **latency** | gpt-4o 대비 **5.5배** | Sonnet mean 194.1s ±7.06 vs gpt-4o mean 35.3s |
+| **cost (추정 기반)** | gpt-4o 대비 **4배** | Sonnet $0.300/run vs gpt-4o $0.075/run (rates: in $3 vs $2.5, out $15 vs $10) |
+| **prompt 호환성** | tables/notes 자율 확장 — **결정적이나 위반** | tables 5/5 모두 3 (X'=1 위반), notes mean 53.6 vs gpt-4o 16.2 |
+
+**운영 default 결정**: **gpt-4o 유지** (§13-7-4 결정 재확인). Sonnet 4.6 = 운영 default 부적합 — latency 5.5배 + cost 4배 + tables/notes systematic 자율 확장. 결정성 자체는 우월하나 운영 비용/속도 손익 무시 불가.
+
+**Sonnet 4.6 deferred 재진입 조건 (3종)**:
+- (a) Anthropic 측 latency 개선 — Sonnet API 인프라 개선 또는 Sonnet 5+ 등 후속 모델로 latency 60s 이하 진입 시 재평가.
+- (b) cost 4배 감수 가능 use case — 예측 가능 latency (CV 3.6%) 가 가치 있는 배치 처리, 결정성 critical 한 회계·법무·규제 도메인. 운영 default 가 아닌 특수 트랙.
+- (c) tables / notes 자율 확장 억제 prompt 패치 + 재측정 — §13-9 재진입 조건 (c) 확장 (tables 단일 → tables+notes 통합 억제). 출력 스타일 통제 prompt 재설계 필요.
+
+**§13-8 cost 4배 차이 분해 (가설 박제)**:
+- 가격 차 자체: input 1.2배 (gpt-4o $2.5 → Sonnet $3 / Mtok), output 1.5배 ($10 → $15)
+- structured output schema overhead: input +54% (§13-8 commit E 박제 — usage_metadata vs console 실측)
+- systematic 자율 확장: output +5~10% (notes·tables 추가 토큰 — gpt-4o 대비 53.6 vs 16.2 notes)
+- 잔여 차이: Anthropic 측 input 토큰 카운트 방식 + 가격 모델 변동 가능성
+- 검증: §13-8-cost-recalibration (후속 task) 에서 raw API `messages.count_tokens` 와 비교 + 보정 계수 1.4x 검증
+
+**§13-8 후속 task 등록 (2026-05-10)**:
+- §13-8-3 (Haiku 4.5 평가): claude-haiku-4-5-20251001 phase 1 진단 → phase 2 baseline. 인프라 재사용 (`.venv_anthropic`, `_measure_anthropic_tokens.py`). 추가 검증 항목 — (i) tables=3 인지 (Anthropic family 공통 시그널 여부), (ii) notes 분산이 Sonnet 비슷한가 (자율 확장 패턴 family 공통성). Haiku notes 16~20 → Sonnet 특이 / Haiku notes 50+ → family 공통 → §13-9-style 신규 task 분리 명확. 예상 비용 ~$0.85 (보정 1.4x 적용 후).
+- §13-8-cost-recalibration: structured output schema overhead 검증. raw API `messages.count_tokens` vs `usage_metadata.input_tokens` 비교 → 잠정 보정 계수 1.4x 정량화. §13-9 운영 cost 예측 기반 자산.
+- §13-7-4-cost-revisit (사용자 응답 대기): gpt-4o baseline cost 도 동일 underestimate 가능성. console.openai.com Usage 데이터 접근 가능 시 재검증 + Sonnet/gpt-4o 비교 비율 (4배) 유효성 확인.
+- §13-9 재오픈 vs §13-8-table 분기: §13-8-3 (Haiku) 결과 후 결정.
+  · Haiku 도 tables/notes 자율 확장 → Anthropic family 공통 → §13-9 재오픈 (provider 분기 없는 prompt 강화)
+  · Haiku 정상 → Sonnet 특이 → §13-8-table (Claude Sonnet 한정 prompt 분기)
+
+**§13-8 자산 박제 요약**:
+| 자산 | 위치 | 가치 |
+|---|---|---|
+| phase 1 진단 결과 | `logs/anthropic_tokens_1778366464.json` | latency/token 단일 측정점 (warmup 0, n=1) |
+| phase 2 baseline | `logs/baseline_anthropic_claudesonnet46_20260510_080113.json` | clean baseline (5/5 ok, 7-metric) |
+| 진단 도구 | `scripts/_measure_anthropic_tokens.py` | 후속 Anthropic 모델 phase 1 재사용 |
+| Anthropic provider 어댑터 | `core/llm.py:_load_provider() == 'anthropic'`, `_build_anthropic_kwargs` | chat=langchain-anthropic, embedding=OpenAI fallback (3072d 인덱스 재사용) |
+| usage_metadata 캡처 인프라 | `agent/export/planner.py:_LAST_USAGE_METADATA` (include_raw=True) | per-run 토큰 박제 가능 — 모든 provider 공통 |
+| 7-metric summary | `scripts/measure_stability.py:metrics_7` | ok_runs/timeout/latency/tokens/slides/cost 자동 산출 |
+| 함정 4종 박제 | README-dev.md §13-8 함정 박제 | PowerShell cp949 / ThreadPoolExecutor / .env 비대칭 / ctor max_retries default |
+| 사전 정책 + 가설 박제 | README-dev.md §13-8-pre, systematic 자율 확장 가설 | 측정 후 결정 회피 + Anthropic 모델 family 평가 framework |
+
+→ §13-8 close. §13-7 운영 default (gpt-4o) 재확인. Anthropic 평가 트랙은 §13-8-3 (Haiku) 으로 family 시그널 검증 진입.
 
 13-9. **출력 안정화 (언어·표 추출·슬라이드 수)** — 상태: `closed (2026-05-09)` / 의존: §13-3 v3-fix1 close / 우선순위: 중
 
