@@ -1580,8 +1580,9 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 - gpt-4o baseline 박제: 평균 37.4 slides / 매 run 표 1개 / 한국어 100% / latency 26~48s / spread 1.
 - §13-7 (Gemini) 진입 시 동일 `scripts/measure_stability.py` 로 측정해 직접 비교 가능.
 
-13-7. **(v2) Gemini A/B 비교** — 상태: `in-progress (2026-05-09)` / 의존: §13-6 close / 우선순위: 중
+13-7. **(v2) Gemini A/B 비교** — 상태: `closed (2026-05-09, Flash deferred)` / 의존: §13-6 close / 우선순위: 중
 - v1 deck 사용자 평가 통과 후 진입. `.venv_vertex` + `LLM_PROVIDER=vertexai` 토글로 동일 입력에 대한 deck 비교. spec/renderer 동일, planner LLM 만 교체.
+- close 결과 (§13-7-4 박제): 운영 default = **gpt-4o** (안정성·속도·검증 완료). Pro = partial close (n=3 통계 한계 + src_body 비결정성, tuning 가능하나 deferred). Flash = deferred (quota TPM 한도, cool-down 또는 별도 project 회복 후 재진입).
 
 **§13-7-1 (closed 2026-05-09)**: provider 어댑터 점검 + `measure_stability.py --model` 추가
 - `agent/export/spec.py`: `Literal[0,1,2]` → `int + Field(ge=0,le=2) + field_validator` (Vertex function_calling 호환).
@@ -1744,8 +1745,67 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
   - 가설 C (Flash 더 심함): Pro baseline → Flash 추가 튜닝
 - 현재 운영 default: gpt-4o (안정성 + 속도, body marker 5/5 PASS, latency 26~48s).
 
-13-8. **(v3) Claude 평가** — 상태: `deferred` / 의존: §13-7 close / 우선순위: 후
+**§13-7-4 (close 2026-05-09)**: gpt-4o vs Pro 2-way 종합 비교 + §13-7 close 박제 (Flash deferred)
+
+### 1. 운영 default 결정 — **gpt-4o**
+
+| 결정 사유 | 근거 |
+|---|---|
+| **안정성 (재현성)** | n=5 모든 close 조건 PASS (slide_spread 1, kor_ratio 0.92~0.98, table 1/1/1/1/1, body 마커 0/5, notes 마커 14~19/run). Pro 는 n=3 warm runs 만 안정 (cold runs 2회 timeout). |
+| **검증 완료** | §13-9 Round 3 에서 5/5 PASS — close 조건 6 종 (ok_runs, slide_spread, lang, table, src_body_clean, src_notes_present) 모두 충족. |
+| **운영 사용 중** | §13-6 e2e baseline (venfobel 71KB, 24슬라이드, $0.075/run, 22s) 으로 이미 사용자 deck 산출. fallback 없이 단일 provider 신뢰 가능. |
+| **속도** | gpt-4o 26~48s vs Pro warm 91~100s (2~3x faster). 사용자 대기 경험 우위. |
+| 비용 | gpt-4o $0.075/run vs Pro $0.046/run (Pro 38% saving). 안정성·속도 우위 대비 비용 차이 수용 가능. |
+
+### 2. Pro partial close 사유 (§13-7-2)
+
+**partial close 이유**:
+- **n=3 통계 한계**: 5 run 시도 → 2 run cold timeout (337s, 346s, asia-northeast3 region 부하) → warm 3 run 만 유효 데이터. n=3 은 95% CI 산출에 부족.
+- **src_body 비결정성**: Run 3=28, Run 4=28, Run 5=0. Run 5 가 PASS (body=0, notes=50) 가능 → Pro 의 능력 부족이 아닌 **prompt 해석 비결정성**. §13-9 Round 2-3 패턴과 본질 동일 ("자율 판단 여지 부여" 시 LLM 이 다른 정책 선택).
+- 결정성 보장이 안 되므로 운영 default 부적합. tuning (§13-7-2-tune) 으로 해결 가능하나 Flash 결과 없이 분기 결정 불가 → deferred.
+
+### 3. Flash deferred 사유 + 재진입 조건 (§13-7-3-deferred)
+
+**deferred 사유**:
+- §13-7-3-retry: venfobel n=5 시도 → warmup 2 OK (25.5s + 16.0s) 후 run 1~4 모두 `ResourceExhausted: 429`.
+- inter-run-sleep 60s + max_retries=0 + region us-central1 안전장치 모두 적용했음에도 quota 한도 도달.
+- **TPM 한도** 우세 가설: warmup 2회 (~700 chars) + 본 측정 venfobel 34,866 chars × N run burst 누적 토큰. RPM 만이라면 60s sleep 으로 회복했어야 함.
+- max_retries=0 은 retry 누적 차단 효과 검증됨 (즉시 fail, 이전 무한 backoff 패턴 재현 안 됨) — 진단 가치 (혼란 제거) 측면에서 정상 동작.
+
+**재진입 조건**:
+- (a) GCP project quota 회복: 24h+ cool-down 후 재시도. TPM 한도가 일일 초기화되는지 확인 필요.
+- (b) 별도 GCP project 신규 생성: setup overhead (project 생성 + Vertex AI API enable + IAM + billing 연결) 그러나 quota 새로 시작.
+- (c) 측정 비용 분산: venfobel 대신 짧은 입력으로 n=5 + warmup 별도 시점 (1시간+ 분리). 단 §13-9 baseline 과 비교 가능성 저하.
+- 재진입 시 §13-7-3-retry task 재오픈 + §13-7-2-tune 분기 결정 (가설 A/B/C).
+
+### 4. §13-8 Claude 평가 baseline 명시
+
+**비교 기준**:
+- **gpt-4o n=5 baseline** (§13-9 Round 3): slide=37.4±0.5 / table=1/1/1/1/1 / kor_ratio 0.92~0.98 / src_body=0/5 / src_notes 14~19 / latency 26~48s / cost $0.075/run.
+- venfobel md (`reports/venfobel-vitamin/20260505-063304_report.md` 34,866 chars, X'=1, ## 7 / ### 35 / 결정론 43장).
+- close 조건 6 종 모두 적용: ok_runs ≥ 5/5, slide_spread ≤ 2, kor_ratio ≥ 0.7, table_consistency, src_body_clean, src_notes_present.
+
+**측정 인프라 (박제 자산 재사용)**:
+- `scripts/measure_stability.py`: `--model`, `--region`, `--per-run-timeout`, `--inter-run-sleep`, `--warmup-runs`, `--warmup-input`, `--max-retries` CLI.
+- 안전장치: `provider == 'vertexai'` bypass 분기 (§13-7-3-bypass-fix), ThreadPoolExecutor wall-clock timeout, `_print(flush=True)`, `_record_metrics=False` warmup 격리.
+- Vertex 평가 시 표준: inter-run-sleep 60s+, max_retries=0, warmup 1~2회, per-run-timeout 240s+, 모델 간 cool-down 30분+.
+- Anthropic provider 추가 시 동일 인프라 재사용 — `--model claude-*` + `LLM_PROVIDER=anthropic` overlay 만 추가하면 즉시 측정 가능.
+
+### 5. §13-7 진정한 산출물 (요약)
+
+| 산출물 | 가치 |
+|---|---|
+| **코드 fix (`575485a` + `0326e5b`)** | provider 어댑터 점검 (spec.py Literal→int+validator) / langchain max_retries 명시 전달 / bypass provider 분기 / warmup metric 격리 — 향후 모든 multi-LLM 평가에 재사용. |
+| **박제 자산 (진단 메서드)** | 진단 도구 한계 (Console/Audit Log/APIs Dashboard) / 가설 검증 사이클 패턴 / "justifiable improvement" 진단 종료 결정 / reload_config_inplace .env override 함정 / max_retries=0 의 root cause 격리 효과 — §13-7-3 진단 박제 + §13-7-3-bypass-fix 박제. |
+| **운영 default 결정** | gpt-4o = baseline. Anthropic 평가·Vertex 재진입 시 비교 기준 명확. |
+| **측정 인프라 표준화** | `measure_stability.py` 의 6 종 metric + close 조건 6 종 + 안전장치 7 종 = §13-8 Claude 평가 즉시 진입 가능. 새 모델 평가 비용 = LLM 호출 비용 only (인프라 비용 0). |
+| **(부수) 격리 결정** | Flash 측정은 quota 한도가 별도 차원임을 확인. cool-down/별도 project 회복 후 재진입 가능 — 차단 아닌 보류. |
+
+→ §13-7 close. §13-8 Claude 평가는 `deferred` 유지 (의존: §13-7 close 충족).
+
+13-8. **(v3) Claude 평가** — 상태: `deferred` / 의존: §13-7 close ✅ (2026-05-09) / 우선순위: 후
 - 별도 evaluation 트랙. Anthropic provider 추가 시점은 §12-13-6 (b) Anthropic fallback 도입과 묶어 검토 가능 (의존도 큰 변경이므로 단독 트랙은 비효율).
+- baseline 박제 완료 (§13-7-4 항목 4): gpt-4o n=5 baseline + 측정 인프라 재사용. 진입 시 `--model claude-*` + Anthropic overlay 만 추가.
 
 13-9. **출력 안정화 (언어·표 추출·슬라이드 수)** — 상태: `closed (2026-05-09)` / 의존: §13-3 v3-fix1 close / 우선순위: 중
 
