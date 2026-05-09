@@ -1,0 +1,28 @@
+{
+  "model": "claude-sonnet-4-6",
+  "md_chars": 34866,
+  "n_h2": 7,
+  "n_h3": 35,
+  "n_total_slides_target": 43,
+  "n_slides_actual": 37,
+  "latency_s": 186.5,
+  "usage_metadata": {
+    "input_tokens": 36929,
+    "output_tokens": 12542,
+    "total_tokens": 49471,
+    "input_token_details": {
+      "cache_read": 0,
+      "cache_creation": 0,
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 0
+    }
+  },
+  "ctor_attrs": {
+    "model": "claude-sonnet-4-6",
+    "max_retries": 0,
+    "default_request_timeout": 600.0,
+    "anthropic_api_url": "https://api.anthropic.com",
+    "timeout_attr": "<missing>"
+  },
+  "diag_timeout_override": 600.0
+}

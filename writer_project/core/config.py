@@ -360,6 +360,12 @@ class Config:
     GEMINI_EMBEDDING_MODEL: str
     GEMINI_API_KEY: str                       # 선택
 
+    # Anthropic (§13-8 진입 — chat only, embedding 은 OpenAI 재사용)
+    ANTHROPIC_MODEL: str
+    ANTHROPIC_API_KEY: str
+    ANTHROPIC_REQUEST_TIMEOUT: float
+    ANTHROPIC_MAX_RETRIES: int
+
     # Vertex AI
     LLM_MODEL: str                            # Vertex chat 모델명
     GCP_PROJECT_ID: str
@@ -605,6 +611,12 @@ def _build_config() -> Config:
         GEMINI_MODEL=_env_str("GEMINI_MODEL", "gemini-2.5-pro"),
         GEMINI_EMBEDDING_MODEL=_env_str("GEMINI_EMBEDDING_MODEL", "text-embedding-004"),
         GEMINI_API_KEY=_env_str("GEMINI_API_KEY", ""),
+
+        # Anthropic
+        ANTHROPIC_MODEL=_env_str("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+        ANTHROPIC_API_KEY=_env_str("ANTHROPIC_API_KEY", ""),
+        ANTHROPIC_REQUEST_TIMEOUT=_env_float("ANTHROPIC_REQUEST_TIMEOUT", 0.0, min_=0.0, max_=3600.0),
+        ANTHROPIC_MAX_RETRIES=_env_int("ANTHROPIC_MAX_RETRIES", 2, min_=0, max_=10),
 
         # Vertex AI
         LLM_MODEL=_env_str("LLM_MODEL", "gemini-2.5-flash"),

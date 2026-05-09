@@ -108,6 +108,28 @@ def _load_provider() -> dict[str, Any]:
         except Exception as e:
             logger.debug("Gemini provider import error: %s", e, exc_info=True)
 
+    elif prov == "anthropic":
+        # §13-8 (2026-05-10): Claude 평가 트랙. langchain-anthropic 은 chat 만 제공 —
+        # embedding 은 OpenAI text-embedding-3-large 로 fallback (venfobel-vitamin-oa
+        # 인덱스가 OpenAI 3072d 로 build 돼 있어 동일 dimensionality 필수). 따라서
+        # APIKeyName 은 ANTHROPIC_API_KEY (chat), get_embedding_model() 은 prov=='anthropic'
+        # 분기에서 OPENAI_API_KEY 직접 참조.
+        out["ChatModelKey"] = "ANTHROPIC_MODEL"
+        out["EmbModelKey"]  = "OPENAI_EMBEDDING_MODEL"
+        out["APIKeyName"]   = "ANTHROPIC_API_KEY"
+        out["DefaultChatModel"]  = "claude-sonnet-4-6"
+        out["DefaultEmbedModel"] = "text-embedding-3-large"
+        try:
+            from langchain_anthropic import ChatAnthropic as _ChatAnthropic
+            out["ChatCtor"] = cast(Callable[..., Any], _ChatAnthropic)
+            try:
+                from langchain_openai import OpenAIEmbeddings as _OpenAIEmbeddings
+                out["EmbCtor"] = cast(Callable[..., Any], _OpenAIEmbeddings)
+            except Exception as e:
+                logger.debug("Anthropic provider: OpenAI embedding fallback import error: %s", e, exc_info=True)
+        except Exception as e:
+            logger.debug("Anthropic provider import error: %s", e, exc_info=True)
+
     elif prov == "vertexai":
         # Vertex AI는 서비스 계정 인증(ADC)
         out["ChatModelKey"] = "LLM_MODEL"  # 통일
@@ -235,6 +257,27 @@ else:
             dict(model=m, temperature=temp, **extra),
         ]
 
+    def _build_anthropic_kwargs(
+        m: str, temp: float, api_key: Optional[str], extra: dict
+    ) -> list[dict]:
+        """Anthropic 용 파라미터 스타일 후보 kwargs.
+
+        §13-8 (2026-05-10): ANTHROPIC_REQUEST_TIMEOUT / ANTHROPIC_MAX_RETRIES 명시 전달 —
+        langchain-anthropic 의 default retry 동작 제어. 0 = 즉시 fail (rate-limit 진단 시).
+        default 2 (Anthropic API 의 일시적 5xx 흡수 + quota 누적 차단 균형).
+        """
+        rt = getattr(config.CFG, "ANTHROPIC_REQUEST_TIMEOUT", 0.0)
+        mr = getattr(config.CFG, "ANTHROPIC_MAX_RETRIES", 2)
+        extra_clean = {k: v for k, v in extra.items() if k not in ("timeout", "max_retries")}
+        if isinstance(rt, (int, float)) and rt > 0:
+            extra_clean["timeout"] = float(rt)
+        if isinstance(mr, int) and mr >= 0:
+            extra_clean["max_retries"] = mr
+        return [
+            dict(model=m, temperature=temp, api_key=api_key, **extra_clean),
+            dict(model=m, temperature=temp, **extra_clean),
+        ]
+
     def _build_vertexai_kwargs(
         m: str, temp: float, extra: dict
     ) -> list[dict]:
@@ -314,6 +357,12 @@ else:
             log_msg = f"base_url={_mask(base_url)} | org={_mask(organization)}"
         elif prov == "vertexai":  # Vertex AI는 project/region만 표기
             log_msg = f"project={_gcp_project()} | region={_gcp_region()}"
+        elif prov == "anthropic":
+            # §13-8 (2026-05-10): timeout/max_retries 가시화 — §13-7-3-bypass 함정 패턴
+            # (kwargs strip 으로 실제 ctor 에 전달 안 됨) 재발 방지. CFG 값 직접 표기.
+            _at = getattr(config.CFG, "ANTHROPIC_REQUEST_TIMEOUT", 0.0)
+            _ar = getattr(config.CFG, "ANTHROPIC_MAX_RETRIES", 2)
+            log_msg = f"timeout={_at} | max_retries={_ar}"
         else:
             log_msg = ""
 
@@ -339,6 +388,8 @@ else:
             kwargs_candidates = _build_openai_kwargs(m, temperature, api_key, base_url, organization, extra)
         elif prov == "gemini":
             kwargs_candidates = _build_gemini_kwargs(m, temperature, api_key, extra)
+        elif prov == "anthropic":
+            kwargs_candidates = _build_anthropic_kwargs(m, temperature, api_key, extra)
         elif prov == "vertexai":
             kwargs_candidates = _build_vertexai_kwargs(m, temperature, extra)
         else:
@@ -354,7 +405,7 @@ else:
             except Exception:
                 raise
 
-        if not api_key and prov in {"openai", "gemini"}:
+        if not api_key and prov in {"openai", "gemini", "anthropic"}:
             logger.error("%s_API_KEY 미설정: 환경변수 또는 get_llm(api_key=...)로 제공 필요", prov.upper())
             raise RuntimeError(f"{prov.upper()}_API_KEY가 설정되지 않았습니다.")
 
@@ -422,6 +473,23 @@ else:
             elif prov == "gemini":
                 kwargs_list = [
                     dict(model=model_name, api_key=api_key),
+                    dict(model=model_name),
+                ]
+            elif prov == "anthropic":
+                # §13-8 (2026-05-10): Anthropic 은 embedding 미제공 → OpenAI fallback.
+                # api_key 가 ANTHROPIC_API_KEY 로 잡혀있으므로 OPENAI_API_KEY 직접 참조.
+                openai_api_key = _none_if_blank(getattr(config.CFG, "OPENAI_API_KEY", None))
+                base_url = (
+                    _none_if_blank(getattr(config.CFG, "OPENAI_BASE_URL", None))
+                    or _none_if_blank(getattr(config.CFG, "OPENAI_API_BASE", None))
+                )
+                organization = (
+                    _none_if_blank(getattr(config.CFG, "OPENAI_ORG_ID", None))
+                    or _none_if_blank(getattr(config.CFG, "OPENAI_ORGANIZATION", None))
+                )
+                kwargs_list = [
+                    dict(model=model_name, api_key=openai_api_key, base_url=base_url, organization=organization),
+                    dict(model_name=model_name, openai_api_key=openai_api_key, openai_api_base=base_url, openai_organization=organization),
                     dict(model=model_name),
                 ]
             elif prov == "vertexai":

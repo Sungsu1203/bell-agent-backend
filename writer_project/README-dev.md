@@ -1803,9 +1803,53 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 
 → §13-7 close. §13-8 Claude 평가는 `deferred` 유지 (의존: §13-7 close 충족).
 
-13-8. **(v3) Claude 평가** — 상태: `deferred` / 의존: §13-7 close ✅ (2026-05-09) / 우선순위: 후
+13-8. **(v3) Claude 평가** — 상태: `진행 중 (2026-05-10 진입)` / 의존: §13-7 close ✅ (2026-05-09) / 우선순위: 후
 - 별도 evaluation 트랙. Anthropic provider 추가 시점은 §12-13-6 (b) Anthropic fallback 도입과 묶어 검토 가능 (의존도 큰 변경이므로 단독 트랙은 비효율).
 - baseline 박제 완료 (§13-7-4 항목 4): gpt-4o n=5 baseline + 측정 인프라 재사용. 진입 시 `--model claude-*` + Anthropic overlay 만 추가.
+
+**§13-8 진입 환경 (2026-05-10)**:
+- Anthropic API 잔액: $25.00 (충전 2026-05-10), Tier 1 (RPM 50, ITPM 30K, OTPM 8K)
+- API key 명: writer-project-eval-13-8 (eval/운영 분리)
+- Auto-reload disabled (의도적 — 토큰 폭주 안전장치)
+- venv: `.venv_anthropic` 신규 (langchain-anthropic 1.4.3 + langchain-openai 1.0.0 embedding fallback)
+- Provider 분기 키 분리 convention 운영 중: `.env.anthropic` ANTHROPIC_API_KEY (글로벌 .env 미보관)
+
+**§13-8-pre 사전 정책 박제 (2026-05-10, phase 2 진입 전)**:
+
+*(1) timeout 시나리오 분류 (phase 2 결과 박제 정책)*:
+- **시나리오 A** (5/5 < 240s): §13-7 표준 깨끗한 baseline 박제. mean±std 정상 산출.
+- **시나리오 B** (1~2건 timeout): 5/5 시도 그대로 박제, timeout 도 데이터. 성공 N건 mean±std + "M/5 timeout" 명시. 추가 run 으로 채우지 않음 (표본 정의 모호 방지).
+- **시나리오 C** (3건+ timeout): "Sonnet 4.6 violates §13-7 240s standard" 결론. baseline 산출 의미 없음, §13-8 운영 부적합 결론 데이터로 박제.
+
+*(2) slide count 결과 분류*:
+- **37 ± 1 범위 내**: phase 2 slide_count 결정성 OK. §13-9 prompt 의 ### 사전 카운트 + 분할 금지 가 Claude 에서도 효과 검증.
+- **±1 범위 밖**: §13-8 결론 재분류. (a) prompt 재튜닝 (Claude 특이 분기 도입) vs (b) 운영 부적합 결론. 측정 후 결정 아님 — 분류 정책 사전 박제 (이 줄).
+
+*(3) cost 검증 정책*:
+- 측정 종료 후 console.anthropic.com Usage 페이지 실측 청구액 확인 → 추정치 (스크립트 내 hardcoded $3/$15 per Mtok) 와 비교.
+- ±5% 이내: 추정 모델 신뢰. §13-9 운영 cost 예측의 기반 자산.
+- ±5% 초과: 추정 보정 필요. _PRICE 사전 (`scripts/measure_stability.py`) 갱신 + 후속 모델 평가 시 동일 검증.
+
+*(4) ThreadPoolExecutor cancel 불가 함정 박제 (`scripts/measure_stability.py:_invoke_with_timeout`)*:
+- timeout 발동 후 future cancel 안 됨 → background 에서 anthropic SDK timeout=600s 까지 호출 잔류 가능.
+- §13-8 phase 2 안전 마진 검증: phase 1 OTPM 4K << 한도 8K, inter-run-sleep 60s, RPM 50 충분 → 실측 환경에서 함정 발현 안 함.
+- 진짜 cancel 필요 시: multiprocessing/ProcessPoolExecutor (강제 종료). 향후 §13-x 에서 OTPM 한도 가까운 모델 평가 시 재검토.
+
+*(5) 측정 인프라 §13-8 확장 (2026-05-10)*:
+- `core/llm.py`: `prov == "anthropic"` 분기 추가 — chat=langchain-anthropic, embedding=OpenAI fallback (text-embedding-3-large, venfobel-vitamin-oa 인덱스 재사용).
+- `core/llm.py`: Anthropic init log (`timeout=X | max_retries=Y`) — §13-7-3-bypass kwargs strip 함정 가시화.
+- `agent/export/planner.py`: `with_structured_output(include_raw=True)` — usage_metadata 캡처 → 모듈-global `_LAST_USAGE_METADATA` 게재.
+- `scripts/measure_stability.py`: per-run usage 회수 + 7-metric summary (`metrics_7` 필드 — ok_runs / timeout_count / latency_stats / input_tokens_stats / output_tokens_stats / slide_count_distribution / cost_estimate).
+- 안전장치 표준 표 (§13-8 시점 추가): `PYTHONIOENCODING=utf-8` (Windows cp949 함정 회피, em-dash·curly quotes 인코딩 실패 차단).
+
+**phase 1 진단 close (2026-05-10, claude-sonnet-4-6 venfobel n=1)**:
+- latency: **186.5s** (gpt-4o baseline 26~48s 대비 5배)
+- input_tokens: 36,929 / output_tokens: 12,542 / total: 49,471
+- 슬라이드: **37** (gpt-4o n=5 baseline 37.4±0.5 와 동일 결정성)
+- OTPM 실측: 4,035 tok/min (Tier 1 한도 8K 의 50%)
+- ctor 검증 OK: max_retries=0, timeout=600 (진단 override) 정상 적용 — §13-7-3-bypass 함정 회피
+- 비용 1 run: $0.299 (input 36,929×$3/Mtok + output 12,542×$15/Mtok)
+- **부적합 시그널**: latency 5배 + 비용 4배 → 운영 default 후보 부적합 가능. phase 2 baseline 의 가치는 default 산출이 아니라 (a) 분산 정량화 (b) timeout violation rate (c) OTPM 누적 거동 검증 → §13-8 결론의 정량 보강.
 
 13-9. **출력 안정화 (언어·표 추출·슬라이드 수)** — 상태: `closed (2026-05-09)` / 의존: §13-3 v3-fix1 close / 우선순위: 중
 
