@@ -1851,6 +1851,60 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 - 비용 1 run: $0.299 (input 36,929×$3/Mtok + output 12,542×$15/Mtok)
 - **부적합 시그널**: latency 5배 + 비용 4배 → 운영 default 후보 부적합 가능. phase 2 baseline 의 가치는 default 산출이 아니라 (a) 분산 정량화 (b) timeout violation rate (c) OTPM 누적 거동 검증 → §13-8 결론의 정량 보강.
 
+**phase 2 baseline close (2026-05-10, claude-sonnet-4-6 venfobel n=5)**:
+
+*결과 (logs/baseline_anthropic_claudesonnet46_20260510_080113.json)*:
+
+| run | slides | tables | lang(kor) | src(body/notes) | latency | tok(in/out) |
+|---|---|---|---|---|---|---|
+| 1 | 37 | 3 | ko (0.97) | 0 / 58 | 192.9s | 36,929 / 12,875 |
+| 2 | 37 | 3 | ko (0.96) | 0 / 58 | 199.7s | 36,929 / 11,945 |
+| 3 | 37 | 3 | ko (0.96) | 0 / 53 | 189.8s | 36,929 / 12,564 |
+| 4 | 36 | 3 | ko (0.96) | 0 / 32 | 184.1s | 36,929 / 12,288 |
+| 5 | 38 | 3 | ko (0.97) | 0 / 67 | 204.0s | 36,929 / 13,495 |
+
+*7-metric (사전 정책 결정 기준)*:
+1. ok_runs: **5/5** (warmup 2 + main 5 = 7/7) — timeout 0, other_fail 0
+2. timeout 분류: **A (clean baseline)** — §13-8-pre 정책 (1) 적용 완료
+3. latency: mean **194.1s** ±7.06s (CV 3.6%) — min 184.1 / max 204.0
+4. input_tokens: mean **36,929** std **0.0** — 완전 결정성 (prompt + md 동일)
+5. output_tokens: mean **12,633** std 528.9 (CV 4.2%)
+6. slide_count: **[37, 37, 37, 36, 38]** spread 2 — 사전 정책 (2) "37 ± 1" 만족 → §13-8 재분류 불필요
+7. cost 추정: $0.300/run × 5 = **$1.50 total** (rates: in $3/Mtok, out $15/Mtok)
+
+*close 조건 6종 평가*:
+| 조건 | 결과 | 비고 |
+|---|---|---|
+| ok_runs ≥ 5/5 | ✅ 5/5 | clean baseline |
+| slide_spread ≤ 2 | ✅ 2 | [37,37,37,36,38] |
+| lang_consistency | ✅ | 100% ko, kor 0.96~0.97 |
+| **table_consistency** | **❌** | **X'=1 vs tables=3 (5/5 모두)** — systematic 위반 |
+| src_body_clean | ✅ | body 0 |
+| src_notes_present | ✅ | notes 32~67 |
+| **종합 PASS** | **False** | table_consistency 단일 위반 |
+
+*§13-7 (gpt-4o n=5 §13-9 Round 3) baseline 비교 (logs/stability_venfobel-vitamin_20260509_085057.json)*:
+
+| 지표 | gpt-4o n=5 | Sonnet n=5 | 비율 / 패턴 |
+|---|---|---|---|
+| slides | [38,37,38,37,37] mean 37.4 spread 1 | [37,37,37,36,38] mean 37.0 spread 2 | **1.0배 (동등 결정성)** |
+| tables | [1,1,1,1,1] | [3,3,3,3,3] | **3.0배 (체계적, 분산 0)** |
+| notes | [17,15,19,14,16] mean 16.2 spread 5 | [58,58,53,32,67] mean 53.6 spread **35** | **3.3배 + 분산 7배** |
+| latency | mean 35.3s | mean 194.1s | **5.5배** |
+
+**가설 박제 — Sonnet 4.6 의 systematic 자율 확장 패턴 (§13-8 발견)**:
+- **구조적 골격** (slides, input_tokens) 은 prompt 충실 + 결정적
+- **의미적 부속** (tables, notes) 은 모델 자율 + 부분 확률적
+- 데이터 시그너처:
+  - slides: 1.0배 (동등 결정성)
+  - tables: 3.0배 (체계적, 분산 0 — 입력 X'=1 위반이지만 5/5 모두 정확히 3개)
+  - notes: 3.3배 + 분산 7배 (체계적 + 확률적 — gpt-4o spread 5 vs Sonnet spread 35)
+- 시사: gpt-4o 와의 차이는 latency/cost 뿐 아니라 **출력 스타일 해석 자체** 에서 발생.
+  prompt 의 "structural constraint" (슬라이드 수, 헤딩 매핑) 은 양 모델 동등 충실,
+  "stylistic constraint" (표 보존, 출처 마커) 은 Sonnet 이 자율 확장.
+- 진단 가치: 단일 항목 (tables 만) 패치보다 출력 스타일 통제 prompt 재설계가 작업
+  범위 (§13-9 재진입 조건 (c) 확장 — tables 및 notes 자율 확장 억제 prompt 패치).
+
 13-9. **출력 안정화 (언어·표 추출·슬라이드 수)** — 상태: `closed (2026-05-09)` / 의존: §13-3 v3-fix1 close / 우선순위: 중
 
 **문제 (open 시점)**:

@@ -1,0 +1,131 @@
+{
+  "md_path": "reports\\venfobel-vitamin\\latest.md",
+  "slug": "venfobel-vitamin",
+  "topic_title": "종근당 '벤포벨S' 2026 광고기획 / 고함량 활성비타민 시장 3C 분석",
+  "n": 5,
+  "x_prime": 1,
+  "md_source_markers": 54,
+  "runs": [
+    {
+      "run": 1,
+      "slide_count": 37,
+      "table_count": 3,
+      "lang": "ko",
+      "kor_ratio": 0.972,
+      "src_in_body": 0,
+      "src_in_notes": 58,
+      "latency_s": 192.86,
+      "input_tokens": 36929,
+      "output_tokens": 12875,
+      "ok": true
+    },
+    {
+      "run": 2,
+      "slide_count": 37,
+      "table_count": 3,
+      "lang": "ko",
+      "kor_ratio": 0.958,
+      "src_in_body": 0,
+      "src_in_notes": 58,
+      "latency_s": 199.73,
+      "input_tokens": 36929,
+      "output_tokens": 11945,
+      "ok": true
+    },
+    {
+      "run": 3,
+      "slide_count": 37,
+      "table_count": 3,
+      "lang": "ko",
+      "kor_ratio": 0.961,
+      "src_in_body": 0,
+      "src_in_notes": 53,
+      "latency_s": 189.78,
+      "input_tokens": 36929,
+      "output_tokens": 12564,
+      "ok": true
+    },
+    {
+      "run": 4,
+      "slide_count": 36,
+      "table_count": 3,
+      "lang": "ko",
+      "kor_ratio": 0.96,
+      "src_in_body": 0,
+      "src_in_notes": 32,
+      "latency_s": 184.12,
+      "input_tokens": 36929,
+      "output_tokens": 12288,
+      "ok": true
+    },
+    {
+      "run": 5,
+      "slide_count": 38,
+      "table_count": 3,
+      "lang": "ko",
+      "kor_ratio": 0.974,
+      "src_in_body": 0,
+      "src_in_notes": 67,
+      "latency_s": 204.0,
+      "input_tokens": 36929,
+      "output_tokens": 13495,
+      "ok": true
+    }
+  ],
+  "slide_spread": 2,
+  "lang_consistency": true,
+  "table_consistency": false,
+  "source_body_clean": true,
+  "source_notes_present": true,
+  "source_consistency": true,
+  "ok_runs": 5,
+  "pass": false,
+  "metrics_7": {
+    "ok_runs_count": 5,
+    "timeout_count": 0,
+    "other_fail_count": 0,
+    "latency_stats": {
+      "n": 5,
+      "mean": 194.1,
+      "std": 7.06,
+      "min": 184.12,
+      "max": 204.0
+    },
+    "input_tokens_stats": {
+      "n": 5,
+      "mean": 36929.0,
+      "std": 0.0,
+      "min": 36929.0,
+      "max": 36929.0
+    },
+    "output_tokens_stats": {
+      "n": 5,
+      "mean": 12633.4,
+      "std": 528.91,
+      "min": 11945.0,
+      "max": 13495.0
+    },
+    "slide_count_distribution": [
+      37,
+      37,
+      37,
+      36,
+      38
+    ],
+    "cost_estimate": {
+      "model": "claude-sonnet-4-6",
+      "rate_in_per_mtok_usd": 3.0,
+      "rate_out_per_mtok_usd": 15.0,
+      "per_run_usd": 0.3003,
+      "total_usd": 1.5014,
+      "n_runs": 5
+    }
+  },
+  "model": "claude-sonnet-4-6",
+  "per_run_timeout_s": 240.0,
+  "inter_run_sleep_s": 60.0,
+  "warmup_runs": 2,
+  "warmup_input": "reports/_cli_test/test.md",
+  "region": "us-central1",
+  "max_retries": 0
+}

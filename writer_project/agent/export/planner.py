@@ -34,6 +34,12 @@ import json as _json
 from datetime import datetime as _dt
 from pathlib import Path as _Path
 
+# §13-8 (2026-05-10): usage_metadata 캡처용 모듈-global. 다음 invoke 호출까지 유지.
+# measure_stability.py 가 plan_deck 호출 직후 _LAST_USAGE_METADATA 를 읽어 per-run 토큰 박제.
+# include_raw=True 로 받은 raw response 의 usage_metadata 를 그대로 노출
+# (input_tokens / output_tokens / total_tokens / input_token_details).
+_LAST_USAGE_METADATA: dict | None = None
+
 
 def _append_warmup_log(*, provider: str, model: str, latency_s: float,
                        success: bool, error_class: str, slug: str) -> None:
@@ -107,7 +113,10 @@ def plan_deck(
     # §13-7 (2026-05-09): SlideSpec.layout_id 의 Literal[0,1,2] 를 int + validator 로 단순화 →
     # Vertex AI 의 function_calling schema 호환성 확보 (이전엔 protobuf marshal 단계에서 ParseError).
     # 모든 provider 동일 경로 (gpt-4o / gemini-pro / gemini-flash 무차별).
-    structured = llm_planner.with_structured_output(SlideDeckSpec)
+    # §13-8 (2026-05-10): include_raw=True — raw AIMessage 의 usage_metadata 캡처 목적.
+    # parsed=SlideDeckSpec, raw=AIMessage(usage_metadata=...) 둘 다 회수. measure_stability
+    # 가 _LAST_USAGE_METADATA 모듈-global 을 읽어 per-run 토큰 박제.
+    structured = llm_planner.with_structured_output(SlideDeckSpec, include_raw=True)
     chain = get_pptx_planner_prompt() | structured
 
     # §13-9 Round 3 (2026-05-09): 슬라이드 수 결정성 — md 헤딩 사전 카운트 후 prompt 주입.
@@ -122,7 +131,7 @@ def plan_deck(
 
     t0 = time.monotonic()
     try:
-        result = chain.invoke({
+        _raw_res = chain.invoke({
             "topic_title": topic_title,
             "slug": slug,
             "md_text": md_text,
@@ -130,6 +139,26 @@ def plan_deck(
             "n_h3_sections": n_h3,
             "n_total_slides": n_total_slides,
         })
+        # §13-8 (2026-05-10): include_raw=True 로 받은 응답 형태 = {"raw": AIMessage,
+        # "parsed": SlideDeckSpec, "parsing_error": Exception | None}.
+        if isinstance(_raw_res, dict):
+            result = _raw_res.get("parsed")
+            _raw = _raw_res.get("raw")
+            global _LAST_USAGE_METADATA
+            try:
+                _LAST_USAGE_METADATA = getattr(_raw, "usage_metadata", None) if _raw else None
+            except Exception:
+                _LAST_USAGE_METADATA = None
+            if result is None:
+                # parse 실패 → parsing_error 또는 raw 만 있는 케이스. 호환 위해 예외화.
+                _err = _raw_res.get("parsing_error")
+                if _err is not None:
+                    raise _err
+                raise RuntimeError("with_structured_output(include_raw=True) returned no parsed object")
+        else:
+            # 안전장치: 구버전 langchain 호환 (include_raw 미적용 시)
+            result = _raw_res
+            _LAST_USAGE_METADATA = None
     except Exception as err:
         lat_fail = time.monotonic() - t0
         if _record_metrics and _record_llm_call:

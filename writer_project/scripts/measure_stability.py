@@ -47,7 +47,20 @@ def _print(msg: str = "") -> None:
 
 def _invoke_with_timeout(fn, timeout_s: float, *args, **kwargs):
     """ThreadPoolExecutor 로 fn 호출 wrap, timeout 초과 시 FuturesTimeoutError raise.
-    주의: thread cancel 안 됨 — timeout 후 백그라운드에서 호출 계속될 수 있으나 측정은 진행."""
+
+    §13-8 (2026-05-10) 박제 — ThreadPoolExecutor cancel 불가 함정:
+    - timeout 발동 시 future.result() 만 raise. 내부 LLM 호출은 background 에서 계속.
+    - 이론상 cancelled future 가 종료되기 전 다음 run 시작 시 OTPM/RPM 누적 위험.
+    - §13-8 phase 2 안전 마진 검증 (claude-sonnet-4-6 venfobel 기준):
+      * phase 1 단독 run OTPM = 4,035 tok/min (Tier 1 한도 8,000 의 50%)
+      * inter-run-sleep 60s 동안 OTPM budget refresh 가능
+      * background future 의 anthropic SDK timeout = 600s — 240s 측정 timeout 후 최대 360s
+        잔여. 다음 run 의 OTPM 과 합쳐도 Anthropic Sonnet API 호출 1개당 ≤4K rate →
+        2개 동시 ≤8K (한도 ±경계). 운영상 안전.
+      * RPM 한도는 Tier 1 50/min — 충분히 여유.
+    - 진짜 cancel 이 필요하면 multiprocessing 또는 ProcessPoolExecutor 로 강제 종료.
+      현재 측정 인프라는 OTPM 안전 마진 + 60s sleep 으로 보호.
+    """
     with ThreadPoolExecutor(max_workers=1) as ex:
         future = ex.submit(fn, *args, **kwargs)
         return future.result(timeout=timeout_s)
@@ -202,6 +215,13 @@ def measure_run(
             lang, ratio = _detect_lang(deck)
             table_count = _count_tables(deck)
             body_n, notes_n = _source_marker_locations(deck)
+            # §13-8 (2026-05-10): plan_deck 모듈-global 에서 usage_metadata 회수.
+            # input/output tokens 분포 + 비용 추정용. 실패 시 None 유지 (호환).
+            try:
+                from agent.export import planner as _planner_mod
+                usage = getattr(_planner_mod, "_LAST_USAGE_METADATA", None)
+            except Exception:
+                usage = None
             entry = {
                 "run": i + 1,
                 "slide_count": slide_count,
@@ -211,11 +231,16 @@ def measure_run(
                 "src_in_body": body_n,
                 "src_in_notes": notes_n,
                 "latency_s": round(lat, 2),
+                "input_tokens": (usage or {}).get("input_tokens") if isinstance(usage, dict) else None,
+                "output_tokens": (usage or {}).get("output_tokens") if isinstance(usage, dict) else None,
                 "ok": True,
             }
+            _tok_str = ""
+            if entry["input_tokens"] is not None and entry["output_tokens"] is not None:
+                _tok_str = f"  tok(in={entry['input_tokens']:,} out={entry['output_tokens']:,})"
             _print(f"  run {i+1}: slides={slide_count}  tables={table_count}  "
                    f"lang={lang} (kor={ratio:.2f})  src(body={body_n},notes={notes_n})  "
-                   f"lat={lat:.1f}s")
+                   f"lat={lat:.1f}s{_tok_str}")
         except FuturesTimeoutError:
             lat = time.monotonic() - t0
             entry = {
@@ -268,6 +293,63 @@ def measure_run(
         and source_consistency
     )
 
+    # §13-8 (2026-05-10): 7개 지표 자동 산출 — latency / token / cost 분포.
+    def _stat(vals: list[float]) -> dict:
+        if not vals:
+            return {"n": 0, "mean": None, "std": None, "min": None, "max": None}
+        m = sum(vals) / len(vals)
+        v = sum((x - m) ** 2 for x in vals) / len(vals)
+        return {"n": len(vals), "mean": round(m, 2), "std": round(v ** 0.5, 2),
+                "min": round(min(vals), 2), "max": round(max(vals), 2)}
+
+    lat_vals = [float(r["latency_s"]) for r in ok_runs if r.get("latency_s") is not None]
+    in_tok_vals = [int(r["input_tokens"]) for r in ok_runs if r.get("input_tokens") is not None]
+    out_tok_vals = [int(r["output_tokens"]) for r in ok_runs if r.get("output_tokens") is not None]
+    timeout_count = sum(1 for r in runs if r.get("error_class") == "TimeoutError")
+    other_fail = sum(1 for r in runs if not r.get("ok") and r.get("error_class") != "TimeoutError")
+
+    # 비용 추정 — 모델 기반 hardcoded rates (1M token 당 USD).
+    # claude-sonnet-4-6 (2026-05 기준 공시): input $3 / output $15.
+    # 다른 모델 추가 시 _PRICE 사전에 등록.
+    _PRICE = {
+        "claude-sonnet-4-6": {"in": 3.0, "out": 15.0},
+        "claude-opus-4-7": {"in": 15.0, "out": 75.0},
+        "claude-haiku-4-5": {"in": 1.0, "out": 5.0},
+        "gpt-4o": {"in": 2.5, "out": 10.0},
+        "gemini-2.5-pro": {"in": 1.25, "out": 5.0},
+        "gemini-2.5-flash": {"in": 0.075, "out": 0.30},
+    }
+    _rate = _PRICE.get((model or "").strip().lower())
+    if _rate and in_tok_vals and out_tok_vals:
+        cost_runs = [
+            (i_tok / 1e6) * _rate["in"] + (o_tok / 1e6) * _rate["out"]
+            for i_tok, o_tok in zip(in_tok_vals, out_tok_vals)
+        ]
+        cost_total = round(sum(cost_runs), 4)
+        cost_per_run = round(cost_total / len(cost_runs), 4) if cost_runs else None
+    else:
+        cost_runs = []
+        cost_total = None
+        cost_per_run = None
+
+    metrics_7 = {
+        "ok_runs_count": len(ok_runs),
+        "timeout_count": timeout_count,
+        "other_fail_count": other_fail,
+        "latency_stats": _stat(lat_vals),
+        "input_tokens_stats": _stat([float(x) for x in in_tok_vals]),
+        "output_tokens_stats": _stat([float(x) for x in out_tok_vals]),
+        "slide_count_distribution": [r["slide_count"] for r in ok_runs if r.get("slide_count") is not None],
+        "cost_estimate": {
+            "model": model,
+            "rate_in_per_mtok_usd": _rate["in"] if _rate else None,
+            "rate_out_per_mtok_usd": _rate["out"] if _rate else None,
+            "per_run_usd": cost_per_run,
+            "total_usd": cost_total,
+            "n_runs": len(cost_runs),
+        },
+    }
+
     summary = {
         "md_path": str(md_path),
         "slug": slug,
@@ -284,6 +366,7 @@ def measure_run(
         "source_consistency": source_consistency,
         "ok_runs": len(ok_runs),
         "pass": passed,
+        "metrics_7": metrics_7,
     }
     return summary
 
@@ -360,6 +443,29 @@ def main() -> int:
     _print(f"  src_body_clean:    {summary['source_body_clean']}  (True 통과 — 본문 마커 0)")
     _print(f"  src_notes_present: {summary['source_notes_present']}  (True 통과 — 노트 마커 ≥1)")
     _print(f"  PASS: {summary['pass']}")
+
+    # §13-8 (2026-05-10): 7개 지표 콘솔 보고
+    m7 = summary.get("metrics_7", {})
+    _print(f"\n=== §13-8 7-metric 보고 ===")
+    _print(f"  (1) ok_runs:           {m7.get('ok_runs_count')}/{summary['n']}  "
+           f"(timeout={m7.get('timeout_count')}, other_fail={m7.get('other_fail_count')})")
+    _print(f"  (2) timeout 분류:      "
+           f"{'A (clean baseline)' if m7.get('timeout_count', 0) == 0 else ('B (' + str(m7.get('timeout_count')) + '/' + str(summary['n']) + ' timeout)' if m7.get('timeout_count', 0) <= 2 else 'C (≥3 timeout — 운영 부적합)')}")
+    ls = m7.get("latency_stats", {})
+    _print(f"  (3) latency:           mean={ls.get('mean')}s std={ls.get('std')}s "
+           f"min={ls.get('min')}s max={ls.get('max')}s")
+    its = m7.get("input_tokens_stats", {})
+    ots = m7.get("output_tokens_stats", {})
+    _print(f"  (4) input_tokens:      mean={its.get('mean')} std={its.get('std')} "
+           f"min={its.get('min')} max={its.get('max')}")
+    _print(f"  (5) output_tokens:     mean={ots.get('mean')} std={ots.get('std')} "
+           f"min={ots.get('min')} max={ots.get('max')}")
+    _print(f"  (6) slide_count 분포: {m7.get('slide_count_distribution')}  "
+           f"(phase 1=37, gpt-4o baseline=37.4±0.5)")
+    ce = m7.get("cost_estimate", {})
+    _print(f"  (7) cost 추정:         per_run=${ce.get('per_run_usd')}  "
+           f"total(n={ce.get('n_runs')})=${ce.get('total_usd')} USD  "
+           f"(rates: in=${ce.get('rate_in_per_mtok_usd')}/Mtok, out=${ce.get('rate_out_per_mtok_usd')}/Mtok)")
 
     if args.out:
         out = Path(args.out)
