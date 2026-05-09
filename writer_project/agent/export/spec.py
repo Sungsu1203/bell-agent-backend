@@ -1,7 +1,7 @@
 # agent/export/spec.py
 from __future__ import annotations
-from typing import List, Literal, Optional
-from pydantic import BaseModel, Field
+from typing import List, Optional
+from pydantic import BaseModel, Field, field_validator
 
 
 class TableSpec(BaseModel):
@@ -25,21 +25,35 @@ class TableSpec(BaseModel):
 class SlideSpec(BaseModel):
     """슬라이드 1장의 결정론적 명세 — planner LLM 의 structured output target.
 
-    layout_id 는 Literal[0,1,2] 로 좁혀 LLM hallucination(layout 3~10 잘못 선택) 방지.
-    템플릿 매핑 (templates/agency_default.pptx, §13-1 close 결과):
+    layout_id 매핑 (templates/agency_default.pptx, §13-1 close 결과):
       - 0 = TITLE          (CENTER_TITLE + SUBTITLE)
       - 1 = TITLE_CONTENT  (TITLE + OBJECT)
       - 2 = SECTION_HEADER (placeholder 0개 — renderer 가 textbox 직접 주입)
+
+    §13-7 (2026-05-09): `Literal[0, 1, 2]` → `int + Field(ge=0, le=2) + field_validator`.
+    Vertex AI function_calling/json_mode 가 int Literal/enum 을 protobuf 로 변환 시 실패
+    (`TypeError: bad argument type` / `ParseError: Failed to parse enum field`).
+    Pydantic 검증은 동일 (validator 가 0/1/2 외 값 reject), schema 는 simple int 로 단순화.
     """
-    layout_id: Literal[0, 1, 2] = Field(
+    layout_id: int = Field(
         ...,
+        ge=0,
+        le=2,
         description=(
-            "슬라이드 레이아웃 ID. 다음 3종만 허용:\n"
-            "- 0: TITLE — 보고서 첫 표지(제목+부제). deck 에서 1번만 사용 권장.\n"
+            "슬라이드 레이아웃 ID. **반드시 0, 1, 2 중 하나**.\n"
+            "- 0: TITLE — 보고서 첫 표지(제목+부제). deck 에서 1번만 사용.\n"
             "- 1: TITLE_CONTENT — 일반 본문 슬라이드(섹션 제목 + 본문/bullets/표).\n"
-            "- 2: SECTION_HEADER — 챕터 구획 슬라이드(## N. 챕터 시작 시 1장)."
+            "- 2: SECTION_HEADER — 챕터 구획 슬라이드(## N. 챕터 시작 시 1장).\n"
+            "다른 값 (3, 5 등) 출력 금지 — Pydantic validator 가 reject."
         ),
     )
+
+    @field_validator("layout_id")
+    @classmethod
+    def _layout_id_must_be_0_1_2(cls, v: int) -> int:
+        if v not in (0, 1, 2):
+            raise ValueError(f"layout_id must be 0, 1, or 2 — got {v}")
+        return v
     title: str = Field(
         ...,
         description=(

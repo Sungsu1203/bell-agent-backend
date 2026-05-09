@@ -123,8 +123,11 @@ def _load_provider() -> dict[str, Any]:
             from langchain_google_vertexai import ChatVertexAI as _ChatVertexAI
             from langchain_google_vertexai import VertexAIEmbeddings as _VertexAIEmbeddings
             def _strip_kwargs_for_vertex(ctor):
+                # §13-7-3-bypass (2026-05-09): max_retries 는 strip 제외 — Vertex 4xx/429
+                # backoff retry 제어 필요 (langchain 내부 default 6회 retry 가 quota 한도 누적
+                # 패턴 유발). VERTEX_MAX_RETRIES env 로 0 set 가능.
                 def _wrapped(**kw):
-                    for k in ("api_key", "base_url", "organization", "max_retries"):
+                    for k in ("api_key", "base_url", "organization"):
                         kw.pop(k, None)
                     return ctor(**kw)
                 return _wrapped
@@ -235,9 +238,17 @@ else:
     def _build_vertexai_kwargs(
         m: str, temp: float, extra: dict
     ) -> list[dict]:
-        """Vertex AI용 파라미터 스타일 후보 kwargs."""
+        """Vertex AI용 파라미터 스타일 후보 kwargs.
+
+        §13-7-3-bypass (2026-05-09): VERTEX_MAX_RETRIES 명시 전달 — langchain
+        internal _completion_with_retry 의 backoff 제어. 0 = 즉시 fail (quota retry
+        누적 차단). default 6 (langchain 기본값과 동일).
+        """
         rt = getattr(config.CFG, "VERTEX_REQUEST_TIMEOUT", 120)
-        extra_clean = {k: v for k, v in extra.items() if k != "timeout"}
+        mr = getattr(config.CFG, "VERTEX_MAX_RETRIES", 6)
+        extra_clean = {k: v for k, v in extra.items() if k not in ("timeout", "max_retries")}
+        if isinstance(mr, int) and mr >= 0:
+            extra_clean["max_retries"] = mr
         return [
             dict(model=m, temperature=temp, project=_gcp_project(), location=_gcp_region(), timeout=rt, **extra_clean),
             dict(model=m, temperature=temp, timeout=rt, **extra_clean),

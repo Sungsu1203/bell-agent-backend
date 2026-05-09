@@ -1580,8 +1580,134 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 - gpt-4o baseline 박제: 평균 37.4 slides / 매 run 표 1개 / 한국어 100% / latency 26~48s / spread 1.
 - §13-7 (Gemini) 진입 시 동일 `scripts/measure_stability.py` 로 측정해 직접 비교 가능.
 
-13-7. **(v2) Gemini A/B 비교** — 상태: `deferred` / 의존: §13-6 close / 우선순위: 중
+13-7. **(v2) Gemini A/B 비교** — 상태: `in-progress (2026-05-09)` / 의존: §13-6 close / 우선순위: 중
 - v1 deck 사용자 평가 통과 후 진입. `.venv_vertex` + `LLM_PROVIDER=vertexai` 토글로 동일 입력에 대한 deck 비교. spec/renderer 동일, planner LLM 만 교체.
+
+**§13-7-1 (closed 2026-05-09)**: provider 어댑터 점검 + `measure_stability.py --model` 추가
+- `agent/export/spec.py`: `Literal[0,1,2]` → `int + Field(ge=0,le=2) + field_validator` (Vertex function_calling 호환).
+- `agent/export/planner.py`: `model` 인자 추가 (명시 시 reset_llm + get_llm(model=...)).
+- `scripts/measure_stability.py`: `--model`, `--region`, `--per-run-timeout`, `--inter-run-sleep`, `--warmup-runs`, `--warmup-input` CLI 옵션.
+
+**§13-7-3a (closed 2026-05-09)**: 1차 측정 데이터 quota-pollution 의심으로 격리
+- `reports/_quarantine/` 로 이동 (Pro venfobel n=5 + Flash test 결과). 운영 결정 근거 사용 금지.
+- 격리 사유: GCP project minimal 상태 + langchain 내부 retry 로 polluted measurements (Flash 713s, Pro 336s 비정상 latency).
+
+**§13-7-3b (closed 2026-05-09)**: measure_stability 안전장치 (per-run timeout / inter-run-sleep / warmup) 추가
+- ThreadPoolExecutor wall-clock timeout (langchain 무한 backoff 차단).
+- `_print(flush=True)` (background 종료 시 buffer 손실 방지).
+
+**§13-7-3c-region (closed 2026-05-09)**: `--region` CLI 옵션
+- env set + reload_config_inplace + reset_llm 시퀀스 (LLM_PROVIDER/MODEL 보존·복원).
+
+**§13-7-3d (closed 2026-05-09)**: asia-northeast3 sanity check
+- `_cli_test/test.md` (350 chars) Flash latency 20.7s — region 정상.
+
+**§13-7-2 (partial close 2026-05-09)**: gemini-2.5-pro n=5 평가 (asia-northeast3, warmup 1회, timeout 300s, sleep 60s)
+
+| Run | Latency | slides | tables | lang | body marker | notes marker | ok |
+|---|---|---|---|---|---|---|---|
+| 1 | 337s | - | - | - | - | - | False (timeout) |
+| 2 | 346s | - | - | - | - | - | False (timeout) |
+| 3 | 91s | 43 | 1 | ko (0.91) | 28 | 8 | True |
+| 4 | 94s | 43 | 1 | ko (0.90) | 28 | 8 | True |
+| 5 | 100s | 43 | 1 | ko (0.99) | **0** | **50** | True |
+
+§13-9 close 조건 (warm 3 run 기준):
+- slide_spread = 0 (43/43/43) ✅ — gpt-4o spread 1 보다 우수
+- lang_consistency: 100% ko ✅
+- table_consistency: X'=1, 1/1/1 ✅
+- src_body_clean: 28/28/0 → 2/3 위반 ❌
+- src_notes_present: 8/8/50 ✅
+
+→ **4/5 metric PASS, src_body 만 비결정 = partial close**.
+
+**핵심 발견 (run 5 분석)**:
+- Run 3, 4 = body 28 + notes 8 (정책 A: 마커 split 후 일부만 notes 이동)
+- Run 5 = body 0 + notes 50 (정책 B: 완벽 분리 ✅)
+- → Pro 의 능력 부족이 아니라 **prompt 해석 비결정성** (run 5 가 가능 증거).
+- → §13-9 Round 2-3 패턴과 본질 동일 ("자율 판단 여지 부여").
+
+**비교 baseline (gpt-4o 전체 vs Pro warm 3)**:
+| metric | gpt-4o (n=5) | Pro warm (n=3) | 우위 |
+|---|---|---|---|
+| slide_spread | 1 | 0 | Pro |
+| body marker (n PASS) | 5/5 | 1/3 | gpt-4o |
+| latency | 26~48s | 91~100s | gpt-4o (2-3x faster) |
+| cost / run | $0.075 | $0.046 | Pro (38% saving) |
+
+**§13-7-3 (in-progress 2026-05-09)**: gemini-2.5-flash n=5 평가 진행
+- Pro partial close 후 즉시 진입. 3-way 결과로 §13-7-2-tune 분기 결정 (Vertex 모델군 공통 이슈인지, Pro 특이 이슈인지).
+- warmup 처리 옵션 (1) 채택: `plan_deck(_record_metrics=False)` + `logs/warmup_log.ndjson` 별도 보존.
+- 운영 default 결정 보류 — Flash 결과 후.
+
+**§13-7-3-asia-fail (2026-05-09)**: asia-northeast3 1차 시도 실패 — quota retry 누적 확정
+- 1차 명령어 (sleep 60, region asia-northeast3, retry default 6): run 1 timeout 240s + run 2 동일 패턴.
+- log 결정적 증거: `langchain_google_vertexai ... _completion_with_retry ... ResourceExhausted: 429`.
+- 진단 1.75h: TPM 0.04% / TTS RPM 10 (무관) / 일반 모델 RPM 한도 미확정.
+- → 진단 종료 결정 ("§13-9 의 justifiable improvement 정신" 적용). 우회 적용 우선.
+
+**§13-7-3-bypass (in-progress 2026-05-09)**: 우회 적용 — root cause 변수 분리 검증
+- **목표**: max_retries=0 단독 효과 검증. 정상 시 "retry 누적이 root cause" 박제, 비정상 시 sleep 180s 또는 다른 원인 추가 진단.
+- 코드 변경:
+  - `core/llm.py` — `_strip_kwargs_for_vertex` 가 max_retries 도 strip 하던 issue 제거. `_build_vertexai_kwargs` 가 `VERTEX_MAX_RETRIES` 명시 전달.
+  - `core/config.py` — `VERTEX_MAX_RETRIES: int` 필드 + env loader (default 6, range 0~10).
+  - `scripts/measure_stability.py` — `--max-retries` CLI (default 0), `--region` default us-central1, summary JSON 에 region/max_retries 박제.
+  - `agent/export/planner.py` — `_record_metrics: bool = True` flag (warmup 호출 시 False → metrics.ndjson 미기록 + `logs/warmup_log.ndjson` 별도 보존).
+- **재개 순서** (§13-7-3-retry 진입 전 prerequisite 2건 必先 — 본 측정 비용·시간 손실 회피):
+  - **Step 1 (§13-7-3-regress)**: 회귀 테스트 gpt-4o n=1 — 코드 변경 (core/llm.py·config.py·planner.py·measure_stability.py) 후 OpenAI 흐름 무손실 검증. error 없으면 PASS.
+  - **Step 2 (§13-7-3-sanity)**: Sanity check Flash n=1 (짧은 입력 test.md) — `max_retries=0` 효과 검증. 즉시 성공/실패 판정 가능한지 확인. PASS = retry 차단이 root cause 박제 + Step 3 진입. FAIL = sleep 180s 또는 다른 원인 진단.
+  - **Step 3 (§13-7-3-retry)**: Flash n=5 본 측정 — Step 1·2 모두 PASS 시에만 진입.
+  - 본 측정 진입 후: §13-7-4 (3-way 비교) → §13-7-restore (.env 복원).
+- **재개 명령어**:
+  ```
+  # Step 1: 회귀 테스트 (gpt-4o, OpenAI 흐름 무손실 검증)
+  $env:PYTHONIOENCODING="utf-8"; & "D:\gpt_agent\.venv_openai\Scripts\python.exe" `
+    -u scripts\measure_stability.py --md reports\_cli_test\test.md `
+    --slug _cli_test --topic-title "Regression Test" --n 1 --model gpt-4o
+
+  # Step 2: Sanity check (Flash 1회, 짧은 입력, max_retries=0 효과 검증)
+  $env:PYTHONIOENCODING="utf-8"; & "D:\gpt_agent\.venv_vertex\Scripts\python.exe" `
+    -u scripts\measure_stability.py --md reports\_cli_test\test.md `
+    --slug _cli_test --topic-title "Flash Sanity" --n 1 `
+    --model gemini-2.5-flash --region us-central1 `
+    --per-run-timeout 60 --max-retries 0
+
+  # Step 3: Flash 재측정 (us-central1, sleep 60, max_retries 0) — Step 1·2 PASS 후
+  $env:PYTHONIOENCODING="utf-8"; & "D:\gpt_agent\.venv_vertex\Scripts\python.exe" `
+    -u scripts\measure_stability.py --md reports\venfobel-vitamin\latest.md `
+    --slug venfobel-vitamin --topic-title "Venfobel Vitamin" `
+    --n 5 --model gemini-2.5-flash --region us-central1 `
+    --per-run-timeout 240 --inter-run-sleep 60 --max-retries 0 `
+    --warmup-runs 2 --warmup-input reports\_cli_test\test.md
+  ```
+- 시간 추정: Step 1 ~30s, Step 2 ~30s, Step 3 ~10분.
+- 비용 추정: ~$0.06 (warmup 무시, Step 1/2 무시 가능).
+
+**§13-7-restore (open)**: 측정 종료 후 `.env` 의 `LLM_PROVIDER=vertexai` → `openai` 복원 필수 (현재 측정용 임시 변경).
+- `.env.bak` 백업 보존 중.
+
+**§13-7-3 진단 박제 (재진입 시 참조)**:
+1. **진단 도구의 한계**:
+   - Console quota 페이지: 50/page 표시, 검색 키워드 정확히 알아야 함
+   - TTS 변종과 일반 모델 quota 분리 (TTS RPM 10 = §13-7 와 무관)
+   - "Unlimited" 의 실제 의미 불투명
+   - Audit Log 기본 비활성, 활성화해도 retry-success 는 ERROR 안 남김
+   - APIs Dashboard 는 메트릭만 (정확한 status code 모름)
+2. **가설 검증 사이클**: quota → 부정 (TPM 0.04%) → 다시 활성 (RPM 한도 미확정) / project 혼선 → 부분 부정 / cold start → 부분 진실 (run 1, 2 cold) / region 부하 → 미확정 / **retry 누적 → 확정** (ResourceExhausted 명시)
+3. **진단 종료 결정 패턴**: 진단 시간 vs 우회 시간 비교, marginal value 평가, "justifiable improvement" 정신 적용 (1.75h 진단 후 우회 5분 적용 결정).
+4. **평가 시 표준 안전장치 (§13-8 Claude 평가 적용 가능)**:
+   - inter-run-sleep 60s+ (RPM 한도 무관 안전)
+   - **max_retries=0 (langchain 내부 retry 차단 — 가장 정밀한 root cause 검증 변수)**
+   - PYTHONIOENCODING=utf-8, PYTHONUNBUFFERED=1
+   - per-run timeout 명시
+   - warmup 1~2 회 (cold start 차단)
+   - 모델 간 cool-down 30분+ (quota 회복)
+
+**§13-7-2-tune (open, conditional)**: Pro src_body 비결정성 prompt 튜닝
+- Flash 결과 분석으로 진입 조건 결정:
+  - 가설 A (Flash 도 src_body 비결정): Vertex 모델군 공통 이슈 → prompt 의 "마커 → notes 이동" 강화 (예: "본문 마커 발견 시 100% notes 이동, 본문 절대 잔존 금지")
+  - 가설 B (Flash PASS): Pro 특이 이슈 → Pro 전용 미세 조정 또는 Flash 운영 default
+  - 가설 C (Flash 더 심함): Pro baseline → Flash 추가 튜닝
 
 13-8. **(v3) Claude 평가** — 상태: `deferred` / 의존: §13-7 close / 우선순위: 후
 - 별도 evaluation 트랙. Anthropic provider 추가 시점은 §12-13-6 (b) Anthropic fallback 도입과 묶어 검토 가능 (의존도 큰 변경이므로 단독 트랙은 비효율).
