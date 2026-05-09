@@ -1905,6 +1905,45 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 - 진단 가치: 단일 항목 (tables 만) 패치보다 출력 스타일 통제 prompt 재설계가 작업
   범위 (§13-9 재진입 조건 (c) 확장 — tables 및 notes 자율 확장 억제 prompt 패치).
 
+**§13-8 함정 박제 (2026-05-10, phase 1·2 진행 중 발견)**:
+
+*함정 1 — PowerShell stdout cp949 codec → em-dash 인코딩 실패*:
+- 증상: `print(f"...{value} — ...")` 같은 한글 + em-dash (`—` U+2014) 문자열이 PowerShell stdout 으로 흐를 때 `UnicodeEncodeError: 'cp949' codec can't encode character '—'` 발생. 스크립트 즉시 abort, 측정 진입조차 불가.
+- 원인: Windows PowerShell 의 default stdout codec = cp949 (한글 Windows). Python 의 sys.stdout encoding 도 동일하게 cp949 자동 잡힘.
+- 해결: 측정 명령 앞에 `$env:PYTHONIOENCODING='utf-8'` 명시. Python 의 sys.stdout encoding override → utf-8 강제. PowerShell 의 stdout codec 자체는 그대로지만 Python 출력은 utf-8 byte sequence 로 흐르므로 BOM 없는 utf-8 콘솔에서 정상 표시.
+- 박제 가치: §13-x 모든 진단/측정 스크립트 실행 표준 — em-dash, curly quotes 등 cp949 미지원 문자가 한글 출력에 흔히 섞임. 실행 템플릿에 `$env:PYTHONIOENCODING='utf-8'` 영구 포함.
+
+*함정 2 — measure_stability.py ThreadPoolExecutor cancel 불가*:
+- 증상: `_invoke_with_timeout` 의 `future.result(timeout=240)` 가 240s 도달 시 `FuturesTimeoutError` raise 하나, future 자체는 cancel 되지 않음. 백그라운드에서 anthropic SDK 의 timeout=600s 까지 호출 잔류 가능.
+- 원인: ThreadPoolExecutor 는 Python thread 강제 종료 불가 (GIL + cooperative). future.cancel() 은 PENDING 상태에서만 효과 있고, RUNNING 상태에서는 무시됨.
+- 잠재 위험: cancelled future 가 background 에서 OTPM 계속 소비 → 다음 run 의 호출과 중첩 시 한도 초과 가능.
+- §13-8 phase 2 안전 마진 검증 (claude-sonnet-4-6 venfobel 기준):
+  · phase 1 단독 run OTPM = 4,035 tok/min (Tier 1 한도 8,000 의 50%)
+  · inter-run-sleep 60s 동안 OTPM budget refresh 가능
+  · background future 의 anthropic SDK timeout = 600s — 240s 측정 timeout 후 최대 360s 잔여
+  · 다음 run 의 OTPM 과 합쳐도 Sonnet API 호출 1개당 ≤4K rate → 2개 동시 ≤8K (한도 ±경계)
+  · RPM 한도 Tier 1 50/min 충분 여유
+- phase 2 실측: timeout 0건 (시나리오 A clean) → 함정 발현 없음, 안전 마진 검증 완료
+- 박제: `scripts/measure_stability.py:_invoke_with_timeout` 함수 docstring 에 함정 + 안전 마진 분석 영구 박제. 진짜 cancel 필요 시 multiprocessing/ProcessPoolExecutor (강제 종료) 검토 — 향후 §13-x 에서 OTPM 한도 가까운 모델 평가 시 재검토.
+
+*함정 3 — .env.anthropic / OpenAI overlay 비대칭 (timeout/max_retries 환경변수화)*:
+- 증상: Anthropic 측은 `ANTHROPIC_REQUEST_TIMEOUT` / `ANTHROPIC_MAX_RETRIES` 환경변수로 ChatAnthropic ctor 에 직접 전달. OpenAI 측은 `OPENAI_REQUEST_TIMEOUT` / `OPENAI_MAX_RETRIES` 만 있고, baseline 표준 값 (max_retries=0) 의 명시 일관성 보장 안 됨.
+- 원인: §13-7-3 시점에 Vertex 측만 `VERTEX_MAX_RETRIES=0` 강제 박제 (provider bypass 블록). OpenAI 는 retry 누적 함정 미관측이라 명시 표준 미적용.
+- 영향: §13-7-4 gpt-4o baseline cost 측정이 OPENAI_MAX_RETRIES=1 (default) 환경에서 실행 → retry 발생 시 latency 가 retry sleep 로 오염 가능. Anthropic baseline 비교 시 무결성 위반 위험.
+- 대응 (현재): `.env.anthropic` 표준 박제 — `ANTHROPIC_MAX_RETRIES=0` (latency 오염 차단), `ANTHROPIC_REQUEST_TIMEOUT=240` (gpt-4o baseline 과 동일 조건). 진단 phase 의 timeout 600s override 는 스크립트가 `core.config.CFG` 직접 mutate (overlay 재로드 회피).
+- 후속 (§13-9 일관성 후보): `.env.openai` 에도 `OPENAI_MAX_RETRIES=0` 명시 + 표준 안전장치 패턴 통일. §13-7-4 cost 재검증 시 동일 표준으로 재측정 (§13-7-4-cost-revisit task).
+- 박제 가치: provider 별 안전장치 표준은 **명시 + symmetry** 원칙. Vertex `VERTEX_MAX_RETRIES`, Anthropic `ANTHROPIC_MAX_RETRIES`, OpenAI `OPENAI_MAX_RETRIES` 모두 baseline 측정 시 0 강제.
+
+*함정 4 — ChatAnthropic ctor max_retries default = 2 (langchain-anthropic 1.4.3)*:
+- 증상: `ChatAnthropic(...)` 호출 시 `max_retries` 미지정하면 default 2 적용. baseline 측정에서 retry sleep (anthropic SDK 내부 backoff) 가 latency 에 누적 → §13-7 baseline 비교 시 latency 오염.
+- 원인: langchain-anthropic 의 ChatAnthropic 는 anthropic.Anthropic 클라이언트 default 인 max_retries=2 를 그대로 계승. 명시 전달 안 하면 sleep 누적.
+- 함정 패턴 동일성: §13-7-3-bypass 함정 (`langchain-google-vertexai` 의 `_strip_kwargs_for_vertex` 가 max_retries 를 strip → ChatVertexAI default retry 6 적용 → quota 누적 패턴) 과 **동형**. provider 별 어댑터 ctor 마다 retry default 가 다름 — 명시 전달이 표준.
+- 대응:
+  - `core/llm.py:_build_anthropic_kwargs` 에서 `CFG.ANTHROPIC_MAX_RETRIES` 를 `extra_clean["max_retries"]` 로 명시 전달 (`OPENAI_MAX_RETRIES` 의 잔재는 strip).
+  - `core/llm.py:get_llm` Anthropic 분기 init log 추가 — `[LLM] init provider=anthropic | model=... | timeout=240 | max_retries=0` 출력. ctor 적용 값 가시화.
+  - `scripts/_measure_anthropic_tokens.py:_verify_llm_attrs` — 측정 진입 직후 LLM 인스턴스의 `max_retries`/`default_request_timeout` 속성 직접 검증, 미일치 시 WARN.
+- 박제 가치: 새 provider 어댑터 추가 시 표준 체크리스트 — (a) ctor 의 retry default 확인, (b) `CFG.<PROVIDER>_MAX_RETRIES` 환경변수 분기 박제, (c) init log 에 적용 값 가시화, (d) 측정 도구에 ctor attrs 검증 진입 단계 박제.
+
 13-9. **출력 안정화 (언어·표 추출·슬라이드 수)** — 상태: `closed (2026-05-09)` / 의존: §13-3 v3-fix1 close / 우선순위: 중
 
 **문제 (open 시점)**:
