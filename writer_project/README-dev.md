@@ -2013,7 +2013,7 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 
 **§13-8 close 시점 push 정책 박제 (2026-05-10)**: NDA 보류 해제 — repo visibility private 전환 확인. §13-7 부터 누적된 commit (`5bc94e5..d2b9bd1` 5 commit) origin push 완료. 향후 push 정책: private repo 한정 자유 push.
 
-13-8-3. **(v3) Haiku 4.5 평가 (claude-haiku-4-5-20251001)** — 상태: `진행 중 (2026-05-10 진입)` / 의존: §13-8 close ✅ (2026-05-10) / 우선순위: 후
+13-8-3. **(v3) Haiku 4.5 평가 (claude-haiku-4-5-20251001)** — 상태: `closed (2026-05-10, phase 2 skip — case B 조기 결론)` / 의존: §13-8 close ✅ (2026-05-10) / 우선순위: 후
 
 **§13-8-3 진입 환경 (2026-05-10)**:
 - venv: `.venv_anthropic` 재사용 (langchain-anthropic 1.4.3 + OpenAI embedding fallback)
@@ -2076,6 +2076,70 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 - input 38,569 × 3 = 115,707 tok / output 14,559+10,757+11,880 = 37,196 tok
 - raw: $0.116 + $0.186 = **$0.302** / 1.4x 보정: **$0.423**
 - 잔액 진입 $22.43 → 진단 후 ~$22.13 (실측은 console 검증 시점 통합)
+
+**§13-8-3 close 결론 (2026-05-10, claude-haiku-4-5-20251001)**:
+
+| 측면 | 평가 | 데이터 |
+|---|---|---|
+| **structured output** | ❌ ValidationError 9건 (tool_use 정확도 한계) | slides[N].bullets=None — schema strict 거부 |
+| **구조적 골격 (slides)** | ❌ 자율 — gpt-4o/Sonnet 동등 결정성 미보장 | 44/50 spread 6 (gpt-4o 1, Sonnet 2 대비) |
+| **의미적 부속 (tables/notes)** | 평가 불가 (parse fail, raw input 추출 가능하나 미수행) | — |
+| **latency** | ❌ gpt-4o 대비 2.4배 느림 (mean 86s) | 73~102s spread 28.5s (CV ~14%) |
+| **cost (raw 추정)** | gpt-4o 1.7배 (Sonnet 4배보다 양호) | 0.092/run raw / 0.129 보정 |
+| **OTPM (Tier 1)** | ❌ 한도 일관 초과 +7.9% | 평균 8,638 tok/min (한도 8,000) |
+
+**Haiku 4.5 = 운영 default 부적합 확정** (Sonnet 동일 결론) — phase 2 skip + 조기 close. 사유:
+- structured output ValidationError 결정적 시그널 (5/5 burst 시도해도 동일 패턴 반복 예상)
+- OTPM Tier 1 한도 일관 위반 → burst 시 throttle/timeout 위험
+- §13-8-pre 매트릭스 1 마지막 항목 (quality 심각히 낮음) 트리거
+
+**Anthropic family 자율성 거동 가설 (§13-8 + §13-8-3 통합, 2026-05-10)**:
+
+자율성 차원 4종 분리 — 모델별 결정성/자율성 매트릭스:
+
+| 차원 | gpt-4o | Sonnet 4.6 | Haiku 4.5 | 패턴 |
+|---|---|---|---|---|
+| (1) 구조적 골격 (slides 개수) | 결정 (37.4±0.5) | 결정 (37.0±0.7) | **자율 (44~50, spread 6)** | family 내부 분기 |
+| (2) 의미적 부속 (tables/notes) | 결정 (1.0/16.2) | 자율 (3.0/53.6) | 평가 불가 | family 공통? (검증 미완) |
+| (3) schema strictness (null 응답) | omit 정상 | omit 정상 | **null 명시 — strict fail** | Haiku 특이 |
+| (4) latency 결정성 (CV) | ~25% | 3.6% | ~14% | family 내부 분기 |
+
+**가설**: Anthropic family 모델은 작아질수록 자율성 차원이 늘어남 (Sonnet < Haiku 자율성).
+- 차원 (1): Sonnet 결정 / Haiku 자율 → **모델 크기 반비례** 시그너처
+- 차원 (3): Sonnet omit / Haiku null → schema 따르기 정확도가 모델 크기와 비례
+- 차원 (4): Sonnet 3.6% < Haiku 14% < gpt-4o 25% — 단순 모델 크기 반비례 아님 (다른 요인)
+- 검증 미완: **Opus 4.7 측정 시 Sonnet 보다 더 결정적인지** — §13-8-2 (Opus) 우선순위 재검토 (가설 검증 차원 가치 발생)
+
+**§13-8-3 후속 task 우선순위 (1~4, 2026-05-10 결정)**:
+
+| 순위 | task | 비용·시간 | 가치 |
+|---|---|---|---|
+| **1** | **§13-8-cost-recalibration** | $0.30 / 30분 | schema overhead 1.4x 보정 계수가 모델 무관 시그널인지 검증 → §13-9 cost 모델 신뢰도 결정. 저비용·고가치. |
+| **2** | **§13-8-3-schema-relax** | $0.16 / 10분 | `SlideSpec.bullets: Optional[List[str]] = None` 변경 + Haiku parse 통과 여부 검증. **gpt-4o/Sonnet 회귀 테스트 필수** (schema 변경 부작용 점검). |
+| 3 | (§13-8-3-prompt-patch) | — | **채택 안 함** — schema-relax 와 중복, 모델별 누적 비용 단점. |
+| **4** | §13-8-2 (Opus 4.7) | $1.50+ / 30분 | family 자율성 가설 (모델 크기 반비례) 검증 차원 가치 발생. cost 높음, 우선순위 후. |
+
+**§13-8-3-schema-relax 선호 근거**:
+- schema 수정 = 영구 자산 (모든 모델 호환성 향상)
+- prompt-patch = 모델별 누적 비용 (prompt 길이 증가 → input_tokens 누적)
+- 단 gpt-4o/Sonnet 회귀 테스트 필요 (default behavior 변동 점검)
+
+**§13-8-3 자산 박제 요약**:
+
+| 자산 | 위치 | 가치 |
+|---|---|---|
+| phase 1 진단 결과 (3차 구조화) | `logs/anthropic_tokens_claudehaiku4520251001_1778377725.json` | ValidationError 9건 + slides_overshoot + fix_options 3종 — schema-relax ground truth |
+| 측정 도구 일반화 | `scripts/_measure_anthropic_tokens.py` (CLI 인자화) | Sonnet/Haiku/Opus 평가 시 같은 도구 재사용 |
+| _PRICE prefix 매칭 | `scripts/measure_stability.py:314~` | datestamp suffix 모델 ID 호환 — 향후 `claude-*-YYYYMMDD` 모두 정확 cost 추정 |
+| family 자율성 거동 가설 | README-dev.md §13-8-3 close | Opus 4.7 측정 시 검증 가능, gpt-4o 와 분리된 Anthropic family 평가 framework |
+
+→ §13-8-3 close. 운영 default = **gpt-4o 유지** (§13-7-4·§13-8 재재확인). Anthropic family 평가 트랙은 §13-8-2 (Opus) 진입 시 family 자율성 가설 검증 가능.
+
+**다음 진입 분기 (사용자 결정)**:
+- (a) §13-8-cost-recalibration 즉시 진입 (1순위, 저비용·고가치)
+- (b) §13-8-3-schema-relax 즉시 진입 (2순위, Haiku 재측정 + gpt-4o/Sonnet 회귀)
+- (c) §13-9 운영 진입 우선 (§13-8-x 후속 task 모두 deferred)
+- (d) 새 세션에서 결정 (작업 강도 누적, 휴식 후)
 
 **§13-x-commit-meta-cleanup 후속 task 등록 (2026-05-10, 우선순위: 저)** — 발견 시점: §13-8-3 commit A 진입 검토.
 - 문제: §13-7~§13-8 commit 9건 (`575485a..272327d`) 에 모두 동일 형식 메타데이터 오염 박제됨 — `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`. 실제 작업 모델은 claude-sonnet-4-6, "Opus 4.7"·"1M context" 는 끌로드 코드의 자율 박제로 사실과 불일치.
