@@ -2453,4 +2453,83 @@ frontend (프론트엔드):
 
 ---
 
+## §13-13 (트랙) — Word/PPT export 결함 4건 fix
+
+상태: `Phase A close / Phase B 결정 close / Phase C 진입 (B 안)` / 시작: 2026-05-10
+의존: §13-12 close (e2e 검증 시 발견)
+짝 placeholder: §13-12 본문 §13-13 (가칭, 후속) — 라인 2408 (close 시점 가설로 보존)
+
+### 배경
+
+§13-12 close e2e 검증에서 부수적으로 발견된 4 결함. §13-12 close 본문에 placeholder 박제. 본 트랙 진입 시 ground truth 재확인 결과 **일부 박제 표현 정정 + cascade 가설 확정**.
+
+### Phase A 진단 (close 2026-05-10)
+
+**Ground truth 확보** (sections fs + reports/latest.md):
+
+| 결함 | placeholder 박제 | ground truth | drift |
+|---|---|---|---|
+| 1 | 4장 `## ` heading 누락 | `sections/venfobel-vitamin/벤포벨s-핵심-차별화-자산-기반-광고-클레임-개발.md:1` 본문 산문 직접 시작 — heading 완전 누락 | 일치 |
+| 2 | Word 합본 순서 깨짐 (4→7→…) | `reports/venfobel-vitamin/latest.md:115` `## 벤포벨S 핵심 차별화...` (번호 누락) / `:233` `## 실행 로드맵...(KPI)` (번호 누락) — **합본 순서는 정상 1→7** | ⚠ "순서 깨짐" 표현 부정확. 실제는 **번호 prefix 누락** |
+| 3 | 7장 `## ` heading 누락 | `sections/.../실행-로드맵-및-핵심-성과-지표kpi.md:1` 평문 (`## ` + 번호 둘 다 누락) | 일치 |
+| 4 | Word 5장 "3040." / PPT 제목 prefix 잔존 | latest.md 5장 자체는 `## 5. 3040 직장인...` 정상 | ⚠ Word "3040." 양상 ground truth 미확보 (.docx 직접 검증 보류) |
+
+**전체 7장 sections heading ground truth**: 1·2·3·5·6 정상 (`## N. 제목`) / 4·7장 누락. → **section_writer LLM 출력 일관성 5/7 (28% 실패율)**.
+
+**Cascade 가설** (확정):
+- **결함 1+3 = root cause**: section_writer LLM 일관성 결함. `prompts.py:408-410` explicit instruction 있어도 LLM 출력 불일치.
+- **결함 2 = 결함 1+3 cascade 후과** (확정): `report_builder.py:259` `strip_number_prefix(ls[2:])` 가 outline title 에서 번호 미리 제거 → titles=["Executive Summary",...,"벤포벨S 핵심 차별화...",...] → 4·7장 sections heading 누락 → `report_builder.py:207 _ensure_heading()` fallback 이 번호 없는 `## {title}` prepend → latest.md 4·7장만 번호 누락.
+- **결함 4 PPT = 결함 1+3 cascade 후과** (강한 추정): planner 가 latest.md 의 번호 없는 heading 추출 → `SlideSpec.title="벤포벨S..."` → `renderer.py:203 _CHAPTER_NUM_RE = r"^\s*(\d+)\.\s*(.+)$"` 매칭 실패 → `("", title)` 반환 → number_str 빈 슬라이드 (또는 prefix 잔존).
+- **결함 4 Word "3040." = 양상 미확보**: B 안 fix 후 docx 재현 검증.
+
+**catch 자산** (§ placeholder 박제 vs ground truth drift):
+- §13-12 close 본문의 §13-13 placeholder 는 **4 결함 독립 가설**. 진입 후 진단 결과는 **결함 1+3 root → 결함 2·4 cascade**. → `placeholder 박제는 § close 시점의 작업 의도 가설, 진입 후 ground truth 와 drift 가능` 의 §13-13 측 발현. §13-12 close NEXT_SESSION.md catch 1 ("박제 vs fs drift") 의 박제·진단 단계로 확장.
+- placeholder 박제 표현 정정: 결함 2 "순서 깨짐" → "번호 prefix 누락". 결함 4 Word 양상 ground truth 보류.
+
+### Phase B 결정 (close 2026-05-10)
+
+**결정 1 (결함 1+3 fix = B 안, post-process 정규화)**:
+- `agent/section_writer.py:149` 내 LLM 출력 후 outline 의 번호+제목 기반 `## N. <title>` 강제 prepend
+- 이미 `## N. 제목` 으로 시작하면 skip / 다른 형태면 정규화
+- LLM 의존 줄임 — 결정적 fix
+- prompt 강화 (A 안) 폐기 — LLM 일관성 의존 잔존 위험. B 안 결정적이므로 단독 진입.
+
+**결정 2 (결함 2·4 fix = cascade 검증 우선)**:
+- B 안 fix 후 e2e 재실행 → latest.md + .docx + .pptx 결함 2·4 자동 해소 검증
+- 자동 해소 시 별도 fix 불필요
+- 잔존분 발견 시 별도 sub-task 분기 (§13-13-3 가칭)
+
+**결정 3 (결함 4 Word "3040." 양상 ground truth)**: B 안 fix 후 docx 재현 검증. 사용자 .docx 샘플 ground truth 미확보 상태에서 cascade 가설 검증으로 자동 확인.
+
+### Sub-tasks
+
+13-13-1. **section_writer post-process heading 정규화 (B 안)** — 상태: `pending` / 의존: 결정 1 / 우선순위: 높음
+- 위치: `agent/section_writer.py:149` 이후 LLM 출력 후 단계
+- outline 에서 현재 작성 중인 섹션의 **번호+제목** 추출 (`section_slugify` / `next_unwritten_title` 흐름 활용)
+- LLM 출력 첫 비공백 라인 점검 → `## N. <title>` 형태가 아니면 강제 prepend
+- 이미 정규 형태면 skip (또는 번호만 누락 시 prepend)
+- 박제: LLM 출력 후 fallback 정규화는 prompt 의존 줄이는 일반 패턴 — 향후 다른 LLM 출력 일관성 결함 발견 시 동일 패턴 재사용
+
+13-13-2. **Cascade 검증 + close** — 상태: `pending` / 의존: §13-13-1 close / 우선순위: 높음
+- B 안 fix 후 sections 재생성 (4·7장 LLM 재호출 또는 기존 4·7장 .md 직접 정규화 후 build_final_report)
+- e2e 재실행 → `/api/export?format=docx` + `/api/export?format=pptx` 양쪽
+- 결함 2 자동 해소 검증: latest.md 4·7장 번호 prefix 복구
+- 결함 4 PPT 자동 해소 검증: 4·7장 section header 슬라이드 number_str 정상 (`04`, `07`) + 제목 prefix 정리
+- 결함 4 Word "3040." 양상 ground truth 확보 + 잔존 시 별도 sub-task
+- §13 자산 회귀 0건 검증 (§13-3·9·10)
+
+### 진행 박제
+
+- **본 commit** (placeholder, 진입 시): Phase A close (drift catch + cascade 가설) + Phase B 결정 close + sub-task 박제
+- **다음 commit** (§13-13-1): section_writer post-process 정규화 구현
+- **마지막 commit** (§13-13 close): cascade 검증 + 잔존분 결정 + 박제
+
+### 보존 자산 (재사용)
+
+- §13-12 결정 1 (build_final_report 자동 호출) — pptx 분기 그대로 활용
+- §13-12 결정 2 (R1 BytesIO) — renderer 시그니처 그대로
+- §12-14 events 채널 — emit_event 재사용 시 (선택)
+
+---
+
 © Bell Agent · writer_project — Developer Guide
