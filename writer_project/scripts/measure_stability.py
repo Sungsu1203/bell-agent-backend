@@ -311,6 +311,9 @@ def measure_run(
     # 비용 추정 — 모델 기반 hardcoded rates (1M token 당 USD).
     # claude-sonnet-4-6 (2026-05 기준 공시): input $3 / output $15.
     # 다른 모델 추가 시 _PRICE 사전에 등록.
+    # §13-8-3 (2026-05-10): prefix 매칭 — datestamp suffix (예: "claude-haiku-4-5-20251001")
+    # 변형 포괄. strict get() 은 정확 일치만 → 매칭 미스 → cost=None 함정 회피.
+    # 가장 긴 prefix 우선 매칭 (claude-sonnet-4-6 vs claude-sonnet 충돌 회피).
     _PRICE = {
         "claude-sonnet-4-6": {"in": 3.0, "out": 15.0},
         "claude-opus-4-7": {"in": 15.0, "out": 75.0},
@@ -319,7 +322,15 @@ def measure_run(
         "gemini-2.5-pro": {"in": 1.25, "out": 5.0},
         "gemini-2.5-flash": {"in": 0.075, "out": 0.30},
     }
-    _rate = _PRICE.get((model or "").strip().lower())
+    _model_norm = (model or "").strip().lower()
+    _rate = _PRICE.get(_model_norm)
+    if _rate is None and _model_norm:
+        _matches = sorted(
+            [k for k in _PRICE if _model_norm.startswith(k)],
+            key=len, reverse=True,
+        )
+        if _matches:
+            _rate = _PRICE[_matches[0]]
     if _rate and in_tok_vals and out_tok_vals:
         cost_runs = [
             (i_tok / 1e6) * _rate["in"] + (o_tok / 1e6) * _rate["out"]

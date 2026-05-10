@@ -2013,6 +2013,38 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 
 **§13-8 close 시점 push 정책 박제 (2026-05-10)**: NDA 보류 해제 — repo visibility private 전환 확인. §13-7 부터 누적된 commit (`5bc94e5..d2b9bd1` 5 commit) origin push 완료. 향후 push 정책: private repo 한정 자유 push.
 
+13-8-3. **(v3) Haiku 4.5 평가 (claude-haiku-4-5-20251001)** — 상태: `진행 중 (2026-05-10 진입)` / 의존: §13-8 close ✅ (2026-05-10) / 우선순위: 후
+
+**§13-8-3 진입 환경 (2026-05-10)**:
+- venv: `.venv_anthropic` 재사용 (langchain-anthropic 1.4.3 + OpenAI embedding fallback)
+- model: `claude-haiku-4-5-20251001` (`.env.anthropic` 의 `ANTHROPIC_MODEL` 변경 — gitignored, 로컬 mutate 만)
+- 측정 표준: §13-8 (Sonnet) 동일 — timeout=240s baseline / max_retries=0 / warmup 2 / inter-run-sleep 60s / `$env:PYTHONIOENCODING='utf-8'`
+- 진단 phase timeout override: 600s (CFG mutate, .env 미수정)
+- 잔액 진입 시점: $22.43 (§13-8 close 직후)
+
+**§13-8-3 측정 인프라 추가 박제 (commit A)**:
+- `scripts/_measure_anthropic_tokens.py` CLI 인자화 — `--model claude-haiku-4-5-20251001` 형식. Sonnet/Haiku/Opus 평가 시 같은 도구 재사용.
+- `scripts/_measure_anthropic_tokens.py` parse fail 정밀 진단:
+  - `parsed_is_none` / `parsing_error.error_type` / `parsing_error.error_msg`
+  - `parsing_error.validation_errors[]` (Pydantic ValidationError `e.errors()` 구조화 — loc/msg/type/input_repr/url) — schema-relax 후속 task ground truth
+  - `raw_diagnostic.stop_reason / tool_calls_count / invalid_tool_calls_count / tool_use_blocks_count / first_tool_slides_count` — case 분류용
+  - `case_classification` (A/B/C/D 자동) + `case_classification_nuance` (B/A 경계 등 nuance)
+  - `slides_in_raw / slides_target / slides_overshoot` — 자율 확장 정량화
+  - `fix_options[]` — 3종 (schema_relax / prompt_patch / schema_relax_with_validator) 사전 박제
+- `scripts/measure_stability.py` `_PRICE` prefix 매칭 — `claude-haiku-4-5-20251001` 같은 datestamp suffix 모델 ID 도 정확 매칭 (가장 긴 prefix 우선). strict `dict.get()` 매칭 미스 → cost=None 함정 회피.
+- 출력 파일명에 `_<model_tag>_` 추가 — `logs/anthropic_tokens_claudehaiku4520251001_<ts>.json` 등 모델별 충돌 회피.
+
+**§13-x-commit-meta-cleanup 후속 task 등록 (2026-05-10, 우선순위: 저)** — 발견 시점: §13-8-3 commit A 진입 검토.
+- 문제: §13-7~§13-8 commit 9건 (`575485a..272327d`) 에 모두 동일 형식 메타데이터 오염 박제됨 — `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`. 실제 작업 모델은 claude-sonnet-4-6, "Opus 4.7"·"1M context" 는 끌로드 코드의 자율 박제로 사실과 불일치.
+- 영향: `git log` 재참조 시 측정 모델 vs 박제 모델 혼동 가능. §13-x 자산 신뢰성 미세 손상.
+- 처리 정책 (옵션 α 채택, 2026-05-10):
+  - §13-8-3 commit 부터 Co-Authored-By 라인 통째 제거 (옵션 1) — 새 commit 부터 깨끗.
+  - 과거 9건 정정은 `git push --force` 위험 회피 위해 deferred.
+  - 처리 시점: `git rebase -i` 자연 발생 시점 (예: feature branch squash, main merge 전).
+- 처리 방법: `git rebase -i` 로 amend, force-push 필요 (private repo + 단독 사용자 가정 시 안전).
+- 검증: `git log --format="%H %an %s"` 로 9건 commit 의 author/committer 정확성 별도 확인 — Co-Authored-By 외 다른 메타데이터 오염 가능성 점검.
+- 관찰: 끌로드 코드 자율 박제 패턴 (commit 한글 제목 / 박제 본문 "사용자 동일 표준" 표현 / 이모지 ✅⚠️❌ 의미 일관성) 도 향후 audit 가치. 별도 task `§13-x-autobaked-content-audit` 후보 — 관찰 누적 후 결정.
+
 13-9. **출력 안정화 (언어·표 추출·슬라이드 수)** — 상태: `closed (2026-05-09)` / 의존: §13-3 v3-fix1 close / 우선순위: 중
 
 **문제 (open 시점)**:
