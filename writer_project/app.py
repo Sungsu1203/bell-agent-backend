@@ -1554,6 +1554,18 @@ def _markdown_to_docx(blocks: list[tuple[int, str, str]], doc_title: str) -> byt
     title_para = doc.add_heading(doc_title, level=0)
     title_para.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
 
+    # §13-13-4-2: docx 본문 list cascade fix.
+    # 같은 ListNumber 스타일이 모두 단일 numId 를 공유 → OOXML 사양상 number list
+    # 카운터가 list block 경계 무관 누적. list block 경계마다 새 numId 등록 +
+    # lvlOverride/startOverride + paragraph inline numPr override 로 reset.
+    # 라운드 (a-3) Patch G: § 경계가 아니라 *list block 경계* 단위 발급으로 변경.
+    # § 안 다중 list block (예: §2 의 실행방안 + Actionable) 이 cross-block continuation 되던
+    # 양상 차단.
+    abstract_num_id = _list_number_abstract_id(doc)
+
+    def allocate_num_id() -> int:
+        return _allocate_section_num_id(doc, abstract_num_id)
+
     for sid, stitle, content in blocks:
         # 섹션 제목
         doc.add_heading(f"{sid}. {stitle}", level=1)
@@ -1561,8 +1573,8 @@ def _markdown_to_docx(blocks: list[tuple[int, str, str]], doc_title: str) -> byt
         # 본문/footnote 분리
         body_text, footnotes = _split_body_footnotes(content)
 
-        # 본문 렌더링
-        _render_markdown_to_docx(doc, body_text)
+        # 본문 렌더링 (list block 경계마다 allocate_num_id 호출)
+        _render_markdown_to_docx(doc, body_text, allocate_num_id=allocate_num_id)
 
         # footnote 영역
         if footnotes:
@@ -1578,6 +1590,101 @@ def _markdown_to_docx(blocks: list[tuple[int, str, str]], doc_title: str) -> byt
     doc.save(buf)
     buf.seek(0)
     return buf.read()
+
+
+# §13-13-4-2: docx list cascade fix 헬퍼 ─────────────────────────────────────
+def _list_number_abstract_id(doc) -> int:
+    """ListNumber 스타일이 참조하는 abstractNumId 를 styles.xml + numbering.xml lookup.
+    fallback: 7 (현재 산출 ground truth, 안전 폴백).
+    """
+    from docx.oxml.ns import qn
+    try:
+        styles_root = doc.styles.element
+        ref_num_id: int | None = None
+        for s in styles_root.findall(qn("w:style")):
+            if s.get(qn("w:styleId")) != "ListNumber":
+                continue
+            ppr = s.find(qn("w:pPr"))
+            if ppr is None:
+                continue
+            npr = ppr.find(qn("w:numPr"))
+            if npr is None:
+                continue
+            nid = npr.find(qn("w:numId"))
+            if nid is None:
+                continue
+            ref_num_id = int(nid.get(qn("w:val")))
+            break
+        if ref_num_id is None:
+            return 7
+        num_root = doc.part.numbering_part.element
+        for num in num_root.findall(qn("w:num")):
+            if int(num.get(qn("w:numId"))) == ref_num_id:
+                ans = num.find(qn("w:abstractNumId"))
+                if ans is not None:
+                    return int(ans.get(qn("w:val")))
+    except Exception:
+        pass
+    return 7
+
+
+def _allocate_section_num_id(doc, abstract_num_id: int) -> int:
+    """numbering.xml 에 새 `<w:num w:numId="N">` 등록 후 N 반환.
+
+    §13-13-4-2 라운드 (a-2) Patch E: numId 분리 + abstractNum 공유 만으로는
+    Word/LibreOffice 카운터 분리 미보장 (OOXML 사양상 implementation-defined).
+    `<w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride>` 명시적
+    시작값 override 가 cascade 차단의 핵심. 이를 함께 박음.
+    """
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    num_root = doc.part.numbering_part.element
+    existing: list[int] = []
+    for n in num_root.findall(qn("w:num")):
+        v = n.get(qn("w:numId"))
+        if v is None:
+            continue
+        try:
+            existing.append(int(v))
+        except ValueError:
+            continue
+    new_id = (max(existing) if existing else 0) + 1
+
+    num = OxmlElement("w:num")
+    num.set(qn("w:numId"), str(new_id))
+    abs_ref = OxmlElement("w:abstractNumId")
+    abs_ref.set(qn("w:val"), str(abstract_num_id))
+    num.append(abs_ref)
+
+    # Patch E: lvlOverride + startOverride — 시작 카운터 명시 reset
+    lvl_override = OxmlElement("w:lvlOverride")
+    lvl_override.set(qn("w:ilvl"), "0")
+    start_override = OxmlElement("w:startOverride")
+    start_override.set(qn("w:val"), "1")
+    lvl_override.append(start_override)
+    num.append(lvl_override)
+
+    num_root.append(num)
+    return new_id
+
+
+def _set_paragraph_inline_num_id(paragraph, num_id: int, ilvl: int = 0) -> None:
+    """paragraph 의 pPr 에 `<w:numPr>` override 박기. 기존 style 의 numId 우회.
+    style="List Number" 시각효과 (들여쓰기·번호 폰트) 는 유지하면서 카운터만 분리.
+    """
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    p_pr = paragraph._p.get_or_add_pPr()
+    for old in p_pr.findall(qn("w:numPr")):
+        p_pr.remove(old)
+    np_el = OxmlElement("w:numPr")
+    il_el = OxmlElement("w:ilvl")
+    il_el.set(qn("w:val"), str(ilvl))
+    nid_el = OxmlElement("w:numId")
+    nid_el.set(qn("w:val"), str(num_id))
+    np_el.append(il_el)
+    np_el.append(nid_el)
+    p_pr.append(np_el)
 
 
 def _split_body_footnotes(content: str) -> tuple[str, list[tuple[str, str]]]:
@@ -1630,15 +1737,22 @@ def _split_body_footnotes(content: str) -> tuple[str, list[tuple[str, str]]]:
     return body, footnotes
 
 
-def _render_markdown_to_docx(doc, markdown: str):
+def _render_markdown_to_docx(doc, markdown: str, allocate_num_id=None):
     """
     간이 마크다운 → docx 렌더링.
     지원: ## 헤딩, ### 헤딩, **bold**, [파일명] 인용 (파란색), 1. 리스트, - 리스트
+
+    §13-13-4-2 (a-3) Patch G: allocate_num_id callable 이 주어지면 ListNumber paragraph
+    에 inline numPr 박되, *list block 경계* 마다 새 numId 발급. list block 경계 판정 —
+    직전에 처리된 line 이 ListNumber 가 아니면 (헤딩/일반 paragraph/bullet/구분자) 새 block.
+    빈 라인은 prev 유지 (markdown loose list 사양).
     """
     from docx.shared import Pt, RGBColor
 
     lines = markdown.split("\n")
     paragraph_buffer = []
+    prev_was_list_number = False
+    current_num_id: int | None = None
 
     def flush_paragraph():
         if not paragraph_buffer:
@@ -1652,14 +1766,17 @@ def _render_markdown_to_docx(doc, markdown: str):
         stripped = line.strip()
         if not stripped:
             flush_paragraph()
+            # 빈 라인은 list block 종료 신호 아님 (markdown loose list)
             continue
 
         # 첫 헤딩(## N. ...)은 이미 추가했으니 스킵
         if re.match(r"^##\s+\d+\.\s+", stripped):
+            prev_was_list_number = False
             continue
 
         if stripped == "---":
             flush_paragraph()
+            prev_was_list_number = False
             continue
 
         # 헤딩
@@ -1668,14 +1785,20 @@ def _render_markdown_to_docx(doc, markdown: str):
             flush_paragraph()
             level = min(len(h_match.group(1)) + 1, 4)
             doc.add_heading(h_match.group(2).strip(), level=level)
+            prev_was_list_number = False
             continue
 
         # 순서있는 리스트
         ol_match = re.match(r"^\s*(\d+)[.)]\s+(.+)$", line)
         if ol_match:
             flush_paragraph()
+            if not prev_was_list_number and allocate_num_id is not None:
+                current_num_id = allocate_num_id()
             p = doc.add_paragraph(style="List Number")
+            if current_num_id is not None:
+                _set_paragraph_inline_num_id(p, current_num_id)
             _add_inline_runs(p, ol_match.group(2))
+            prev_was_list_number = True
             continue
 
         # 순서없는 리스트
@@ -1684,9 +1807,12 @@ def _render_markdown_to_docx(doc, markdown: str):
             flush_paragraph()
             p = doc.add_paragraph(style="List Bullet")
             _add_inline_runs(p, ul_match.group(1))
+            # bullet 도 list block 끊김으로 처리 — 이후 number 가 다시 오면 새 block
+            prev_was_list_number = False
             continue
 
         paragraph_buffer.append(stripped)
+        prev_was_list_number = False
 
     flush_paragraph()
 

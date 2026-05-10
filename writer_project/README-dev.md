@@ -2585,26 +2585,53 @@ frontend (프론트엔드):
 - §13-13 helper 가 *신규 작성 sections 에만* 적용되는 한계 → docx export 단계 in-memory 정규화로 cascade 자동화
 - 산출물 무수정 원칙 유지
 
-13-13-4-2. **(가칭, 후속) docx 본문 list cascade fix** — 상태: `pending` / 우선순위: 중
+13-13-4-2. **docx 본문 list cascade fix** — 상태: `closed (2026-05-10)` / 의존: §13-13-4-1 / 우선순위: 중
 
-**증상**: docx 본문의 번호 list (Actionable Recommendations 등) 가 § 경계마다 1·2·3 reset 되지 않고 보고서 전체에 걸쳐 누적 카운트.
+**증상**: docx 본문의 번호 list (Actionable Recommendations 등) 가 list block 경계마다 1·2·3 reset 되지 않고 보고서 전체에 걸쳐 누적 카운트.
 
-**XML 레벨 원인**:
+**XML 레벨 원인 (Phase A 조사)**:
 - `word/document.xml`: 모든 list item 이 `<w:pStyle w:val="ListNumber"/>` 단일 스타일, 직접 `<w:numPr>` override 0건
 - `word/styles.xml`: ListNumber 스타일이 `<w:numId w:val="5"/>` 단일 참조
 - `word/numbering.xml`: numId=5 → abstractNumId=7, `<w:lvlOverride>` 0건
 - OOXML 사양상 같은 numId 공유 paragraph = 단일 연속 리스트 → 카운터 누적
 
-**결정 (옵션 B)**: paragraph-level inline numPr override + § 경계마다 새 numId 등록.
-- python-docx `doc.part.numbering_part.element` 로 lxml 접근 → `<w:num w:numId="N+i"><w:abstractNumId w:val="7"/></w:num>` 추가
-- 각 § 시작 list item 의 paragraph._p 에 직접 `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="N+i"/></w:numPr>` 박음
-- styles.xml 무수정, 다른 list 사용처 영향 0
+**fix 경로 (라운드 a-1 → a-2 → a-3 점진 보강)**:
 
-**옵션 후보 (참고)**:
-- A (lvlOverride + startOverride): 같은 numId 안에 lvlOverride 박는 방식. paragraph 위치별 reset 효과 약함
-- C (plain paragraph + 텍스트 prefix): `1. ` 텍스트 직접 박음. 가장 단순하지만 List Number 스타일 손실, Word 에서 list 인식 못 함
+라운드 (a-1) — 옵션 B v1: § 경계마다 새 numId 등록 + paragraph inline numPr override
+- XML 검증 PASS (numbering.xml 9→16, ListNumber paragraph 모두 inline numId)
+- **시각 검증 FAIL**: §1 1-5 → §2 6-8 → ... 누적 — cascade 그대로 (catch 9 발현)
 
-**진입 조건**: §13-13-4-1 close 후 별도 commit. PPTX 경로 무영향 확정 (라운드 b 검증 8).
+라운드 (a-2) — Patch E 추가: `<w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride>` 명시
+- numId 분리만으로는 카운터 분리 implementation-defined → startOverride val=1 명시가 사양 보장 핵심
+- 시각 검증 부분 PASS: § 경계 reset (§1 1-5, §2 1-3, §3 1-5...) — Patch E 효과 입증
+- 잔존: § 안 다중 list block (§2 의 실행방안+Actionable, §4·§5·§6·§7 동일) 의 cross-block continuation
+
+라운드 (a-3) — Patch G: § 경계 → *list block 경계* 단위 numId 발급 (catch 11)
+- `_render_markdown_to_docx` 가 line-by-line 으로 `prev_was_list_number` 추적
+- ListNumber paragraph 진입 시 prev=False 면 새 numId 발급 (closure allocator)
+- 헤딩/구분자/일반 paragraph/bullet 만나면 prev=False (block 끊김)
+- 빈 라인은 prev 유지 (markdown loose list 사양)
+- XML 검증 7/7 PASS + 시각 검증 PASS (모든 § 의 모든 list block 1 부터 reset)
+
+**Patch 누적 (app.py +129 / -3)**:
+- helper 3개: `_list_number_abstract_id` / `_allocate_section_num_id` / `_set_paragraph_inline_num_id`
+- `_markdown_to_docx`: closure allocator 캡처
+- `_render_markdown_to_docx`: 시그니처 변경 (`section_num_id` → `allocate_num_id`) + line tracker 분기
+
+**검증 ALL PASS (라운드 a-3 XML 7건 + 라운드 b e2e 4건)**:
+- 라운드 a-3 (`scripts/verify_13_13_4_2.py`):
+  - 검증 1: numbering.xml <w:num> count = 9 baseline + 14 list blocks = 23
+  - 검증 2: ListNumber paragraph 56/56 inline numId 보유, unique 14개 = list block 갯수
+  - 검증 3: list block 단위 분리 (intra-block uniform + inter-block disjoint)
+    · §1: 1 block / §2: 2 blocks / §3: 1 block / §4: 3 blocks / §5: 2 blocks / §6: 3 blocks / §7: 2 blocks
+  - 검증 4: ListBullet 21개 inline numPr 0 (bullet 무영향)
+  - 검증 5: H1 시퀀스 §1~§7 정확 (§13-13-4-1 회귀 0)
+  - 검증 6: sections/.md mtime 변동 0
+  - 검증 7: 14/14 신규 numId 모두 lvlOverride+startOverride 보유
+- 라운드 b (`verify_13_13_4_1_b.py` 재실행): §13-13-4-1 H1 회귀 0 + 단위 5/5 PASS 유지
+- PPTX 경로 분리 cross-check 0 호출 (catch 8 패턴 재사용)
+
+**산출물 무수정 원칙 유지** (sections/.md mtime 변동 0).
 
 13-13-4-3. **(저우선, 후속 점검) `_resolve_section_file` sid prefix 결함 잠재** — 상태: `pending` / 우선순위: 저
 
@@ -2616,7 +2643,8 @@ frontend (프론트엔드):
 
 - **commit c3af4c7** (placeholder, 진입 시): Phase A close (drift catch + cascade 가설) + Phase B 결정 close + sub-task 박제
 - **commit 62e2775** (close, partial): §13-13-1 구현 (helper + 호출) + 단위 검증 ALL PASS + §13-13-2 cascade 검증 PASS (결함 2 자동 해소) + §13-13-3·4 후속 분리 박제
-- **본 commit** (§13-13-4-1 close): docx export 단계 helper 전파 + sid 가드 + helper 입력 계약 확장. 라운드 a/b ALL PASS. §13-13-4-2 (list cascade) + §13-13-4-3 (_resolve_section_file 점검) 분리
+- **commit 74675fb** (§13-13-4-1 close): docx export 단계 helper 전파 + sid 가드 + helper 입력 계약 확장. 라운드 a/b ALL PASS. §13-13-4-2 (list cascade) + §13-13-4-3 (_resolve_section_file 점검) 분리
+- **본 commit** (§13-13-4-2 close): docx 본문 list cascade fix — list block 경계 단위 numId 발급 + lvlOverride/startOverride 명시. 라운드 a-1 → a-2 → a-3 점진 보강. 시각 검증 PASS. catch 8·9·10·11 박제.
 
 ### Re-entry conditions
 
@@ -2633,6 +2661,10 @@ frontend (프론트엔드):
 - **catch 5 (§13-13-4-1: helper 입력 계약 호출자별 비대칭)**: section_writer 호출자는 평문 target_title (예: `"Executive Summary"`) 전달 / docx export 호출자는 outline 한 줄 (`"## 1. Executive Summary"`) 전달 — 같은 helper 에 다른 형식 input. 호출자별 정제 코드를 분산 배치하면 sync 부담. **helper 본체에 입력 흡수층** (`^\s*#+\s*` + `^\s*\d+[.)]\s*` 단계 prefix 제거) 을 두면 호출자 측 정제 0 + 미래 호출자 추가 시 자유. 평문 input 에 no-op (회귀 0) — §13-13-1 박제 단위 8 케이스 무영향. 자산화: **공유 helper 의 입력 계약은 호출자 다양성을 helper 본체에서 흡수** (호출자 측 정제 분산보다 결합 낮음).
 - **catch 6 (§13-13-4-1: 산출물 cascade 자동화)**: §13-13 helper 는 section_writer 단계 (LLM 출력 직후) 에 인입 — *신규 작성 sections* 에만 효과. 기존 sections/.md (fix 이전 작성분) 는 fix 미전파. 사용자 e2e 산출 docx 의 §4·§7 mtime (19:39:35) < §13-13 commit (19:46:42) 가 결정적 단서. 자산화: **fix 가 LLM 단계에 들어가면 기존 산출물에 자동 cascade 안 됨** → 산출물 무수정 원칙 유지하면서도 cascade 보장하려면 *consumer 단계에 in-memory 정규화* (re-run 없이 즉시 효과). 향후 다른 LLM 출력 후처리 fix 도 동일 패턴 적용 검토.
 - **catch 7 (§13-13-4-1: slug 와 sid prefix 형식 충돌)**: `re.match(r"^(\d+)-", fname)` 이 옛 형식 (`1-Executive_Summary.md`) 인식용으로 도입됨. 그러나 `section_slugify` 결과가 outline title 첫 단어 숫자 ("3040 직장인...") 를 보존하면서 신 형식 (`3040-직장인-...md`) 도 같은 패턴에 매칭 — sid=3040 으로 잘못 결정. **outline 범위 가드** (`1 <= sid <= len(outline_items)`) 한 줄로 격리. 자산화: **숫자 prefix 컨벤션 재사용 시 의미 영역 (section_id 범위) 가드 필수** — 동일 패턴이 미래 다른 mode (book chapter 등) 에도 잠재.
+- **catch 8 (§13-13-4-1·4-2: PPTX path 분리 cross-check 패턴)**: docx-only fix 가 PPTX 산출에 영향 없음을 확인하기 위해 *실제 PPTX 호출 (LLM 1회 ~$0.07, ~30s)* 대신 *코드 path 분석 grep* 으로 확정. `_api_export_pptx` 와 `report_builder.build_final_report` 가 patch 함수 (`_read_all_sections` / `_read_section_file` / `_markdown_to_docx` / `_render_markdown_to_docx` / `_allocate_section_num_id` 등) 를 호출하지 않음을 grep 으로 입증 → 회귀 0. 자산화: **format-specific fix 의 cross-format 회귀는 코드 path 분리만 grep 으로 확인 가능 — 실제 LLM 호출 비용 회피**.
+- **catch 9 (§13-13-4-2: XML 검증 PASS ≠ 시각 검증 PASS)**: 라운드 (a-1) 의 XML 6/6 PASS 가 LibreOffice 시각 검증에서 cascade 잔존으로 무효화. numId 분리 + abstractNum 공유 만으로는 카운터 분리 implementation-defined (OOXML 사양 미규정). 실제 office 도구 (Word/LibreOffice) 가 startOverride 같은 명시 reset 신호 없으면 카운터 공유 가능. 자산화: **OOXML 류 fix 는 XML 레벨 검증 + 실제 office 도구 시각 검증 (또는 PDF 변환) 양쪽 병행 필수** — XML 만으로 PASS 판정 위험.
+- **catch 10 (§13-13-4-2: OOXML cascade fix 정공법)**: `<w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride>` 가 카운터 reset 의 핵심. 새 `<w:num>` 등록 + abstractNum 공유 + paragraph inline numPr override 까지만으로는 부족. startOverride val="1" 명시가 OOXML 사양상 시작값 강제. 자산화: **OOXML number list cascade 차단 = 새 numId + abstractNum (공유 OK) + lvlOverride wrapper + startOverride val=1 + paragraph inline numPr 의 5요소 조합**.
+- **catch 11 (§13-13-4-2: 옵션 B 의 'block 단위' 정의 — § 경계 vs list block 경계)**: 라운드 (a) 의 fix 단위 정의가 사용자 본래 결함 보고를 정확히 반영하지 못함. placeholder 박제 ("§ 경계 reset") 가 시각 검증 후 "list block 경계 reset" 으로 정정됨 — §2 의 실행방안 1·2·3 후 Actionable Recommendations 가 *4·5·6·7·8 누적* 이 아니라 *1·2·3·4·5 reset* 이 사용자 기대치. 즉 같은 § 안 다중 list block 도 독립 카운터. 자산화: **사용자 본래 결함 보고를 fine-grained 양상까지 재해석하는 것이 fix 단위 결정의 ground truth** — placeholder 박제 단계의 결함 정의가 fix 단계에서 coarse 한 경우 잦음 → 시각 검증 단계에서 정정.
 
 ### 보존 자산 (재사용)
 
