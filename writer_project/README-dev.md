@@ -2011,6 +2011,8 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 
 → §13-8 close. §13-7 운영 default (gpt-4o) 재확인. Anthropic 평가 트랙은 §13-8-3 (Haiku) 으로 family 시그널 검증 진입.
 
+**§13-8 close 시점 push 정책 박제 (2026-05-10)**: NDA 보류 해제 — repo visibility private 전환 확인. §13-7 부터 누적된 commit (`5bc94e5..d2b9bd1` 5 commit) origin push 완료. 향후 push 정책: private repo 한정 자유 push.
+
 13-9. **출력 안정화 (언어·표 추출·슬라이드 수)** — 상태: `closed (2026-05-09)` / 의존: §13-3 v3-fix1 close / 우선순위: 중
 
 **문제 (open 시점)**:
