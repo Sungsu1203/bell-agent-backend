@@ -143,6 +143,42 @@ def _guess_total_sections(outline_text: str, fallback: int = 8) -> int:
     return fallback
 
 
+_OUTLINE_H2_RE = re.compile(r"^\s*##\s+(?:(\d+)\.\s+)?(.+?)\s*$", re.M)
+
+
+def _ensure_section_heading(body: str, target_title: str, outline_text: str) -> str:
+    """§13-13-1: LLM 일관성 결함 우회 — outline ground truth 로 ## N. <title> 강제.
+
+    LLM 출력 첫 라인이 정규 ## N. <title> 가 아닐 때만 정규화.
+    outline 매칭 실패 시 번호 없는 ## <title> 로 fallback (현 _ensure_heading 동작 유지).
+    """
+    body = (body or "").lstrip()
+    target_clean = re.sub(r"^\s*\d+[.)]\s*", "", (target_title or "").strip()).strip()
+    if not target_clean:
+        return body
+
+    expected_num = ""
+    for m in _OUTLINE_H2_RE.finditer(outline_text or ""):
+        num = (m.group(1) or "").strip()
+        title = (m.group(2) or "").strip()
+        if title == target_clean:
+            expected_num = num
+            break
+
+    expected_heading = (
+        f"## {expected_num}. {target_clean}" if expected_num
+        else f"## {target_clean}"
+    )
+
+    first_line = body.split("\n", 1)[0].strip() if body else ""
+    if first_line == expected_heading:
+        return body
+    if first_line.startswith("##"):
+        rest = body.split("\n", 1)[1] if "\n" in body else ""
+        return f"{expected_heading}\n{rest}"
+    return f"{expected_heading}\n\n{body}"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
@@ -303,6 +339,7 @@ def section_writer(state: State):
     out_dir = path.join(_proj_root, "content", slug)
 
     if not is_qa_mode:
+        gathered = _ensure_section_heading(gathered, target_title, outline_text)
         try:
             out_path = save_md_draft(
                 target_title, gathered, mode="report",

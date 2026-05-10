@@ -2455,7 +2455,8 @@ frontend (프론트엔드):
 
 ## §13-13 (트랙) — Word/PPT export 결함 4건 fix
 
-상태: `Phase A close / Phase B 결정 close / Phase C 진입 (B 안)` / 시작: 2026-05-10
+상태: `closed (2026-05-10, partial)` — 결함 1+3 close / 결함 2 cascade 자동 해소 close / 결함 4 PPT cascade 검증 미완 (backend e2e 이월) / §13-13-3 (7장 평문 중복) 분리
+시작: 2026-05-10 / 종결: 2026-05-10
 의존: §13-12 close (e2e 검증 시 발견)
 짝 placeholder: §13-12 본문 §13-13 (가칭, 후속) — 라인 2408 (close 시점 가설로 보존)
 
@@ -2503,32 +2504,76 @@ frontend (프론트엔드):
 
 ### Sub-tasks
 
-13-13-1. **section_writer post-process heading 정규화 (B 안)** — 상태: `pending` / 의존: 결정 1 / 우선순위: 높음
-- 위치: `agent/section_writer.py:149` 이후 LLM 출력 후 단계
-- outline 에서 현재 작성 중인 섹션의 **번호+제목** 추출 (`section_slugify` / `next_unwritten_title` 흐름 활용)
-- LLM 출력 첫 비공백 라인 점검 → `## N. <title>` 형태가 아니면 강제 prepend
-- 이미 정규 형태면 skip (또는 번호만 누락 시 prepend)
+13-13-1. **section_writer post-process heading 정규화 (B 안)** — 상태: `closed (2026-05-10)` / 의존: 결정 1 / 우선순위: 높음
+- 위치: `agent/section_writer.py:144` (helper `_ensure_section_heading`) + `:305` (호출, save_md_draft 직전)
+- helper 동작: outline 에서 target_title 의 번호 매칭 → expected_heading=`## N. <title>` 도출 → body 첫 라인 점검:
+  - 이미 expected 와 동일 → skip
+  - `## ` 로 시작하지만 expected 와 다름 → 첫 라인 교체
+  - heading 누락 → expected prepend
+- outline 매칭 실패 fallback: 번호 없는 `## <title>` prepend (현재 `_ensure_heading()` 동작 유지)
+- target_title 자체 번호 prefix 방어 (requested_write_title 흐름) — `re.sub(r"^\s*\d+[.)]\s*", "", ...)` 으로 normalize 후 매칭
+- regex: `_OUTLINE_H2_RE = re.compile(r"^\s*##\s+(?:(\d+)\.\s+)?(.+?)\s*$", re.M)` — H2 한정
+- **단위 검증** (8 케이스 ALL PASS): 4장 산문 / 7장 평문 / 5장 정규 skip / `##` 번호 누락 (교체) / target_title 번호 prefix 포함 / outline 매칭 실패 fallback / target_title empty / body empty
 - 박제: LLM 출력 후 fallback 정규화는 prompt 의존 줄이는 일반 패턴 — 향후 다른 LLM 출력 일관성 결함 발견 시 동일 패턴 재사용
 
-13-13-2. **Cascade 검증 + close** — 상태: `pending` / 의존: §13-13-1 close / 우선순위: 높음
-- B 안 fix 후 sections 재생성 (4·7장 LLM 재호출 또는 기존 4·7장 .md 직접 정규화 후 build_final_report)
-- e2e 재실행 → `/api/export?format=docx` + `/api/export?format=pptx` 양쪽
-- 결함 2 자동 해소 검증: latest.md 4·7장 번호 prefix 복구
-- 결함 4 PPT 자동 해소 검증: 4·7장 section header 슬라이드 number_str 정상 (`04`, `07`) + 제목 prefix 정리
-- 결함 4 Word "3040." 양상 ground truth 확보 + 잔존 시 별도 sub-task
-- §13 자산 회귀 0건 검증 (§13-3·9·10)
+13-13-2. **Cascade 검증** — 상태: `closed (2026-05-10, partial)` / 의존: §13-13-1 close / 우선순위: 높음
+
+**검증 방식**: §13-13-1 helper 동작 시뮬레이션 (4·7장 .md 직접 prepend) + `build_final_report("venfobel-vitamin")` 직접 호출 + latest.md ground truth 확인. backup → prepend → build → verify → restore (fs 변경 0).
+
+**결과**:
+- ✅ **결함 2 cascade 자동 해소 PASS**:
+  - 4장 라인 115: `## 벤포벨S 핵심 차별화...` (번호 누락) → `## 4. 벤포벨S 핵심 차별화 자산 기반 광고 클레임 개발` 정상 복구
+  - 7장 라인 233: `## 실행 로드맵 및 핵심 성과 지표(KPI)` (번호 누락) → `## 7. 실행 로드맵 및 핵심 성과 지표(KPI)` 정상 복구
+  - missing 섹션 0건 / baseline 양상 잔존 0건 → 결함 1+3 fix **단독으로** 결함 2 자동 해소 가설 입증
+- ⏸ **결함 4 PPT cascade 검증 미완**: backend e2e (frontend [PPT] 다운로드 + 사용자 시각 검증) 필요 — 본 세션 backend 미기동, 다음 세션 이월
+- ⏸ **결함 4 Word "3040." 양상**: latest.md 5장 자체 정상이라 cascade 시뮬레이션에서 별도 양상 없음. 사용자 docx ground truth 직접 검증 필요 (다음 세션 이월)
+- 📌 **추가 catch (7장 평문 중복)**: helper v1 prepend 분기는 첫 라인이 평문 제목인 경우 중복 발생. 7장 본문 라인 235 에 평문 `실행 로드맵 및 핵심 성과 지표(KPI)` 잔존. **가독성 영향은 사용자 시각 판단 영역** (docx 본문 첫 줄 평문 잔존이 거슬리는 정도). 회피 fix 는 §13-13-3 (가칭) 으로 분리.
+
+13-13-3. **(가칭, 후속) helper v1.1 — 첫 라인 평문 제목 매칭 시 교체** — 상태: `pending` / 발견: 2026-05-10 §13-13-2 검증 시 / 우선순위: 중·저 (사용자 가독성 판단 결과 기반)
+
+**증상**: helper v1 의 prepend 분기는 첫 라인이 `## ` 으로 시작 안 하면 무조건 prepend. 첫 라인이 평문 제목 (LLM 이 `## ` + 번호만 누락한 케이스 — 7장 venfobel ground truth) 인 경우 → expected_heading prepend 후 본문 첫 라인에 평문 제목 잔존 → 중복.
+
+**fix 가설**: helper 안에 첫 라인 점검 분기 추가:
+- 첫 라인이 `## ` 안 시작 + expected_heading 의 title 부분과 정확히 일치 (whitespace strip 후) → 첫 라인 교체 분기
+- 일치 안 함 → 현재 prepend 분기 유지 (중복 위험 0)
+
+**진입 조건**: 사용자가 7장 본문 첫 라인 평문 잔존이 가독성에 미치는 영향 시각 검증 후 결정. **사용자 판단 영역**.
+
+**참고**: §13-13-1 helper 변경 1 hunk + 단위 테스트 1 케이스 추가 → trivial fix.
+
+13-13-4. **(가칭, 후속) backend e2e — 결함 4 PPT cascade + Word "3040." 양상** — 상태: `pending` / 우선순위: 중
+
+**진입**: backend (.venv_vertex 또는 .venv_openai) 기동 + frontend [PPT] / [Word] 다운로드 + 사용자 시각 검증.
+
+**검증 항목**:
+- 결함 4 PPT cascade: 4·7장 section header 슬라이드 number_str (`04`, `07`) 정상 / 제목 prefix 정리 확인 → cascade 가설 입증
+- 결함 4 Word "3040." 양상: 사용자 docx 직접 ground truth 확보 → cascade 가설 또는 별도 root cause 결정
+- §13 자산 회귀 0건 (§13-3·9·10)
 
 ### 진행 박제
 
-- **본 commit** (placeholder, 진입 시): Phase A close (drift catch + cascade 가설) + Phase B 결정 close + sub-task 박제
-- **다음 commit** (§13-13-1): section_writer post-process 정규화 구현
-- **마지막 commit** (§13-13 close): cascade 검증 + 잔존분 결정 + 박제
+- **commit c3af4c7** (placeholder, 진입 시): Phase A close (drift catch + cascade 가설) + Phase B 결정 close + sub-task 박제
+- **본 commit** (close, partial): §13-13-1 구현 (helper + 호출) + 단위 검증 ALL PASS + §13-13-2 cascade 검증 PASS (결함 2 자동 해소) + §13-13-3·4 후속 분리 박제
+
+### Re-entry conditions
+
+- (R1) §13-13-3 — 사용자가 7장 본문 첫 라인 평문 잔존 가독성 영향 판단 후 v1.1 진입 결정 시.
+- (R2) §13-13-4 — backend e2e 진입 시 결함 4 양상 검증. cascade 가설 confirm/refute.
+- (R3) 다른 토픽 (pet-food-premium 등) 에서 동일 결함 1+3 양상 발현 시 helper v1 동작 검증 + 토픽별 outline 형태 차이 점검.
+
+### catch 자산 (본 트랙)
+
+- **catch 1 (§ placeholder 박제 vs ground truth drift)**: §13-12 close 본문 §13-13 placeholder 의 4 결함 독립 가설 → 진단 결과 결함 1+3 root → 결함 2·4 cascade 후과. **§ placeholder 박제는 close 시점 작업 의도 가설, 진입 후 ground truth 와 drift 자연스러움**. §13-12 NEXT_SESSION catch 1 ("박제 vs fs drift") 의 박제·진단 단계 확장.
+- **catch 2 (LLM 일관성 결함 → post-process 정규화 패턴)**: section_writer prompts.py:408-410 explicit instruction 있어도 5/7 (28% 실패율). prompt 강화 (A 안) 대신 post-process fallback (B 안) 이 결정적. **LLM 출력 일관성 결함은 prompt 강화로 0% 실패율 도달 보장 어려움 → 결정적 post-process 정규화로 우회**. 향후 다른 LLM 출력 일관성 결함 (e.g., citation marker 누락 / 표 형식 불일치 등) 발견 시 동일 패턴 재사용.
+- **catch 3 (cascade 가설 검증의 가치)**: 결함 4 독립 fix 진입 대신 cascade 가설 검증 우선 (결정 2). 결함 1+3 fix 만으로 결함 2 자동 해소 입증 → 결함 4 도 동일 cascade 추정 (backend e2e 시점 검증). **독립 fix 분기 추가하기 전에 cascade 가설로 묶음 fix 가능성 점검** — fix 작업량 / 코드 변경 면적 최소화.
+- **catch 4 (helper v1 prepend 분기의 평문 중복 trap)**: 첫 라인이 평문 제목인 LLM 출력 케이스에서 prepend 만으로는 중복 잔존. v1.1 (첫 라인 매칭 교체 분기) 후속 가능성. v1 단순성 vs v1.1 정확성 trade-off — 사용자 가독성 영향 시각 판단 영역.
 
 ### 보존 자산 (재사용)
 
 - §13-12 결정 1 (build_final_report 자동 호출) — pptx 분기 그대로 활용
 - §13-12 결정 2 (R1 BytesIO) — renderer 시그니처 그대로
 - §12-14 events 채널 — emit_event 재사용 시 (선택)
+- **§13-13-1 helper `_ensure_section_heading`**: post-process 정규화 일반 패턴 — outline ground truth + body 첫 라인 분기 (skip / 교체 / prepend / fallback) 패턴 그대로 재사용
 
 ---
 
