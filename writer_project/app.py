@@ -1702,9 +1702,13 @@ def _add_inline_runs(paragraph, text: str):
 @web_app.post("/api/export")
 def api_export(req: ExportRequest):
     """
-    Word(.docx) 다운로드.
-    payload: { kind: "section"|"report", section_id?: int, format: "docx" }
+    문서 다운로드.
+    payload: { kind: "section"|"report", section_id?: int, format: "docx"|"pptx" }
+
+    §13-12-1: format='pptx' 분기 추가 (kind='report' 만 — section 단위 deck v1 미정의).
     """
+    if req.format == "pptx":
+        return _api_export_pptx(req)
     if req.format != "docx":
         raise HTTPException(400, f"unsupported format: {req.format}")
 
@@ -1753,6 +1757,98 @@ def _safe_filename(s: str) -> str:
     s = re.sub(r'[\\/:*?"<>|]', "_", s)
     s = s.strip().replace(" ", "_")
     return s[:80]
+
+
+def _api_export_pptx(req: ExportRequest):
+    """pptx 다운로드 분기. §13-12-1.
+
+    흐름: build_final_report (sections → reports 합성, LLM 0) → plan_deck (LLM 1회, ~30s)
+          → render_deck (BytesIO) → StreamingResponse.
+    Section 단위 deck 은 v1 미정의 — kind='report' 만 허용.
+    UX 옵션 B: emit_event 4단계 (start/phase/phase/done) — §12-14 채널 재사용.
+    clear_events 호출 안 함 (기존 명령 흐름 보존).
+    """
+    from pathlib import Path
+    from urllib.parse import quote
+    from agent.export.cli import topic_title_for, DEFAULT_TEMPLATE_REL
+    from agent.export.planner import plan_deck
+    from agent.export.renderer import render_deck
+
+    if req.kind != "report":
+        raise HTTPException(400, "pptx export only supports kind=report (section-unit deck not defined in v1)")
+
+    global _WEB_STATE
+    st = _WEB_STATE
+    if st is None:
+        raise HTTPException(500, "state not initialized")
+    slug = _topic_slug_from_state(st)
+
+    emit_event("PPT 변환 시작", kind="start", detail=f"slug={slug}")
+
+    # 1) sections → reports 합성. build_final_report 는 LLM 0 (단순 파일 합치기).
+    try:
+        outline_fname = (st.get("outline_fname") if isinstance(st, dict) else None) or (
+            "outline_report.md" if config.DOC_MODE == "report" else "outline.md"
+        )
+        merged_path, missing = build_final_report(
+            topic_slug=slug,
+            outline_fname=outline_fname,
+            mode=config.DOC_MODE,
+            root_dir=str(current_path),
+        )
+    except Exception as e:
+        emit_event("PPT 변환 실패: 보고서 합성 오류", kind="error", detail=str(e)[:200])
+        raise HTTPException(500, f"build_final_report failed: {e}")
+
+    if missing:
+        detail = ", ".join(missing[:3]) + ("..." if len(missing) > 3 else "")
+        emit_event("PPT 변환 실패: 작성 미완료 섹션", kind="error", detail=detail)
+        raise HTTPException(409, f"report incomplete: missing sections {missing}")
+
+    md_path = Path(merged_path)
+    md_text = md_path.read_text(encoding="utf-8") if md_path.exists() else ""
+    if not md_text.strip():
+        emit_event("PPT 변환 실패: 합성 결과 빈 본문", kind="error")
+        raise HTTPException(500, "merged report is empty after build")
+
+    topic_title = os.environ.get("TOPIC_TITLE") or topic_title_for(slug, md_text)
+
+    # 2) plan_deck (LLM structured output 1회, ~20~30s for venfobel 71KB)
+    emit_event("슬라이드 구성 중...", kind="phase", detail=f"{len(md_text)} chars")
+    try:
+        deck = plan_deck(md_text, slug=slug, topic_title=topic_title)
+    except Exception as e:
+        emit_event("PPT 변환 실패: 슬라이드 구성 오류", kind="error", detail=str(e)[:200])
+        raise HTTPException(500, f"plan_deck failed: {e}")
+
+    # 3) render_deck → BytesIO (R1 시그니처, §13-12-2)
+    emit_event("PPT 파일 생성 중...", kind="phase", detail=f"{len(deck.slides)} slides")
+    template_path = Path(str(current_path)) / DEFAULT_TEMPLATE_REL
+    try:
+        buf = io.BytesIO()
+        render_deck(deck, template_path=template_path, out=buf)
+        buf.seek(0)
+    except Exception as e:
+        emit_event("PPT 변환 실패: 파일 생성 오류", kind="error", detail=str(e)[:200])
+        raise HTTPException(500, f"render_deck failed: {e}")
+
+    # 4) Content-Disposition (RFC 5987, §12-15 docx 패턴 그대로)
+    filename = f"{_safe_filename(topic_title)}.pptx"
+    encoded_filename = quote(filename, safe="")
+    ascii_fallback = filename.encode("ascii", errors="ignore").decode("ascii") or "report.pptx"
+
+    emit_event("PPT 변환 완료", kind="done", detail=f"{len(deck.slides)} slides")
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{ascii_fallback}"; '
+                f"filename*=UTF-8''{encoded_filename}"
+            ),
+        },
+    )
 
 @web_app.get("/api/files")
 def api_files(kind: str | None = None, limit: int = 200):

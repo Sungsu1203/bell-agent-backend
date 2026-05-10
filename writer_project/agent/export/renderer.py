@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from copy import deepcopy
 from pathlib import Path
-from typing import Optional, Union
+from typing import BinaryIO, Optional, Union
 
 from pptx import Presentation
 from pptx.dml.color import RGBColor
@@ -65,8 +65,8 @@ def render_deck(
     spec: SlideDeckSpec,
     *,
     template_path: Union[str, Path],
-    out_path: Union[str, Path],
-) -> Path:
+    out: Union[str, Path, BinaryIO],
+) -> Optional[Path]:
     """SlideDeckSpec → .pptx 결정론적 렌더 (LLM 호출 0).
 
     layout_id 분기:
@@ -74,9 +74,14 @@ def render_deck(
       - 1 (TITLE_CONTENT) + table: layout 5 ('TITLE_TABLE') 로 dispatch + add_table
       - 1 (TITLE_CONTENT) bullets/body: idx=0 TITLE, idx=1 OBJECT 채움
       - 2 (SECTION_HEADER): placeholder 3개 (top 좌표 식별) — 번호/제목/부제
+
+    §13-12-2: out 인자 BinaryIO 지원 (R1 시그니처 확장).
+      - str/Path 인자: 파일 경로. 부모 디렉터리 자동 생성. Path 반환.
+      - BinaryIO (예: io.BytesIO): 메모리 스트림. python-pptx Presentation.save() native 지원.
+        HTTP 응답 직접 streaming 용도. None 반환.
+      이 패턴은 향후 export 형식 추가 (PDF deck 등) 시 동일하게 재사용.
     """
     template_path = Path(template_path)
-    out_path = Path(out_path)
     if not template_path.exists():
         raise FileNotFoundError(f"template_path not found: {template_path}")
 
@@ -105,9 +110,13 @@ def render_deck(
         if s.notes:
             slide.notes_slide.notes_text_frame.text = s.notes
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    prs.save(str(out_path))
-    return out_path
+    if isinstance(out, (str, Path)):
+        out_path = Path(out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        prs.save(str(out_path))
+        return out_path
+    prs.save(out)
+    return None
 
 
 def _clear_template_slides(prs) -> None:

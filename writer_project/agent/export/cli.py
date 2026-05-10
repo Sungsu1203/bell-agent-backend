@@ -59,8 +59,11 @@ def _resolve_template(explicit: str | None) -> Path:
     return p
 
 
-def _topic_title_for(slug: str, md_text: str) -> str:
-    """md 의 첫 # 헤딩 (단일 #) 우선, 없으면 slug → Title Case fallback."""
+def topic_title_for(slug: str, md_text: str) -> str:
+    """md 의 첫 # 헤딩 (단일 #) 우선, 없으면 slug → Title Case fallback.
+
+    §13-12-1: app.py 의 /api/export?format=pptx 분기에서도 같은 정책 사용 (정합성 SoT).
+    """
     for line in md_text.splitlines()[:30]:
         s = line.strip()
         if s.startswith("# ") and not s.startswith("## "):
@@ -90,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     out_path = _resolve_out(md_path, args.out)
     template_path = _resolve_template(args.template)
     md_text = md_path.read_text(encoding="utf-8")
-    topic_title = args.topic_title or _topic_title_for(args.slug, md_text)
+    topic_title = args.topic_title or topic_title_for(args.slug, md_text)
 
     print(f"[cli] slug:        {args.slug}")
     print(f"[cli] report:      {md_path}  ({md_path.stat().st_size:,} B)")
@@ -103,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[cli] plan_deck OK — slides={len(deck.slides)}")
     print(f"[cli] rendering ...")
 
-    result = render_deck(deck, template_path=template_path, out_path=out_path)
+    result = render_deck(deck, template_path=template_path, out=out_path)
     size_kb = result.stat().st_size / 1024
     print(f"[cli] render_deck OK — {result} ({size_kb:.1f} KB)")
     return 0
