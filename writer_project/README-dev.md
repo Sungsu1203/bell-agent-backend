@@ -2280,8 +2280,9 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 
 ## §13-12 (트랙) — 프론트엔드 pptx 다운로드 통합
 
-상태: `진행 중 (Phase B 설계 완료, Phase C 구현 진입)` / 시작: 2026-05-10
+상태: `closed (2026-05-10)` / 시작: 2026-05-10 / 종결: 2026-05-10
 의존: §13-1~§13-10 close + §12-13-10 export endpoint + §12-14 events 채널 + §12-15 frontend Content-Disposition
+후속: §13-13 (가칭) 4 결함 / §12-15-1 (가칭, frontend) 운영 자원 가이드
 
 ### 배경
 
@@ -2317,7 +2318,7 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 
 ### Sub-tasks
 
-13-12-1. **백엔드 /api/export format='pptx' 분기 + build_final_report 자동 호출** — 상태: `pending` / 의존: 결정 1·3 / 우선순위: 높음
+13-12-1. **백엔드 /api/export format='pptx' 분기 + build_final_report 자동 호출** — 상태: `closed (commit ee26c62)` / 의존: 결정 1·3 / 우선순위: 높음
 - 위치: `app.py:1702` (현재 `if req.format != "docx"` 단일 차단점)
 - format='pptx' 분기 추가 (kind='report' 만 허용 — section 단위 deck 미정의)
 - `build_final_report(slug)` 자동 호출 → `_resolve_md` 또는 직접 `reports/<slug>/latest.md` 사용
@@ -2326,7 +2327,7 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 - Content-Disposition RFC 5987 한글 파일명 — docx 패턴 그대로 재사용 (§12-15 짝)
 - 박제: pptx 만 reports/ 정전제 (docx 와 비대칭) + reports/ 의 communicator QA 노이즈 (§12-13-9 박제) 우회는 build_final_report 가 sections 합성으로 보장
 
-13-12-2. **agent/export/renderer.py BytesIO 지원 (R1 시그니처 확장)** — 상태: `pending` / 의존: 결정 2 / 우선순위: 높음
+13-12-2. **agent/export/renderer.py BytesIO 지원 (R1 시그니처 확장)** — 상태: `closed (commit ee26c62)` / 의존: 결정 2 / 우선순위: 높음
 - 시그니처: `out: Union[str, Path, BinaryIO]`
 - Path/str 분기: 기존 동작 (mkdir + save) → `Path` 반환
 - BinaryIO 분기: `prs.save(out)` 직접 → `None` 반환
@@ -2340,15 +2341,15 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 - 충돌 함정: write 명령 도중 export 시 events 섞임 가능 — v1 미대응 (드문 케이스)
 - 박제: events 채널은 emit 발화처가 늘어나도 소비측 (frontend) 변경 없는 패턴 — 향후 다른 long-running endpoint 추가 시도 동일 재사용
 
-13-12-6. **e2e 검증 + 박제 정리** — 상태: `pending` / 의존: §13-12-1·2·5 + 프론트 §13-12-3·4 / 우선순위: 높음
-- 시나리오 1: sections 작성 완료 → [PPT] 클릭 → 다운로드 정상 + LogPanel 진행 표시
-- 시나리오 2: sections 일부 (write phase 도중) → [PPT] 버튼 disable 확인
-- 시나리오 3: 한글 파일명 정확 다운로드 (RFC 5987)
-- 시나리오 4: build 실패 시 사용자에게 에러 메시지 표시
-- 시나리오 5 (stale 재검증): venfobel sections 4장 갱신 (5/7) 반영된 deck 생성 → §13 v1 stale 함정 해결 검증
-- 시나리오 6: Word 다운로드 회귀 테스트
-- 양쪽 README close 후기 작성 (writer_project + frontend 짝 박제)
-- 측정값: build_final_report 시간 / 전체 다운로드 latency / pptx 파일 크기
+13-12-6. **e2e 검증 + 박제 정리** — 상태: `closed (2026-05-10)` / 의존: §13-12-1·2·5 + 프론트 §13-12-3·4 / 우선순위: 높음
+- 시나리오 1: sections 작성 완료 → [PPT] 클릭 → 다운로드 정상 + LogPanel 진행 표시 — **PASS**
+- 시나리오 2: sections 일부 (write phase 도중) → [PPT] 버튼 disable 확인 — **PASS**
+- 시나리오 3: 한글 파일명 정확 다운로드 (RFC 5987) — **PASS**
+- 시나리오 4: build 실패 시 사용자에게 에러 메시지 표시 — **PASS** (alert)
+- 시나리오 5 (stale 재검증): venfobel sections 4장 갱신 (5/7) 반영된 deck 생성 → §13 v1 stale 함정 해결 검증 — **PASS** (Slide 17 "활성형 B1" / Slide 24 "58%" — 모두 5/6~5/7 sections 갱신본 반영, 5/5 stale latest.md 기반 venfobel_v3.pptx 와 차별)
+- 시나리오 6: Word 다운로드 회귀 테스트 — **PASS** (기존 docx 분기 무영향)
+- 양쪽 README close 후기 작성 — 본 commit 6 (writer_project) + commit 7 (frontend) 짝 박제
+- 측정값: pptx 38 slides / 96KB / build_final_report ~1s (LLM 0) / 전체 다운로드 latency ~30s (gpt-4o plan_deck 지배)
 
 ### Frontend 짝 task (frontend/README-dev.md §13-12 참조)
 
@@ -2370,6 +2371,70 @@ frontend (프론트엔드):
 - **commit 7 (F2)**: §13-12-6 프론트 e2e + close 박제 (commit 6 짝)
 
 진행 순서: commit 1·2 placeholder → commit 3 (P1) → commit 4 (F1) → e2e 검증 (사용자 시각) → commit 6+7 close.
+
+**실제 진행 (2026-05-10)**:
+- 7dbf76d (commit 1, writer_project): §13-12 placeholder
+- a956cd7 (commit 2, frontend): §13-12 짝 placeholder
+- ee26c62 (commit 3 / P1, writer_project): §13-12-1 + §13-12-2 + §13-12-5 백엔드
+- d290852 (commit 4 / F1, frontend): §13-12-3 + §13-12-4 UI
+- (본 commit) commit 6 (writer_project) + 짝 commit 7 (frontend): close 박제
+
+### Close 후기 (2026-05-10) — e2e 검증 PASS + 후속 발견 + 사고 박제
+
+**검증 결론**: 시나리오 1~6 모두 PASS. **Phase A 의 핵심 비대칭 해소 검증** — `sections/` 가 `reports/latest.md` 보다 이틀 최신인 상황에서 [PPT] 클릭만으로 자동 build_final_report 호출 → 가장 최신 sections 반영 deck 생성. §13 v1 의 stale 함정 (venfobel_v3.pptx 가 5/5 stale latest.md 입력) 이 §13-12 흐름에서 재현 불가능 — 결정 1 (옵션 1a) 의 실효성 입증.
+
+**§13 자산 회귀 0건 검증**:
+- §13-3 v3-fix1 SLIDE_NUMBER 정상 (38 slides 모두 정상 번호)
+- §13-9 한국어 일관 (영어 fallback 0건)
+- §13-10 표 품질 회귀 0
+- 결정 2 (R1, BytesIO 시그니처 확장) — CLI backward compatible 검증 (기존 §13 검증 path 무영향)
+
+**박제된 일반화 교훈**:
+- **결정 1 (build_final_report 자동 호출)**: long-running endpoint 가 디스크 입력 전제 (latest.md) 를 받을 때, "입력 전제를 갱신하는 사전 단계" 를 endpoint 자체가 책임지는 패턴. 사용자 mental model 단순화 (한 클릭) + stale 함정 차단. 향후 다른 입력 전제 의존 endpoint (예: PDF deck) 추가 시 동일 패턴 재사용.
+- **결정 2 (out: Union[Path, BinaryIO])**: 디스크 vs HTTP stream 양쪽을 같은 renderer 로 서비스. python-pptx native 지원이라 분기 비용 없음. 향후 export 형식 추가 시 (PDF deck 등) 시그니처 그대로 재사용.
+- **결정 3 (events 채널 통합)**: emit 발화처가 늘어도 소비측 (frontend) 변경 0. §12-14 인프라 가치 재확인.
+
+**§13 v1 stale 함정 소급 박제 — "코드 동작 vs 사용자 의도" 분리 mental model**:
+- §13-9 close (2026-05-09) 시점의 venfobel_v3.pptx 는 5/5 stale `reports/latest.md` 입력으로 생성됐고, 그 시점에 사용자가 시각 검증 통과시킴.
+- 그러나 `sections/venfobel-vitamin/` 4장은 이미 5/6~5/7 에 사용자 손으로 갱신된 상태였음 — venfobel_v3.pptx 는 5/7 갱신분 미반영.
+- 즉 §13 v1 검증은 **renderer/planner 코드 동작** 측면 (SLIDE_NUMBER, 한국어 일관, 표 품질 등) 은 유효했지만 **"사용자 의도 콘텐츠 반영"** 측면 검증은 안 된 상태였음.
+- §13-12 진입 시 Phase A 보강 점검 (mtime 비교) 단계에서 비대칭 (`sections/` 5/7 vs `reports/latest.md` 5/5) 가 노출되며 발견.
+- **자산**: 무거운 트랙 (LLM/렌더러/평가) 검증 시 "코드 동작 검증 통과" 와 "사용자 의도 콘텐츠 반영 검증 통과" 는 분리해서 점검해야 함. 전자만 통과한 산출물을 후자로 오인하면 stale 함정 누적. mtime/입력 전제 비교가 후자의 ground truth 점검 도구.
+
+**Cold storage 정리** (별도 chore commit, close commit 6 이후):
+- `writer_project/.tmp_haiku_tokens.log` / `.tmp_haiku_tokens2.log` / `.tmp_haiku_tokens3.log` (§13-8-3 진단 도중 생성된 임시 token 로그) — 삭제
+- `writer_project/NEXT_SESSION.md` (§13-8-3 진입 노트, §13-8-3 close 50d6684 박제 후 무용) — 삭제
+
+### §13-13 (가칭, 후속) — Word/PPT export 결함 4건 — 상태: `pending` / 발견: 2026-05-10 §13-12 e2e 검증 / 우선순위: 중
+
+검증 도중 부수적으로 발견된 결함 — §13-12 close 와 분리하여 별도 트랙으로 처리.
+
+- **결함 1**: 4장 sections 의 `## ` heading 누락 → Word slug fallback 동작 / PPT 번호 placeholder 빈 공간. root cause 추정: write 단계의 heading 정규화 누락.
+- **결함 2**: Word 합본 순서 깨짐 (4장 → 7장 → … 비정상 순서) / PPT 정상. root cause 추정: docx 합본 흐름의 정렬 키와 pptx plan_deck 의 정렬 키가 다름.
+- **결함 3**: 7장 sections 의 `## ` heading 누락 (결함 1 과 동일 root cause 추정). 결함 1 과 묶어 한 fix 가능성.
+- **결함 4**: Word 5장 "3040." 표기 / PPT 제목 prefix 잔존. root cause 추정: 제목 prefix 제거 정규화의 양쪽 분기 불일치.
+
+**양상 다름 자체가 자산**: Word 결함 (slug fallback / 합본 순서 / 번호 추출 실패) 와 PPT 결함 (번호 placeholder 빈 공간 / 제목 prefix 잔존) 가 동일 `sections/` 입력에서 다른 발현. → planner 가 `build_final_report` 의 latest.md 와 별도로 `outline.md` 또는 다른 정전제를 참조하는 경로 시그널. §13-13-2 (가칭, build_final_report 정렬 강화) 진입 시 ground truth 로 활용.
+
+진입 조건: §13-12 close push 후. 진입 전 root cause 별 묶음 (결함 1+3 / 결함 2 / 결함 4) 가설 검증.
+
+### §12-15-1 (가칭, frontend 측) — 운영 자원 가이드 박제 — 상태: `pending` / 발견: 2026-05-10 §13-12 검증 도중 / 우선순위: 중
+
+**사고 (2026-05-10)**: §13-12 e2e 검증 도중 단발성 시스템 다운 — Windows ERROR 1450 (시스템 thread 한도 초과) + tailwindcss 해석 실패 회귀 메시지가 동시 표면화.
+
+**진단 결과** (사용자 + 끌로드 코드 read-only 점검):
+- frontend `next.config.ts` 의 §12-15 박제 fix (`turbopack: { root: path.join(__dirname) }`) **그대로 살아있음** (commit a0cf62d 이후 변경 0).
+- §12-15 박제 fix 자체는 정상 동작 — 4일간 (2026-05-06 ~ 2026-05-10) frontend dev 무문제 운영.
+- 사고 시점에만 fix 가 우회됨 — 시스템 자원 임계 race condition 으로 turbopack worker spawn 시 OS 가 거절 (ERROR 1450) → resolver 컨텍스트 손상 → default 동작 (부모 디렉터리 추정) 으로 폴백.
+
+**trigger 추정**: §13-12 검증 시점 baseline 평소보다 무거움 — backend python (Uvicorn + Chroma + LangGraph) + frontend node (Turbopack + dev) + Claude 데스크톱 + 끌로드 코드 + msedge (localhost:3000 + Claude.ai 다중 탭) + PowerPoint (사용자 .pptx 검증) + PPT 다운로드 흐름 (gpt-4o ~30s + 메모리 spike) 동시 활성. Thread baseline 4,223 (idle) 에 worker spawn 추가로 임계 도달.
+
+**박제할 것**:
+- 시스템 자원 baseline 측정 (메모리·thread idle / 검증 시점 / 임계 직전)
+- 검증 시점 운영 가이드: "PPT 다운로드 같은 무거운 작업 진입 전 thread count + 메모리 점검 권고"
+- §12-15 박제 fix 의 견고성 한계: 시스템 자원 race 시점에는 우회 가능 — race 자체를 차단하는 운영 가이드가 보완책
+
+**진입 조건**: §13-12 close push 후. 측정 도구 검토 (PowerShell `Get-Process` baseline / threadcount diff / 메모리 watermark).
 
 ### 보존 자산 (재사용)
 
