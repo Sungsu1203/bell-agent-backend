@@ -151,9 +151,15 @@ def _ensure_section_heading(body: str, target_title: str, outline_text: str) -> 
 
     LLM 출력 첫 라인이 정규 ## N. <title> 가 아닐 때만 정규화.
     outline 매칭 실패 시 번호 없는 ## <title> 로 fallback (현 _ensure_heading 동작 유지).
+
+    §13-13-4-1: target_title 형식 흡수 — 평문/번호prefix/##prefix 모두 정규화 가능.
+    docx export 경로 (_read_all_sections, _read_section_file) 가 outline 한 줄
+    (`## N. <title>`) 을 그대로 넘기는 호출 패턴을 지원.
     """
     body = (body or "").lstrip()
-    target_clean = re.sub(r"^\s*\d+[.)]\s*", "", (target_title or "").strip()).strip()
+    _t = (target_title or "").strip()
+    _t = re.sub(r"^\s*#+\s*", "", _t)
+    target_clean = re.sub(r"^\s*\d+[.)]\s*", "", _t).strip()
     if not target_clean:
         return body
 

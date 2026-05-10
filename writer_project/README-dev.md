@@ -2541,19 +2541,82 @@ frontend (프론트엔드):
 
 **참고**: §13-13-1 helper 변경 1 hunk + 단위 테스트 1 케이스 추가 → trivial fix.
 
-13-13-4. **(가칭, 후속) backend e2e — 결함 4 PPT cascade + Word "3040." 양상** — 상태: `pending` / 우선순위: 중
+13-13-4. **backend e2e — 결함 4 PPT cascade + Word 양상** — 상태: split (4-1 closed 2026-05-10 / 4-2 pending) / 우선순위: 중
 
-**진입**: backend (.venv_vertex 또는 .venv_openai) 기동 + frontend [PPT] / [Word] 다운로드 + 사용자 시각 검증.
+진입 시 ground truth 검증으로 결함 양상 분기 확정 → 별도 sub-task 분리:
+- **§13-13-4-1**: docx H1 결함 2종 (§4·§7 slug+.md / §3040 prefix drift + §5 누락) — 본 commit close
+- **§13-13-4-2**: docx 본문 list cascade (§ 경계 번호 reset 누락) — 후속 분리
 
-**검증 항목**:
-- 결함 4 PPT cascade: 4·7장 section header 슬라이드 number_str (`04`, `07`) 정상 / 제목 prefix 정리 확인 → cascade 가설 입증
-- 결함 4 Word "3040." 양상: 사용자 docx 직접 ground truth 확보 → cascade 가설 또는 별도 root cause 결정
-- §13 자산 회귀 0건 (§13-3·9·10)
+13-13-4-1. **docx export 단계 helper 전파 + sid 가드** — 상태: `closed (2026-05-10)` / 의존: §13-13-1 / 우선순위: 높음
+
+**Phase A (조사, read-only)**:
+- 결함 양상 ground truth 확보 (사용자 e2e 산출 docx unzip):
+  - **결함 1 (§4·§7 H1 = slug+.md)**: `## ` 누락 → docx 변환 단계 fallback 이 fname 사용 (`app.py:1505 title = fname`)
+  - **결함 4 (§5 H1 = `3040.` prefix + §5 누락)**: 파일명 `3040-직장인-...md` → `re.match(r"^(\d+)-", fname)` 가 sid=3040 으로 오매핑 → §5 자리 비고 §3040 잡음 H1 추가
+  - **결함 2 (본문 list cascade)**: word/numbering.xml 의 numId=5 단일 참조 → OOXML 사양상 누적 — §13-13-4-2 분리
+- 결정적 단서: §4·§7 sections/.md mtime (19:39:35) < §13-13 commit 62e2775 (19:46:42) → §13-13 fix 미전파 (sections 재작성 안 됨)
+
+**Phase B (결정 + 패치)**:
+- **결정 1 (in-memory 정규화)**: sections/.md 무수정 (§13-13 박제 원칙). docx export 단계 (`_read_all_sections`, `_read_section_file`) 가 content 읽은 직후 helper 호출.
+- **결정 2 (sid 가드)**: `re.match(r"^(\d+)-", fname)` 매칭 시 outline 범위 `1 <= sid <= len(outline_items)` 안일 때만 인정. outline title 첫 단어 숫자 (예: "3040") 가 신 형식 slug 와 옛 형식 sid prefix 와 충돌하던 양상 차단.
+- **결정 3 (helper 입력 계약 확장)**: section_writer 는 평문 target_title 전달 / docx export 는 outline 한 줄 (`## N. <title>`) 전달 — 호출자별 비대칭. helper 본체에 `^\s*#+\s*` prefix 제거 추가 (평문 input 에 no-op, ## prefix 흡수).
+
+**Patch 4건**:
+- A: `app.py:26` — `from agent.section_writer import _ensure_section_heading` 추가
+- B: `app.py:1486-1521` — `_read_all_sections()` 에 outline_text 합성 + sid 가드 + helper 호출
+- C: `app.py:1444-1456` — `_read_section_file()` 에 helper 호출
+- D: `agent/section_writer.py:155-159` — helper 입력 계약 확장
+
+**검증 ALL PASS** (라운드 a 단위 5건 + 라운드 b e2e 5건):
+- 라운드 a (단위, `scripts/verify_13_13_4_1.py`):
+  - §4 (## 누락 산문): sid=4 + helper prepend → 정규 H1
+  - §5 (정상 ##, prefix drift): sid=5 (3040 차단) + content 무변동 (idempotent)
+  - §7 (평문 제목, ## 누락): sid=7 + helper prepend → 정규 H1
+  - mtime 변동: 0 (in-memory 정규화 확인)
+  - 회귀 §3·§6: content/title 무변동
+- 라운드 b (e2e, `scripts/verify_13_13_4_1_b.py`):
+  - 검증 6 (docx report): H1 7개 정확히 §1~§7, slug+.md 잔존 0, §3040 잔존 0, §5 존재
+  - 검증 7 (docx section 1..7): 단일 export 7회 모두 H1 정확
+  - 검증 8 (PPTX 회귀): code path 분리 cross-check (`_api_export_pptx` / `report_builder.build_final_report` 모두 helper / `_read_all_sections` 무사용)
+  - 검증 9 (mtime 무변동): 7 파일 모두 0건
+  - 검증 10 (단위 회귀): 5/5 PASS 유지
+
+**§13-13 박제 cascade**:
+- §13-13 helper 가 *신규 작성 sections 에만* 적용되는 한계 → docx export 단계 in-memory 정규화로 cascade 자동화
+- 산출물 무수정 원칙 유지
+
+13-13-4-2. **(가칭, 후속) docx 본문 list cascade fix** — 상태: `pending` / 우선순위: 중
+
+**증상**: docx 본문의 번호 list (Actionable Recommendations 등) 가 § 경계마다 1·2·3 reset 되지 않고 보고서 전체에 걸쳐 누적 카운트.
+
+**XML 레벨 원인**:
+- `word/document.xml`: 모든 list item 이 `<w:pStyle w:val="ListNumber"/>` 단일 스타일, 직접 `<w:numPr>` override 0건
+- `word/styles.xml`: ListNumber 스타일이 `<w:numId w:val="5"/>` 단일 참조
+- `word/numbering.xml`: numId=5 → abstractNumId=7, `<w:lvlOverride>` 0건
+- OOXML 사양상 같은 numId 공유 paragraph = 단일 연속 리스트 → 카운터 누적
+
+**결정 (옵션 B)**: paragraph-level inline numPr override + § 경계마다 새 numId 등록.
+- python-docx `doc.part.numbering_part.element` 로 lxml 접근 → `<w:num w:numId="N+i"><w:abstractNumId w:val="7"/></w:num>` 추가
+- 각 § 시작 list item 의 paragraph._p 에 직접 `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="N+i"/></w:numPr>` 박음
+- styles.xml 무수정, 다른 list 사용처 영향 0
+
+**옵션 후보 (참고)**:
+- A (lvlOverride + startOverride): 같은 numId 안에 lvlOverride 박는 방식. paragraph 위치별 reset 효과 약함
+- C (plain paragraph + 텍스트 prefix): `1. ` 텍스트 직접 박음. 가장 단순하지만 List Number 스타일 손실, Word 에서 list 인식 못 함
+
+**진입 조건**: §13-13-4-1 close 후 별도 commit. PPTX 경로 무영향 확정 (라운드 b 검증 8).
+
+13-13-4-3. **(저우선, 후속 점검) `_resolve_section_file` sid prefix 결함 잠재** — 상태: `pending` / 우선순위: 저
+
+**증상 (잠재)**: `app.py:1394 _resolve_section_file` 의 우선순위가 `fname.startswith(f"{section_id}-")` → outline slug lookup. 신 형식 slug 가 outline title 첫 단어 숫자로 시작하면 (e.g. `3040-...md` ↔ section_id=3040) 동일 `_read_all_sections` 류의 prefix 충돌 가능성. 현 양상은 불발.
+
+**fix 방향**: outline 슬러그 매칭을 우선시키거나, `int(prefix)` 의 outline 범위 가드 동일 적용.
 
 ### 진행 박제
 
 - **commit c3af4c7** (placeholder, 진입 시): Phase A close (drift catch + cascade 가설) + Phase B 결정 close + sub-task 박제
-- **본 commit** (close, partial): §13-13-1 구현 (helper + 호출) + 단위 검증 ALL PASS + §13-13-2 cascade 검증 PASS (결함 2 자동 해소) + §13-13-3·4 후속 분리 박제
+- **commit 62e2775** (close, partial): §13-13-1 구현 (helper + 호출) + 단위 검증 ALL PASS + §13-13-2 cascade 검증 PASS (결함 2 자동 해소) + §13-13-3·4 후속 분리 박제
+- **본 commit** (§13-13-4-1 close): docx export 단계 helper 전파 + sid 가드 + helper 입력 계약 확장. 라운드 a/b ALL PASS. §13-13-4-2 (list cascade) + §13-13-4-3 (_resolve_section_file 점검) 분리
 
 ### Re-entry conditions
 
@@ -2567,6 +2630,9 @@ frontend (프론트엔드):
 - **catch 2 (LLM 일관성 결함 → post-process 정규화 패턴)**: section_writer prompts.py:408-410 explicit instruction 있어도 5/7 (28% 실패율). prompt 강화 (A 안) 대신 post-process fallback (B 안) 이 결정적. **LLM 출력 일관성 결함은 prompt 강화로 0% 실패율 도달 보장 어려움 → 결정적 post-process 정규화로 우회**. 향후 다른 LLM 출력 일관성 결함 (e.g., citation marker 누락 / 표 형식 불일치 등) 발견 시 동일 패턴 재사용.
 - **catch 3 (cascade 가설 검증의 가치)**: 결함 4 독립 fix 진입 대신 cascade 가설 검증 우선 (결정 2). 결함 1+3 fix 만으로 결함 2 자동 해소 입증 → 결함 4 도 동일 cascade 추정 (backend e2e 시점 검증). **독립 fix 분기 추가하기 전에 cascade 가설로 묶음 fix 가능성 점검** — fix 작업량 / 코드 변경 면적 최소화.
 - **catch 4 (helper v1 prepend 분기의 평문 중복 trap)**: 첫 라인이 평문 제목인 LLM 출력 케이스에서 prepend 만으로는 중복 잔존. v1.1 (첫 라인 매칭 교체 분기) 후속 가능성. v1 단순성 vs v1.1 정확성 trade-off — 사용자 가독성 영향 시각 판단 영역.
+- **catch 5 (§13-13-4-1: helper 입력 계약 호출자별 비대칭)**: section_writer 호출자는 평문 target_title (예: `"Executive Summary"`) 전달 / docx export 호출자는 outline 한 줄 (`"## 1. Executive Summary"`) 전달 — 같은 helper 에 다른 형식 input. 호출자별 정제 코드를 분산 배치하면 sync 부담. **helper 본체에 입력 흡수층** (`^\s*#+\s*` + `^\s*\d+[.)]\s*` 단계 prefix 제거) 을 두면 호출자 측 정제 0 + 미래 호출자 추가 시 자유. 평문 input 에 no-op (회귀 0) — §13-13-1 박제 단위 8 케이스 무영향. 자산화: **공유 helper 의 입력 계약은 호출자 다양성을 helper 본체에서 흡수** (호출자 측 정제 분산보다 결합 낮음).
+- **catch 6 (§13-13-4-1: 산출물 cascade 자동화)**: §13-13 helper 는 section_writer 단계 (LLM 출력 직후) 에 인입 — *신규 작성 sections* 에만 효과. 기존 sections/.md (fix 이전 작성분) 는 fix 미전파. 사용자 e2e 산출 docx 의 §4·§7 mtime (19:39:35) < §13-13 commit (19:46:42) 가 결정적 단서. 자산화: **fix 가 LLM 단계에 들어가면 기존 산출물에 자동 cascade 안 됨** → 산출물 무수정 원칙 유지하면서도 cascade 보장하려면 *consumer 단계에 in-memory 정규화* (re-run 없이 즉시 효과). 향후 다른 LLM 출력 후처리 fix 도 동일 패턴 적용 검토.
+- **catch 7 (§13-13-4-1: slug 와 sid prefix 형식 충돌)**: `re.match(r"^(\d+)-", fname)` 이 옛 형식 (`1-Executive_Summary.md`) 인식용으로 도입됨. 그러나 `section_slugify` 결과가 outline title 첫 단어 숫자 ("3040 직장인...") 를 보존하면서 신 형식 (`3040-직장인-...md`) 도 같은 패턴에 매칭 — sid=3040 으로 잘못 결정. **outline 범위 가드** (`1 <= sid <= len(outline_items)`) 한 줄로 격리. 자산화: **숫자 prefix 컨벤션 재사용 시 의미 영역 (section_id 범위) 가드 필수** — 동일 패턴이 미래 다른 mode (book chapter 등) 에도 잠재.
 
 ### 보존 자산 (재사용)
 

@@ -23,6 +23,9 @@ from collections.abc import MutableMapping
 # ✅ repo rule 기반 outline 경로 생성 함수
 from core.paths import outline_path, _default_outline_name
 
+# §13-13-4-1: docx export 단계 in-memory 헤딩 정규화 (산출물 무수정)
+from agent.section_writer import _ensure_section_heading
+
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 
@@ -1443,6 +1446,15 @@ def _read_section_file(section_id: int) -> tuple[str, str]:
 
     with open(fpath, "r", encoding="utf-8") as f:
         content = f.read()
+
+    # §13-13-4-1 결함 1: in-memory 헤딩 정규화 (sections/.md 무수정)
+    target_title = (
+        outline_items[section_id - 1]
+        if 1 <= section_id <= len(outline_items) else ""
+    )
+    outline_text = "\n".join(outline_items)
+    content = _ensure_section_heading(content, target_title, outline_text)
+
     title_match = re.search(r"^##\s+(.+)$", content, re.MULTILINE)
     if title_match:
         title = title_match.group(1).strip()
@@ -1475,6 +1487,7 @@ def _read_all_sections() -> list[tuple[int, str, str]]:
     slug_dir = os.path.join(sections_dir, target_slug)
 
     outline_items = _load_outline_items()
+    outline_text = "\n".join(outline_items)
     slug_to_id: dict[str, int] = {}
     for i, raw in enumerate(outline_items):
         sl = _outline_title_to_slug(raw).lower()
@@ -1486,8 +1499,11 @@ def _read_all_sections() -> list[tuple[int, str, str]]:
         if not fname.endswith(".md"):
             continue
         sid: int | None = None
+        # §13-13-4-1 결함 4: outline 범위 가드 — 옛 형식 sid prefix만 인정.
+        # outline title 첫 단어가 숫자(예: "3040")여서 slugify 결과가 "3040-..."로 시작하는
+        # 신 형식을 sid prefix로 오해하던 결함 차단.
         m = re.match(r"^(\d+)-", fname)
-        if m:
+        if m and 1 <= int(m.group(1)) <= len(outline_items):
             sid = int(m.group(1))
         else:
             stem = re.sub(r"\.md$", "", fname).lower()
@@ -1497,6 +1513,14 @@ def _read_all_sections() -> list[tuple[int, str, str]]:
         fpath = os.path.join(slug_dir, fname)
         with open(fpath, "r", encoding="utf-8") as f:
             content = f.read()
+
+        # §13-13-4-1 결함 1: in-memory 헤딩 정규화 (sections/.md 무수정)
+        target_title = (
+            outline_items[sid - 1]
+            if 1 <= sid <= len(outline_items) else ""
+        )
+        content = _ensure_section_heading(content, target_title, outline_text)
+
         title_match = re.search(r"^##\s+(.+)$", content, re.MULTILINE)
         if title_match:
             title = title_match.group(1).strip()
