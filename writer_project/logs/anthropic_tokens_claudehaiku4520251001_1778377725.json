@@ -1,0 +1,191 @@
+{
+  "model": "claude-haiku-4-5-20251001",
+  "md_chars": 34866,
+  "n_h2": 7,
+  "n_h3": 35,
+  "n_total_slides_target": 43,
+  "n_slides_actual": null,
+  "latency_s": 82.75,
+  "usage_metadata": {
+    "input_tokens": 38569,
+    "output_tokens": 11880,
+    "total_tokens": 50449,
+    "input_token_details": {
+      "cache_read": 0,
+      "cache_creation": 0,
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 0
+    }
+  },
+  "ctor_attrs": {
+    "model": "claude-haiku-4-5-20251001",
+    "max_retries": 0,
+    "default_request_timeout": 600.0,
+    "anthropic_api_url": "https://api.anthropic.com",
+    "timeout_attr": "<missing>"
+  },
+  "diag_timeout_override": 600.0,
+  "parsed_is_none": true,
+  "parsing_error": {
+    "error_type": "ValidationError",
+    "error_msg": "9 validation errors for SlideDeckSpec\nslides.0.bullets\n  Input should be a valid list [type=list_type, input_value=None, input_type=NoneType]\n    For further information visit https://errors.pydantic.dev/2.12/v/list_type\nslides.1.bullets\n  Input should be a valid list [type=list_type, input_value=None, input_type=NoneType]\n    For further information visit https://errors.pydantic.dev/2.12/v/list_type\nslides.3.bullets\n  Input should be a valid list [type=list_type, input_value=None, input_type=No",
+    "validation_errors": [
+      {
+        "loc": [
+          "slides",
+          0,
+          "bullets"
+        ],
+        "msg": "Input should be a valid list",
+        "type": "list_type",
+        "input_repr": "None",
+        "url": "https://errors.pydantic.dev/2.12/v/list_type"
+      },
+      {
+        "loc": [
+          "slides",
+          1,
+          "bullets"
+        ],
+        "msg": "Input should be a valid list",
+        "type": "list_type",
+        "input_repr": "None",
+        "url": "https://errors.pydantic.dev/2.12/v/list_type"
+      },
+      {
+        "loc": [
+          "slides",
+          3,
+          "bullets"
+        ],
+        "msg": "Input should be a valid list",
+        "type": "list_type",
+        "input_repr": "None",
+        "url": "https://errors.pydantic.dev/2.12/v/list_type"
+      },
+      {
+        "loc": [
+          "slides",
+          6,
+          "bullets"
+        ],
+        "msg": "Input should be a valid list",
+        "type": "list_type",
+        "input_repr": "None",
+        "url": "https://errors.pydantic.dev/2.12/v/list_type"
+      },
+      {
+        "loc": [
+          "slides",
+          9,
+          "bullets"
+        ],
+        "msg": "Input should be a valid list",
+        "type": "list_type",
+        "input_repr": "None",
+        "url": "https://errors.pydantic.dev/2.12/v/list_type"
+      },
+      {
+        "loc": [
+          "slides",
+          17,
+          "bullets"
+        ],
+        "msg": "Input should be a valid list",
+        "type": "list_type",
+        "input_repr": "None",
+        "url": "https://errors.pydantic.dev/2.12/v/list_type"
+      },
+      {
+        "loc": [
+          "slides",
+          25,
+          "bullets"
+        ],
+        "msg": "Input should be a valid list",
+        "type": "list_type",
+        "input_repr": "None",
+        "url": "https://errors.pydantic.dev/2.12/v/list_type"
+      },
+      {
+        "loc": [
+          "slides",
+          31,
+          "bullets"
+        ],
+        "msg": "Input should be a valid list",
+        "type": "list_type",
+        "input_repr": "None",
+        "url": "https://errors.pydantic.dev/2.12/v/list_type"
+      },
+      {
+        "loc": [
+          "slides",
+          36,
+          "bullets"
+        ],
+        "msg": "Input should be a valid list",
+        "type": "list_type",
+        "input_repr": "None",
+        "url": "https://errors.pydantic.dev/2.12/v/list_type"
+      }
+    ],
+    "validation_error_count": 9
+  },
+  "raw_diagnostic": {
+    "stop_reason": "tool_use",
+    "response_metadata_keys": [
+      "container",
+      "id",
+      "model",
+      "model_name",
+      "model_provider",
+      "stop_details",
+      "stop_reason",
+      "stop_sequence",
+      "usage"
+    ],
+    "tool_calls_count": 1,
+    "invalid_tool_calls_count": 0,
+    "content_type": "list",
+    "content_block_types": [
+      "tool_use"
+    ],
+    "tool_use_blocks_count": 1,
+    "first_tool_input_keys": [
+      "slides",
+      "slug",
+      "topic_title"
+    ],
+    "first_tool_has_slides_key": true,
+    "first_tool_slides_count": 44
+  },
+  "case_classification": "B (tool_use 형식 fail — Pydantic ValidationError)",
+  "case_classification_nuance": "B/A 경계 — tool_use 응답 valid (schema 따르려는 의도 OK), payload type strict fail (prompt patch 또는 schema relax 가능)",
+  "slides_in_raw": 44,
+  "slides_target": 43,
+  "slides_overshoot": 1,
+  "fix_options": [
+    {
+      "id": "schema_relax",
+      "desc": "SlideSpec.bullets 를 Optional[List[str]] = None 으로 완화 — Haiku null 응답 허용 + gpt-4o/Sonnet omit 응답 호환",
+      "scope": "agent/export/spec.py 의 SlideSpec 정의",
+      "side_effect": "gpt-4o / Sonnet 회귀 테스트 필요 (default behavior 변동 가능)",
+      "permanence": "영구 자산 (모든 모델 호환성 향상)"
+    },
+    {
+      "id": "prompt_patch",
+      "desc": "prompt 에 'bullets 가 없으면 [] 또는 필드 생략' 명시",
+      "scope": "prompts/get_pptx_planner_prompt() — system 또는 instruction 라인 1~2 추가",
+      "side_effect": "prompt 길이 증가 → input_tokens 누적 비용",
+      "permanence": "모델별 누적 비용 (영구 자산 아님)"
+    },
+    {
+      "id": "schema_relax_with_validator",
+      "desc": "SlideSpec.bullets 를 Optional 완화 + @field_validator 로 None → []",
+      "scope": "agent/export/spec.py — Pydantic validator 추가",
+      "side_effect": "renderer/소비자 측 None 처리 불필요 (validator 가 normalize)",
+      "permanence": "영구 자산 + 정합성 유지"
+    }
+  ]
+}

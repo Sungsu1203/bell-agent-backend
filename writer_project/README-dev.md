@@ -2034,6 +2034,49 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 - `scripts/measure_stability.py` `_PRICE` prefix 매칭 — `claude-haiku-4-5-20251001` 같은 datestamp suffix 모델 ID 도 정확 매칭 (가장 긴 prefix 우선). strict `dict.get()` 매칭 미스 → cost=None 함정 회피.
 - 출력 파일명에 `_<model_tag>_` 추가 — `logs/anthropic_tokens_claudehaiku4520251001_<ts>.json` 등 모델별 충돌 회피.
 
+**§13-8-3 phase 1 진단 결과 (2026-05-10, claude-haiku-4-5-20251001 venfobel n=1, 3차 진단)**:
+
+*핵심 측정값 (3 run latency 분산 시그널)*:
+
+| 차수 | latency | output_tokens | slides_in_raw | OTPM (tok/min) |
+|---|---|---|---|---|
+| 1차 (parse fail capture 미적용) | 102.22s | 14,559 | 50 | 8,546 |
+| 2차 (parse fail capture 적용) | 73.72s | 10,757 | n/a | 8,755 |
+| 3차 (구조화 자산 캡처) | 82.75s | 11,880 | **44** | 8,614 |
+
+- input_tokens 결정성 ✅: 3차 모두 38,569 (프롬프트 + md 동일)
+- latency spread: **28.5s** (gpt-4o ~25%, Sonnet std 7.06s 대비 큼) — Haiku latency 비결정성 시그널
+- slides spread: **44 vs 50 = 6** (gpt-4o spread 1, Sonnet spread 2 대비) — 구조적 골격마저 자율
+- OTPM: 평균 8,638 tok/min — Tier 1 한도 8,000 **+7.9% 일관 초과**
+
+*case 분류 (자동, 3차 진단)*: **B (tool_use 형식 fail — Pydantic ValidationError)**
+- nuance: **B/A 경계** — tool_use 응답 valid (schema 따르려는 의도 OK), payload type strict fail (prompt patch 또는 schema relax 가능)
+- ctor 검증 ✅: max_retries=0, default_request_timeout=600 (진단 override) 정상 적용
+
+*ValidationError 구조화 박제 (`logs/anthropic_tokens_claudehaiku4520251001_1778377725.json`)*:
+- 9건 모두 동일 패턴: `loc=["slides", N, "bullets"], msg="Input should be a valid list", type=list_type, input_repr=None`
+- N (slide index) = **0, 1, 3, 6, 9, 17, 25, 31, 36** (44 slides 중 9개에서 `bullets=None` 명시)
+- url: `https://errors.pydantic.dev/2.12/v/list_type`
+- raw_diagnostic: stop_reason=`tool_use`, tool_use_blocks=1, tool_calls=1, invalid_tool_calls=0, first_tool_input_keys=`["slides","slug","topic_title"]`
+
+*ValidationError 원인 분석*:
+- `SlideSpec.bullets` 정의: `List[str] = Field(default_factory=list)` — **default=[], omit 시 자동 [] 정상**
+- Haiku 응답: 일부 slide 에서 `bullets: None` **명시** → Pydantic strict type 거부
+- gpt-4o / Sonnet: omit 또는 `[]` 응답 → 정상 통과
+
+*fix_options 3종 (자동 박제, schema-relax 후속 task ground truth)*:
+
+| id | desc | scope | side_effect | permanence |
+|---|---|---|---|---|
+| **schema_relax** | `SlideSpec.bullets` 를 `Optional[List[str]] = None` 으로 완화 — Haiku null 허용 + gpt-4o/Sonnet omit 호환 | `agent/export/spec.py` | gpt-4o/Sonnet 회귀 테스트 필요 | **영구 자산** |
+| prompt_patch | prompt 에 'bullets 가 없으면 [] 또는 필드 생략' 명시 | `prompts/get_pptx_planner_prompt()` | prompt 길이 증가 → input_tokens 누적 비용 | 모델별 누적 비용 |
+| **schema_relax_with_validator** | Optional 완화 + `@field_validator` 로 None → [] | `agent/export/spec.py` Pydantic validator | renderer/소비자 측 None 처리 불필요 | **영구 자산 + 정합성** |
+
+*비용 (3 run 진단)*:
+- input 38,569 × 3 = 115,707 tok / output 14,559+10,757+11,880 = 37,196 tok
+- raw: $0.116 + $0.186 = **$0.302** / 1.4x 보정: **$0.423**
+- 잔액 진입 $22.43 → 진단 후 ~$22.13 (실측은 console 검증 시점 통합)
+
 **§13-x-commit-meta-cleanup 후속 task 등록 (2026-05-10, 우선순위: 저)** — 발견 시점: §13-8-3 commit A 진입 검토.
 - 문제: §13-7~§13-8 commit 9건 (`575485a..272327d`) 에 모두 동일 형식 메타데이터 오염 박제됨 — `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`. 실제 작업 모델은 claude-sonnet-4-6, "Opus 4.7"·"1M context" 는 끌로드 코드의 자율 박제로 사실과 불일치.
 - 영향: `git log` 재참조 시 측정 모델 vs 박제 모델 혼동 가능. §13-x 자산 신뢰성 미세 손상.
