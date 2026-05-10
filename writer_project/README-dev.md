@@ -2541,11 +2541,14 @@ frontend (프론트엔드):
 
 **참고**: §13-13-1 helper 변경 1 hunk + 단위 테스트 1 케이스 추가 → trivial fix.
 
-13-13-4. **backend e2e — 결함 4 PPT cascade + Word 양상** — 상태: split (4-1 closed 2026-05-10 / 4-2 pending) / 우선순위: 중
+13-13-4. **backend e2e — 결함 4 PPT cascade + Word 양상** — 상태: 본격 결함 close (4-1 + 4-2 모두 closed 2026-05-10) / 4-3 저우선 pending / 우선순위: 중
 
 진입 시 ground truth 검증으로 결함 양상 분기 확정 → 별도 sub-task 분리:
-- **§13-13-4-1**: docx H1 결함 2종 (§4·§7 slug+.md / §3040 prefix drift + §5 누락) — 본 commit close
-- **§13-13-4-2**: docx 본문 list cascade (§ 경계 번호 reset 누락) — 후속 분리
+- **§13-13-4-1**: docx H1 결함 2종 (§4·§7 slug+.md / §3040 prefix drift + §5 누락) — closed (commit 74675fb)
+- **§13-13-4-2**: docx 본문 list cascade (list block 경계 번호 reset 누락) — closed (commit 3bad5d7)
+- **§13-13-4-3**: `_resolve_section_file` sid prefix 잠재 결함 점검 — 저우선 pending
+
+**회귀 점검 (2026-05-10 close)**: 단일 섹션 export (`kind=section&format=docx`) 가 §13-13-4-2 patch G 의 효과를 추가 fix 없이 그대로 받음. code path 재사용 (kind=section / kind=report 둘 다 `_markdown_to_docx(blocks, doc_title)` 공유, blocks 갯수만 차이). §4·§6 (3 blocks 케이스) 단일 export XML 분포 + LibreOffice 시각 검증 PASS. catch 12 박제.
 
 13-13-4-1. **docx export 단계 helper 전파 + sid 가드** — 상태: `closed (2026-05-10)` / 의존: §13-13-1 / 우선순위: 높음
 
@@ -2665,6 +2668,7 @@ frontend (프론트엔드):
 - **catch 9 (§13-13-4-2: XML 검증 PASS ≠ 시각 검증 PASS)**: 라운드 (a-1) 의 XML 6/6 PASS 가 LibreOffice 시각 검증에서 cascade 잔존으로 무효화. numId 분리 + abstractNum 공유 만으로는 카운터 분리 implementation-defined (OOXML 사양 미규정). 실제 office 도구 (Word/LibreOffice) 가 startOverride 같은 명시 reset 신호 없으면 카운터 공유 가능. 자산화: **OOXML 류 fix 는 XML 레벨 검증 + 실제 office 도구 시각 검증 (또는 PDF 변환) 양쪽 병행 필수** — XML 만으로 PASS 판정 위험.
 - **catch 10 (§13-13-4-2: OOXML cascade fix 정공법)**: `<w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride>` 가 카운터 reset 의 핵심. 새 `<w:num>` 등록 + abstractNum 공유 + paragraph inline numPr override 까지만으로는 부족. startOverride val="1" 명시가 OOXML 사양상 시작값 강제. 자산화: **OOXML number list cascade 차단 = 새 numId + abstractNum (공유 OK) + lvlOverride wrapper + startOverride val=1 + paragraph inline numPr 의 5요소 조합**.
 - **catch 11 (§13-13-4-2: 옵션 B 의 'block 단위' 정의 — § 경계 vs list block 경계)**: 라운드 (a) 의 fix 단위 정의가 사용자 본래 결함 보고를 정확히 반영하지 못함. placeholder 박제 ("§ 경계 reset") 가 시각 검증 후 "list block 경계 reset" 으로 정정됨 — §2 의 실행방안 1·2·3 후 Actionable Recommendations 가 *4·5·6·7·8 누적* 이 아니라 *1·2·3·4·5 reset* 이 사용자 기대치. 즉 같은 § 안 다중 list block 도 독립 카운터. 자산화: **사용자 본래 결함 보고를 fine-grained 양상까지 재해석하는 것이 fix 단위 결정의 ground truth** — placeholder 박제 단계의 결함 정의가 fix 단계에서 coarse 한 경우 잦음 → 시각 검증 단계에서 정정.
+- **catch 12 (§13-13-4 회귀 점검: 공유 entry-point 의 자동 cascade)**: format-specific fix 가 공유 entry-point 에 들어간 경우, 호출 경로 분기에 자동 전파. 본 케이스 — `_markdown_to_docx(blocks, doc_title)` 가 `blocks` 갯수와 무관하게 동일 로직 (outer loop + closure allocator) → `kind=section` (blocks=1개) 도 `kind=report` (blocks=7개) 도 patch G 자동 PASS. **catch 5 (helper 입력 계약 호출자 비대칭, §13-13-4-1) 와 대조** — catch 5 는 호출자별 입력 형식 차이로 helper 가 한 쪽만 흡수 → 본체 입력 계약 확장 필요 / catch 12 는 공유 함수 단일 진입점 덕에 양 호출자 모두 자동 적용. 자산화: **format-specific fix 의 회귀 점검 시, 공유 entry-point 인지 호출자별 분기인지 먼저 확인** — 공유면 grep 만으로 회귀 0 입증 (실제 e2e 호출 비용 회피), 분기면 호출자별 개별 검증 필요. catch 8 (PPTX path 분리 cross-check) 가 *분리* 케이스 / catch 12 가 *공유* 케이스 — 양쪽 다 grep 단계에서 결정.
 
 ### 보존 자산 (재사용)
 
