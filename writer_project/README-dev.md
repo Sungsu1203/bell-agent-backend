@@ -2278,4 +2278,114 @@ RAG writer 가 `reports/<slug>/...md` 로 떨궈주는 광고 에이전시 딜�
 
 ---
 
+## §13-12 (트랙) — 프론트엔드 pptx 다운로드 통합
+
+상태: `진행 중 (Phase B 설계 완료, Phase C 구현 진입)` / 시작: 2026-05-10
+의존: §13-1~§13-10 close + §12-13-10 export endpoint + §12-14 events 채널 + §12-15 frontend Content-Disposition
+
+### 배경
+
+§13 v1 자산 (`agent.export.cli` md → pptx) 을 사용자 UI 에 노출. CLI 는 운영 가능하나 프론트엔드 진입점 부재 — `Header.tsx` 의 [전체 보고서 (Word)] 옆에 [PPT] 버튼 추가가 본 트랙의 1cm.
+
+### Phase A 보강 발견 (2026-05-10) — 운영 ground truth
+
+| | 마지막 mtime | 비고 |
+|---|---|---|
+| `sections/venfobel-vitamin/` 활성 .md | 2026-05-07 17:16 | 4장 작업 진행 중 |
+| `reports/venfobel-vitamin/latest.md` | 2026-05-05 06:33 | **이틀 묵음** |
+| `reports/venfobel-vitamin/venfobel_v3.pptx` | 2026-05-09 07:16 | 5/5 latest 기반 — 5/6~5/7 변경 미반영 |
+
+**핵심 비대칭** (이 트랙 진입의 결정적 사실):
+- `/api/export?kind=report&format=docx`: `sections/<slug>/*.md` 합성 → 항상 최신
+- `agent.export.cli` (§13 검증): `reports/<slug>/latest.md` 단일 → stale 위험
+- `build_final_report()` 트리거: 사용자 명시 명령 (`build: report` / `report build` / `보고서 빌드` / `최종 보고서 생성`) 만 (app.py:1121, 2188 두 곳, 자동 호출 0)
+- 프론트엔드는 `fetchFiles("artifact")` → `sections/` 만 봄 (`reports/` 는 비표시)
+
+→ pptx 분기는 `build_final_report()` 자동 호출 필수. 그렇지 않으면 사용자가 섹션 재작성 후 [PPT] 클릭해도 옛날 latest.md 로 deck 생성됨 (= venfobel_v3.pptx 와 동일 함정).
+
+### Phase B 결정 (4건 + cleanup)
+
+**결정 1 (입력 비대칭, 옵션 1a)**: `/api/export?format=pptx` 진입 시 `build_final_report()` 자동 호출 → reports/latest.md 갱신 → cli 흐름 (`plan_deck` + `render_deck`). build 는 LLM 0 (단순 파일 합치기, ~1s) — 비용 부담 없음.
+
+**결정 2 (renderer 시그니처, R1)**: `render_deck(spec, *, template_path, out: Union[str, Path, BinaryIO]) -> Optional[Path]`. python-pptx `Presentation.save()` native BinaryIO 지원 활용. CLI backward compatible (Path 인자 그대로).
+
+**결정 3 (UX, 옵션 B)**: events 채널 통합. `emit_event()` 로 진행 표시 (§12-14 인프라 재사용). 4단계 — 변환 준비 / 슬라이드 구성 / 파일 생성 / 완료.
+
+**결정 4 (UI, 별도 버튼)**: Header.tsx 의 [전체 보고서 (Word)] 옆에 [PPT] 버튼 추가. 1-클릭, 단순.
+
+**Cleanup 정책 (β, 누적 그대로)**: `build_final_report()` 동작 변경 없음. `reports/<slug>/<ts>_report.md` 매번 신규 생성 (latest.md 도 매번 덮어쓰기). archive 보존, 별도 정리 cron 없음.
+
+### Sub-tasks
+
+13-12-1. **백엔드 /api/export format='pptx' 분기 + build_final_report 자동 호출** — 상태: `pending` / 의존: 결정 1·3 / 우선순위: 높음
+- 위치: `app.py:1702` (현재 `if req.format != "docx"` 단일 차단점)
+- format='pptx' 분기 추가 (kind='report' 만 허용 — section 단위 deck 미정의)
+- `build_final_report(slug)` 자동 호출 → `_resolve_md` 또는 직접 `reports/<slug>/latest.md` 사용
+- emit_event 4단계 + 에러 분기 (build/plan/render 각각 HTTPException + emit_event(kind="error"))
+- 에러 처리: sections 부재 시 409 / build 실패 500 / plan LLM 실패 500 / render 실패 500
+- Content-Disposition RFC 5987 한글 파일명 — docx 패턴 그대로 재사용 (§12-15 짝)
+- 박제: pptx 만 reports/ 정전제 (docx 와 비대칭) + reports/ 의 communicator QA 노이즈 (§12-13-9 박제) 우회는 build_final_report 가 sections 합성으로 보장
+
+13-12-2. **agent/export/renderer.py BytesIO 지원 (R1 시그니처 확장)** — 상태: `pending` / 의존: 결정 2 / 우선순위: 높음
+- 시그니처: `out: Union[str, Path, BinaryIO]`
+- Path/str 분기: 기존 동작 (mkdir + save) → `Path` 반환
+- BinaryIO 분기: `prs.save(out)` 직접 → `None` 반환
+- CLI (cli.py:106) 호출 backward compatible
+- 박제: `out: Union[Path, BinaryIO]` 패턴은 향후 export 형식 추가 (PDF deck 등) 시 재사용
+
+13-12-5. **events 채널 통합** — 상태: `흡수 완료 (no-op as standalone)` / 의존: §13-12-1 / 우선순위: —
+- **백엔드**: §13-12-1 의 `_api_export_pptx()` 에 emit_event 4단계 (start / phase / phase / done) + 에러 분기 통합 — 별도 commit 불필요
+- **프론트엔드**: `useEvents()` 폴링이 이미 운영 중 (§12-14) → 새 이벤트 자동 수신 → LogPanel 헤더 갱신. **변경 0**
+- `clear_events()` 호출 안 함 (기존 명령 흐름 끊지 않음)
+- 충돌 함정: write 명령 도중 export 시 events 섞임 가능 — v1 미대응 (드문 케이스)
+- 박제: events 채널은 emit 발화처가 늘어나도 소비측 (frontend) 변경 없는 패턴 — 향후 다른 long-running endpoint 추가 시도 동일 재사용
+
+13-12-6. **e2e 검증 + 박제 정리** — 상태: `pending` / 의존: §13-12-1·2·5 + 프론트 §13-12-3·4 / 우선순위: 높음
+- 시나리오 1: sections 작성 완료 → [PPT] 클릭 → 다운로드 정상 + LogPanel 진행 표시
+- 시나리오 2: sections 일부 (write phase 도중) → [PPT] 버튼 disable 확인
+- 시나리오 3: 한글 파일명 정확 다운로드 (RFC 5987)
+- 시나리오 4: build 실패 시 사용자에게 에러 메시지 표시
+- 시나리오 5 (stale 재검증): venfobel sections 4장 갱신 (5/7) 반영된 deck 생성 → §13 v1 stale 함정 해결 검증
+- 시나리오 6: Word 다운로드 회귀 테스트
+- 양쪽 README close 후기 작성 (writer_project + frontend 짝 박제)
+- 측정값: build_final_report 시간 / 전체 다운로드 latency / pptx 파일 크기
+
+### Frontend 짝 task (frontend/README-dev.md §13-12 참조)
+
+- 13-12-3. lib/api.ts downloadExport format 인자 'pptx' 추가
+- 13-12-4. components/Header.tsx 다운로드 UI 확장 — 별도 [PPT] 버튼
+
+### Commit 시퀀스 (양쪽 레포 짝 진행)
+
+placeholder (인프라 사전 박제):
+- **commit 1** (writer_project): README-dev.md §13-12 placeholder
+- **commit 2** (frontend): README-dev.md §13-12 짝 placeholder
+
+writer_project (백엔드):
+- **commit 3 (P1)**: §13-12-1 + §13-12-2 + §13-12-5 백엔드 (endpoint + renderer R1 + emit_event 통합) — 같은 트랙이라 묶음. §13-12-5 단독 commit 폐기 (P1 흡수)
+- **commit 6 (P3)**: §13-12-6 백엔드 e2e + close 박제
+
+frontend (프론트엔드):
+- **commit 4 (F1)**: §13-12-3 + §13-12-4 (api.ts + Header.tsx)
+- **commit 7 (F2)**: §13-12-6 프론트 e2e + close 박제 (commit 6 짝)
+
+진행 순서: commit 1·2 placeholder → commit 3 (P1) → commit 4 (F1) → e2e 검증 (사용자 시각) → commit 6+7 close.
+
+### 보존 자산 (재사용)
+
+- §13-3 v3-fix1 SLIDE_NUMBER + `_ensure_slide_number()`
+- §13-9 출력 안정화 / §13-10 표 품질 (renderer 변경 없음)
+- §12-14 events 채널 (`emit_event` / `clear_events`)
+- §12-13-10 export endpoint 패턴 + slug↔파일명 invariant
+- §12-15 frontend Content-Disposition RFC 5987
+- §13-6 cli `_resolve_md` / `_topic_title_for` (HTTP 분기에서 직접 호출)
+
+### Cold storage (본 트랙 미사용)
+
+- §13-7~§13-8-3 측정 트랙 (LLM 재평가 시점까지)
+- `.venv_anthropic` / `scripts/_measure_anthropic_tokens.py` / `scripts/measure_stability.py`
+- `NEXT_SESSION.md` (§13-8-3 진입 노트 — 재진입 시 참조)
+
+---
+
 © Bell Agent · writer_project — Developer Guide
