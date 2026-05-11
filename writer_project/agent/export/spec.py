@@ -68,14 +68,16 @@ class SlideSpec(BaseModel):
         description=(
             "본문 bullet 텍스트 리스트. layout_id=1 일 때만 의미 있음. "
             "각 항목은 한 줄(과도한 줄바꿈 금지). 빈 리스트면 body 또는 table 사용. "
-            "권장 길이: 슬라이드 1장당 3~6개, 항목당 80자 이내."
+            "권장 길이: 슬라이드 1장당 3~8개, 항목당 150자 이내. "
+            "md 의 `**KEY**: 설명` 패턴은 'KEY: 압축 설명' 으로 KEY 와 설명 둘 다 보존."
         ),
     )
     body: Optional[str] = Field(
         default=None,
         description=(
             "단락 본문(bullets 대안). layout_id=1 의 OBJECT placeholder 에 주입. "
-            "bullets 와 body 가 모두 있으면 bullets 우선. layout_id=0 의 SUBTITLE 로도 사용."
+            "bullets 와 body 가 모두 있으면 bullets 우선. layout_id=0 의 SUBTITLE 로도 사용. "
+            "권장 길이: 400자 이내."
         ),
     )
     table: Optional[TableSpec] = Field(

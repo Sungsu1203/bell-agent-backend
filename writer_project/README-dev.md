@@ -2735,4 +2735,108 @@ if re.match(r"^#{1,2}\s", body):   # H1/H2 만 skip
 
 ---
 
+## §13-14. md → pptx 정보 충실도 트랙
+
+13-14. **md → pptx 정보 충실도 트랙** — 상태: 진행 중 (§13-14-1 단계 1 close, 단계 2 사용자 결정 대기) / 우선순위: 중
+
+**진입 트리거**: 사용자 e2e 인지 양상 — md 의 `**KEY**: 설명` 패턴 bullet 이 pptx 에서 키워드만 보존, 단락 본문은 2-3 키워드로 압축. ground truth 비교 (운영 산출 pptx + 동일 docx + latest.md): §5 (3040 직장인) 5 H3 슬라이드 모두 P1 (키워드만) / P2 (수치+키워드) 양상으로 정보 ~80% 누락 입증. §4·§6·§7 동일 양상 확인.
+
+**결함 진앙 (라운드 a-1 조사)**:
+- `plan_deck` (LLM 1회, gpt-4o, temperature=0.1) 의 `prompts.py:get_pptx_planner_prompt` 압축 규칙 "bullets 3~6개·80자 이내·body 200자" + LLM "핵심 판단" 자율성
+- gpt-4o 양상: bold 키워드 + 수치 우선, 설명문 절단 (P1·P2 카테고리)
+- SlideSpec.bullets Field description 의 권장 길이 (3~6개·80자) 가 prompt 와 별도로 LLM 압축 압박 (signal 일관성)
+- renderer 의 자동 폰트 축소 부재 — 단 본 케이스 텍스트 짧아 우선순위 낮음
+
+**catch 13 분류**: **LLM 단계 결함 (provider 의존)** — gpt-4o 양상 기준 fix, Anthropic 전환 시 catch 14 재검증 트리거.
+
+### sub-task
+
+- **§13-14-1**: prompt 압축 규칙 재설계 + SlideSpec Field 동기화 — 단계 1 close (2026-05-11), 단계 2 (옵션 B 추가 보강) 사용자 결정 대기
+
+13-14-1. **prompt 압축 규칙 재설계 — 단계 1 (patch v1 + §13-13-4-3 fix 묶음)** — 상태: `close (2026-05-11, 단계 1)` / 의존: §13-13-4-3 / 우선순위: 중
+
+**catch 8 cross-check (진입 트리거 grep)**:
+- `from prompts import|import prompts`: `agent/export/planner.py:7` 만 `get_pptx_planner_prompt` import. docx path (app.py / agent/section_writer.py) 는 다른 prompt 함수 사용 → **prompt 함수 단위로 PPTX/docx 분리**
+- `SlideSpec|SlideDeckSpec|TableSpec` consumer: planner.py + renderer.py + spec.py 자체 + 측정/검증 scripts 만. docx path 무영향
+- **PPTX path 분리 확정** — §13-13 catch 8 패턴 재사용. patch 영향 PPTX path 한정.
+
+**Patch v1 (prompts.py + spec.py)**:
+
+prompts.py:642-647 — 압축 규칙 완화:
+- bullets 3~6개·80자 → **3~8개·150자**
+- body 200자 → **400자**
+- "원문 그대로 복사 금지 — 핵심만 한국어로 요약 (단 아래 정보 보존 우선순위 준수)" — 신규 우선순위 5단계 명시
+
+prompts.py:649~ — 정보 보존 우선순위 5단계 신규 추가:
+1. **수치·정량 데이터** (58%, 800억 원, GRPs, 위) 최우선
+2. **고유명사·브랜드명·약어** (벤포벨S, 아로나민, 메코발라민, UDCA) 원문 표기
+3. **md 의 `**KEY**: 설명` 패턴은 KEY 와 설명 둘 다 보존** — 키워드만 추출 금지
+4. **단락(평문) 본문**은 핵심 1-2 문장 + bullets 3-5 분해
+5. 후순위 (생략 가능): 부사·접속사·중복 표현, 정성적 일반화
+
+prompts.py — Few-shot 2 추가 (§4 실행방안 입력 — §5·§6 검증 표본과 분리 in-distribution 회피): `**KEY**: 설명` → `KEY: 압축 설명` 보존 예시
+
+spec.py:66-94 — SlideSpec Field description 동기화:
+- bullets: "3~8개, 150자 이내, `**KEY**: 설명` 패턴 보존"
+- body: "400자 이내"
+
+**라운드 (a-2) 측정 (§13-13-4-3 fix 전, scripts/verify_13_14_1.py)**:
+- n_total_slides 32 (expected 44) — §5 SECTION_HEADER + 5 TITLE_CONTENT 통째 누락 (catch 16 ground truth — LLM 추론 무력화 깨짐)
+- §5 측정 표본 n=0 — 측정 불가
+- §6 측정 표본 5 슬라이드 모두 baseline 100% 동일 텍스트 (KEY+설명 보존 0/5)
+
+→ **§13-13-4-3 본격 fix 진입 (commit 03e0ef8) — §5 측정 환경 확보 후 라운드 (a-2)' 재실행**
+
+**라운드 (a-2)' 측정 (§13-13-4-3 fix 후)**:
+- n_total_slides 38 (expected 45) — baseline (38) 와 동일. catch 17 본질 = LLM 의 참고문헌 ### 7 H3 자율 제외 (patch 무관)
+- SECTION_HEADER 7개 (§1~§7) — §5 정확 출력 ("5. 3040 직장인 만성피로 인식 및 비타민 구매 행동 분석")
+- §5 5 슬라이드 측정 결과:
+
+| §5 슬라이드 | baseline | new | KEY+설명 보존 | 길이 변화 | 양상 |
+|---|---|---|---|---|---|
+| 배경 | 2 bullets, 18.0자 (키워드) | 2 bullets, 38.0자 | 0/2 | +20자 | 정보 풍부화 (P3 단락 → bullet 분해는 KEY 부재) |
+| 핵심 요점 | 3 bullets, 7.7자 (키워드) | 3 bullets, 30.3자 | **3/3** | +22.6자 | **PASS** (P1 해소) |
+| 데이터 기반 근거 | 3 bullets, 27.7자 (수치 보존) | 2 bullets, 46.0자 | 2/2 | +18.3자 | 갯수 -1, 길이 풍부화 (P2 → KEY+설명) |
+| 실행방안 | 3 bullets, 10.0자 (키워드) | 3 bullets, 32.7자 | **3/3** | +22.7자 | **PASS** (P1 해소) |
+| Actionable Rec | 5 bullets, 9.4자 (키워드) | **3 bullets**, 34.0자 | 3/3 | +24.6자 | 갯수 -2 합병, 길이 풍부화 |
+
+§6 cross-check (few-shot §4 외 일반화):
+- 핵심 요점: 2 bullets (baseline 2 동일), KEY+설명 보존 OK
+- 데이터 기반 근거: 2 bullets (baseline 3 → 2 갯수 -1), 수치 보존 OK
+- 실행방안: 2 bullets (baseline 3 → 2), KEY+설명 보존
+- Actionable Rec: 2 bullets (baseline 5 → 2 갯수 -3), KEY+설명 보존
+
+**판정 (라운드 a-1 권고 기준 1-5)**:
+- §5 KEY+설명 보존: **4/5 슬라이드** (3건 완전 PASS + 1건 부분, 배경만 P3 양상으로 KEY 부재), bullets 기준 **8/10**. 권고 기준 "3/5 이상 = 효과 충분" 충족 → **단계 2 불필요**
+- §13-9 결정성: baseline 38 / 라운드 (a-2) 32 / 라운드 (a-2)' **38** — fix 후 baseline 회복. **patch v1 의 결정성 약화 효과 없음** (catch 17 본질 = LLM 자율 제외, patch 무관)
+- §5 Actionable Rec 갯수/길이 분리: **(c) 항목 감소 5→3 — 갯수 한계 8 미해소** (LLM 의 압축 default = 갯수 합병). 별도 결함 양상으로 박제 (단계 2 진입 후보)
+
+**판정 결과**: 단계 1 patch v1 효과 충분 입증. 단계 2 (옵션 B 추가 보강) 진입 여부 사용자 결정 대기.
+
+**잔존 양상 (단계 2 진입 시 fix 후보)**:
+- LLM 의 "압축 default = 갯수 합병" 양상 — bullets 8 한계 완화에도 N → N-2/N-3 합병 (§5·§6 Actionable Rec 5→3, 5→2)
+- "배경" 단락 (P3 양상) 의 KEY+설명 보존 부재 — bullet 분해 시 KEY 추출 안 됨. few-shot 2 (§4 실행방안 = bullet list 입력) 가 P3 (단락 입력) 까지 일반화 못 함
+
+**Patch 누적**:
+- prompts.py +27 lines (압축 규칙 완화 + 정보 보존 우선순위 + few-shot 2)
+- agent/export/spec.py +5 lines (bullets/body description 동기화)
+- (별도 commit 03e0ef8 = §13-13-4-3 fix, 본 patch 의 §5 측정 환경 선결)
+
+### 진행 박제
+
+- **commit 03e0ef8** (§13-13-4-3 close, 본 commit 선결): `_ensure_heading` matcher 강화. §5 측정 환경 확보.
+- **본 commit** (§13-14-1 단계 1 close): prompts.py 압축 규칙 완화 + few-shot 2 추가 + spec.py Field 동기화. 라운드 (a-2)' KEY+설명 보존 4/5 슬라이드 PASS. catch 17 박제. 단계 2 사용자 결정 대기.
+
+### Re-entry conditions
+
+- (R1) §13-14-1 단계 2 — 사용자가 잔존 양상 (갯수 합병 + 배경 단락 P3) fix 필요 판단 시 옵션 B 진입 (few-shot 확장 + 어조 강화). 본 세션 재합류 — 단계 2 보강 방향 (few-shot 어느 카테고리 / 어조 강화 어느 패턴) 결정 변수.
+- (R2) §13-14-2 SlideSpec 분할 허용 — §13-14-1 효과 부족 시 또는 사용자 요청 시. catch 17 (결정론 강제 vs 정보 충실도) 가이드 활용.
+- (R3) §13-8-3 Anthropic Haiku 4.5 평가 — patch v1 의 catch 13 카테고리 = LLM 단계 (provider 의존). Anthropic 양상 재검증 트리거 (catch 14).
+
+### catch 자산 (본 트랙)
+
+- **catch 17 (§13-14-1: 결정론 강제 vs 정보 충실도 트레이드오프)**: §13-9 Round 3 의 "정확히 1+H2+H3 슬라이드" 강제 매핑은 LLM 측에서 부분 무시되는 운영 양상 — baseline pptx (gpt-4o, 2026-05-08): expected 44 (= 1 + 6 H2 + 37 H3) vs actual 38, 참고문헌 ### 7 H3 자율 제외. §13-13-4-3 fix 후 expected 45 (= 1 + 7 H2 + 37 H3) vs actual 38, 동일 자율 제외 + §5 정규화. 라운드 (a-2) (§13-13-4-3 fix 전, patch v1 적용): 32 — §5 통째 누락 (catch 16). 라운드 (a-2)' (양쪽 fix 묶음): 38 회복. **patch v1 의 압축 규칙 완화 자체는 결정성 약화 효과 없음** — 양상의 본질은 LLM 의 참고문헌 등 의미 메타 ### 자율 제외 패턴. 자산화: **§13-9 결정론 강제 (강제 매핑 1+H2+H3) 와 LLM 의 자율 제외 (참고문헌·메타 ### 등) 가 운영상 일관된 trade-off** — 강제 매핑은 "최대 슬라이드 수" 가이드 역할, 자율 제외는 LLM 의 의미 판단 기준. §13-14-2 SlideSpec 분할 허용 트랙 진입 시 본 trade-off 의 양쪽 (강제 매핑 완화 + 자율 분할 허용) 가이드. catch 16 (공유 단계 fix 누락) 과 cross-check: catch 16 의 §5 누락이 라운드 (a-2) 32 의 직접 원인, catch 17 의 LLM 자율 제외가 라운드 (a-2)' 38 의 잔존 원인 — 두 catch 가 결정성 실패의 양면.
+
+---
+
 © Bell Agent · writer_project — Developer Guide
