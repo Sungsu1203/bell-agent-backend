@@ -2546,7 +2546,7 @@ frontend (프론트엔드):
 진입 시 ground truth 검증으로 결함 양상 분기 확정 → 별도 sub-task 분리:
 - **§13-13-4-1**: docx H1 결함 2종 (§4·§7 slug+.md / §3040 prefix drift + §5 누락) — closed (commit 74675fb)
 - **§13-13-4-2**: docx 본문 list cascade (list block 경계 번호 reset 누락) — closed (commit 3bad5d7)
-- **§13-13-4-3**: `_resolve_section_file` sid prefix 잠재 결함 점검 — 저우선 pending
+- **§13-13-4-3**: `_ensure_heading` matcher 결손 (H3 시작 body 의 `## N.` prepend 누락) — closed (commit pending, 2026-05-11)
 
 **회귀 점검 (2026-05-10 close)**: 단일 섹션 export (`kind=section&format=docx`) 가 §13-13-4-2 patch G 의 효과를 추가 fix 없이 그대로 받음. code path 재사용 (kind=section / kind=report 둘 다 `_markdown_to_docx(blocks, doc_title)` 공유, blocks 갯수만 차이). §4·§6 (3 blocks 케이스) 단일 export XML 분포 + LibreOffice 시각 검증 PASS. catch 12 박제.
 
@@ -2636,18 +2636,66 @@ frontend (프론트엔드):
 
 **산출물 무수정 원칙 유지** (sections/.md mtime 변동 0).
 
-13-13-4-3. **(저우선, 후속 점검) `_resolve_section_file` sid prefix 결함 잠재** — 상태: `pending` / 우선순위: 저
+13-13-4-3. **`_ensure_heading` matcher 결손 fix** — 상태: `closed (2026-05-11)` / 의존: 없음 / 우선순위: 중
 
-**증상 (잠재)**: `app.py:1394 _resolve_section_file` 의 우선순위가 `fname.startswith(f"{section_id}-")` → outline slug lookup. 신 형식 slug 가 outline title 첫 단어 숫자로 시작하면 (e.g. `3040-...md` ↔ section_id=3040) 동일 `_read_all_sections` 류의 prefix 충돌 가능성. 현 양상은 불발.
+**진앙 (catch 16 ground truth 입증 트리거)**:
+- `report_builder._ensure_heading` (line 207-215) 의 `if body.startswith("#"):` 가 `###` (H3) 도 매칭
+- §5 처럼 section body 가 `### 배경\n3040 직장인은...` 으로 시작하면 prepend skip → reports/latest.md 에 `## 5.` 헤딩 누락
+- docx path 는 §13-13-4-1 in-memory helper (`_ensure_section_heading`) 로 우회되어 산출 정상
+- **pptx path 는 helper 미적용** — `build_final_report → plan_deck` 가 §5 누락 md 를 받음
+- baseline 운영 산출 (gpt-4o, 2026-05-08): LLM 추론으로 §5 SECTION_HEADER "05" + "3040 직장인..." 정확 출력 — **우연히 무력화**
+- §13-14-1 patch v1 (prompts.py 압축 규칙 완화 + few-shot 2) 적용 후 라운드 (a-2): §5 SECTION_HEADER + 5 TITLE_CONTENT **완전 누락** — LLM 추론 무력화 깨짐 (catch 16 ground truth 입증)
 
-**fix 방향**: outline 슬러그 매칭을 우선시키거나, `int(prefix)` 의 outline 범위 가드 동일 적용.
+**진앙 트리거**: §13-14-1 patch v1 라운드 (a-2) 측정. baseline 38 슬라이드 → patch 후 32 슬라이드. §5 6 슬라이드 통째 누락. patch 의 압축 가이드 변화가 LLM 의 §5 추론 휴리스틱을 끊음.
+
+**fix**:
+```python
+# 기존
+if body.startswith("#"):    # ### 도 매칭 — 결함
+    return body
+# 신규
+if re.match(r"^#{1,2}\s", body):   # H1/H2 만 skip
+    return body
+```
+
+`re.match(r"^#{1,2}\s", body)` 가 `#`·`##` + 공백 후 텍스트 패턴만 매칭. H3 (`### `) 이상은 매칭 안 되어 `## {title}` prepend 진행.
+
+**단위 검증 6 케이스 (scripts/verify_13_13_4_3.py)**: ALL PASS
+- a. H1 (`# 제목\n본문`) → prepend skip ✓
+- b. H2 (`## 제목\n본문`) → prepend skip ✓
+- c. H3 (`### 소제목\n본문`) → prepend 진행 (fix 핵심) ✓
+- d. H4 (`#### ...`) → prepend 진행 ✓
+- e. 평문 (`본문 시작`) → prepend 진행 ✓
+- f. 공백 후 헤딩 (`\n\n## 제목`) → lstrip 후 skip ✓
+
+**e2e 검증 (build_final_report 1회 호출)**:
+- latest.md 의 `##` 헤딩 dump: §1·§2·§3·§5·§6 정상 (sid prefix 보유) + §4 (`## 벤포벨S 핵심 차별화 자산`)·§7 (`## 실행 로드맵`) 은 section body 의 기존 H2 잔존 (matcher skip)
+- **§5 `## 5. 3040 직장인 만성피로 인식 및 비타민 구매 행동 분석` 정확히 prepend** ✓
+- H2 카운트 7 (전부) — baseline 동일
+
+**fix 범위 (§13-13-4-3 한정)**:
+- H3 시작 body 의 ## prepend = `_ensure_heading` matcher 강화로 해결 (본 fix 범위)
+- §4·§7 처럼 section body 가 기존 H2 헤딩 보유 (sid prefix 불일치) 케이스는 `_ensure_section_heading` docx in-memory helper 가 해결 (cascade 유지)
+- **cascade 패턴 결정 (catch 12 활용)**: docx helper 는 유지 — `_ensure_heading` 이 root cause fix 이고 helper 는 §4·§7 sid prefix 케이스의 방어 layer. 중복 fix 정리는 §13-14 트랙 close 후 cleanup 트랙으로 분리.
+
+**catch 8 cross-check (§13-14-1 진입 트리거 grep)**:
+- `from prompts import|import prompts`: `agent/export/planner.py:7` 만 `get_pptx_planner_prompt` import. docx path (app.py / agent/section_writer.py) 는 다른 prompt 함수 사용 → **prompt 함수 단위로 PPTX/docx 분리**
+- `SlideSpec|SlideDeckSpec|TableSpec`: planner.py + renderer.py + spec.py 자체 + 측정/검증 scripts 만. docx path 무영향
+- **PPTX path 분리 확정** — §13-13 catch 8 패턴 재사용. §13-14-1 patch 영향 PPTX path 한정.
+
+**§13-14-1 patch v1 효과 분리 측정 환경 확보**:
+- 본 fix 가 §5 5 슬라이드 측정 가능 환경 마련 — 라운드 (a-2)' 진입 선결조건 충족
+- patch v1 효과는 라운드 (a-2)' 결과에서 확정 (별도 commit)
 
 ### 진행 박제
 
 - **commit c3af4c7** (placeholder, 진입 시): Phase A close (drift catch + cascade 가설) + Phase B 결정 close + sub-task 박제
 - **commit 62e2775** (close, partial): §13-13-1 구현 (helper + 호출) + 단위 검증 ALL PASS + §13-13-2 cascade 검증 PASS (결함 2 자동 해소) + §13-13-3·4 후속 분리 박제
 - **commit 74675fb** (§13-13-4-1 close): docx export 단계 helper 전파 + sid 가드 + helper 입력 계약 확장. 라운드 a/b ALL PASS. §13-13-4-2 (list cascade) + §13-13-4-3 (_resolve_section_file 점검) 분리
-- **본 commit** (§13-13-4-2 close): docx 본문 list cascade fix — list block 경계 단위 numId 발급 + lvlOverride/startOverride 명시. 라운드 a-1 → a-2 → a-3 점진 보강. 시각 검증 PASS. catch 8·9·10·11 박제.
+- **commit 3bad5d7** (§13-13-4-2 close): docx 본문 list cascade fix — list block 경계 단위 numId 발급 + lvlOverride/startOverride 명시. 라운드 a-1 → a-2 → a-3 점진 보강. 시각 검증 PASS. catch 8·9·10·11 박제.
+- **commit 86a8a9c** (§13-13-4 회귀 점검 close + catch 12 박제).
+- **commit 37d39f3** (catch 13·14·15 박제).
+- **본 commit** (§13-13-4-3 close): `_ensure_heading` matcher 강화 — `re.match(r"^#{1,2}\s", body)` 로 H1/H2 만 skip, H3 이상은 `## {title}` prepend. 단위 6 케이스 + e2e build_final_report PASS. §5 ## 헤딩 in-memory normalization → pptx path LLM 추론 의존도 제거. catch 8 cross-check (PPTX path 분리) + catch 16 (공유 단계 fix 누락 → 양쪽 path 양상 차이 ground truth 입증) 박제. §13-14-1 라운드 (a-2)' 측정 선결조건 충족.
 
 ### Re-entry conditions
 
@@ -2676,6 +2724,7 @@ frontend (프론트엔드):
   - 자산화: **새 fix 작성 시 위 3 카테고리 중 어디 속하는지 판정** → provider 전환 시 transfer 여부 즉시 결정. fix 위치 (변환 layer vs LLM layer vs 인프라 layer) 가 판정 기준.
 - **catch 14 (§13-13-1 helper 의 provider 변종 가능성)**: §13-13-1 `_ensure_section_heading` helper 의 단위 검증 8 케이스 = **gpt-4o 산출물 기반 ground truth**. 다른 provider 전환 시 새 양상 등장 가능 — `##### 5단계` 같은 ilvl 깊이 / 영문 fallback (`## Section 1` 형식) / 다른 escape 패턴. catch 5 (helper 입력 계약 호출자 비대칭) 의 *provider 변종* — 호출자가 같아도 LLM provider 가 다르면 input 양상 분기. 자산화: **helper docstring 에 입력 ground truth provider 명시** — 다른 provider 전환 시 재검증 트리거. §13-13-1 helper 도 docstring 에 "gpt-4o 산출물 기반 ground truth, provider 전환 시 8 케이스 재검증" 명시 검토.
 - **catch 15 (heredoc commit 메시지 중복 양상 — 끌로드 코드 워크플로우 결함)**: §13-13-4-1 / §13-13-4-2 / catch 12 commit 3건 모두 heredoc 첫 강조 블록 중복 발생 (3/3). 사용자 검토에서 모두 잡혀 reject 후 재 commit 처리 — git log 오염 0. 양상 — heredoc 안에 같은 단락이 두 번 등장 (제목 다음 요약 + 본문 첫 섹션 헤더). 끌로드 코드 환경의 heredoc 작성 시 빈도 높은 패턴. **대책**: (a) `git commit -F <file>` 사용 — commit message 를 별도 파일에 작성 후 read 로 검토 가능 / (b) heredoc 작성 후 첫·마지막 5줄 중복 grep / (c) 사용자 검토 단계에 의존. 자산화: **commit 메시지 작성 = 단일 source 원칙** — 제목 + 본문 첫 섹션이 의미 중복하지 말 것. heredoc 보다 `-F <file>` 권장.
+- **catch 16 (§13-13-4-3: 공유 단계 fix 누락 → 양쪽 path 양상 차이 ground truth)**: build_final_report 의 `_ensure_heading` matcher 결손 (H3 시작 body 의 `## N.` prepend 누락) 은 docx path 만 §13-13-4-1 in-memory helper 로 우회 → pptx path 는 미해결. **양쪽 path 의 결함 양상 차이는 docx path 의 fix 가 root cause 가 아닌 *consumer 단계 우회* 였음을 입증**. baseline pptx (gpt-4o, 2026-05-08) 의 §5 정확 출력은 LLM 추론으로 우연히 무력화. §13-14-1 patch v1 (prompts.py 압축 규칙 완화) 적용 후 라운드 (a-2): §5 SECTION_HEADER + 5 TITLE_CONTENT 통째 누락 — LLM 추론 무력화 깨짐. 자산화: **format-specific fix 가 한쪽 path 만 in-memory normalization 으로 우회되고 있다면, 다른 path 는 LLM/외부 양상에 의존해 살아남고 있을 가능성** — root cause 의 진정한 위치 (sections → reports 합성 단계 등 공유 entry-point) 에 fix 적용해야 catch 12 (공유 entry-point 자동 cascade) 의 cascade 효과 회수. catch 8 (PPTX path 분리 cross-check) 와 cross-check: catch 8 은 *영향 없음* 입증 / catch 16 은 *영향 누락* 입증 — 두 catch 가 cross-format 영향 분석의 양면.
 
 ### 보존 자산 (재사용)
 

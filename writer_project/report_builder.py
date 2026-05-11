@@ -206,11 +206,15 @@ def _load_section_body(root_dir: str, topic_slug: str, title: str) -> Optional[t
 
 def _ensure_heading(title: str, body: str) -> str:
     """
-    문서가 이미 #/##/### 로 시작하면 그대로 둔다.
-    아니면 상단에 '## {title}' 삽입 (최종 산출물의 섹션 레벨을 H2로 통일).
+    문서가 이미 H1(`# `) 또는 H2(`## `) 로 시작하면 그대로 둔다.
+    H3 이상 (`### `) 또는 평문으로 시작하면 상단에 '## {title}' 삽입.
+
+    §13-13-4-3: matcher 결손 fix — 기존 `startswith("#")` 는 `###` (H3) 도 매칭하여
+    §5 처럼 ## 헤딩 없이 ### 로 시작하는 section body 의 ## prepend 가 누락됐음.
+    catch 16 ground truth: build_final_report 단계 정규화 누락 → docx in-memory helper 로 우회되던 결함.
     """
     body = (body or "").lstrip()
-    if body.startswith("#"):
+    if re.match(r"^#{1,2}\s", body):
         return body
     return f"## {title}\n\n{body}"
 
