@@ -218,6 +218,55 @@ def _ensure_heading(title: str, body: str) -> str:
         return body
     return f"## {title}\n\n{body}"
 
+
+def _ensure_section_h2_normalized(outline_title: str, body: str) -> str:
+    """§13-14-α A2: section body 의 H2 헤딩 + sid prefix 보장 정규화 (in-memory).
+
+    옵션 B 적용 후 outline_title 양상 (sid 포함): "4. 벤포벨S 핵심 차별화 자산..."
+
+    분기 처리:
+      1. body 가 H1/H2 시작 + sid 일치 → 통과 (idempotent)
+      2. body 가 H1/H2 시작 + sid 누락/불일치 → 첫 줄을 'H{n} {outline_title}' 로 교체
+      3. body 가 평문 제목 한 줄 (outline 의 sid 제거 평문 또는 outline 원형과 일치) → 그 줄 제거 후 '## {outline_title}' prepend
+      4. body 가 H3 이상 또는 도입부 평문 → '## {outline_title}' prepend
+
+    sections/.md 무수정 원칙 유지 — 본 helper 는 build_final_report 단계 in-memory 정규화.
+    §13-13-1 helper (`_ensure_section_heading`) 의 *outline ground truth 기반 정규화* 패턴 재사용.
+    """
+    body = (body or "").lstrip()
+    if not body:
+        return body
+
+    outline_title = (outline_title or "").strip()
+    sid_match = re.match(r"^(\d+)\.\s*(.+)$", outline_title)
+    if sid_match:
+        sid = sid_match.group(1)
+        bare_title = sid_match.group(2).strip()
+    else:
+        sid = None
+        bare_title = outline_title
+
+    lines = body.splitlines()
+    first_line = lines[0].strip() if lines else ""
+
+    # 분기 1·2: 첫 줄이 H1/H2
+    h_match = re.match(r"^(#{1,2})\s+(.+)$", first_line)
+    if h_match:
+        hash_prefix = h_match.group(1)
+        title_part = h_match.group(2).strip()
+        if sid and re.match(rf"^{sid}\.\s+", title_part):
+            return body  # 분기 1: sid 일치 통과
+        new_first = f"{hash_prefix} {outline_title}"
+        return "\n".join([new_first] + lines[1:])  # 분기 2: 첫 줄 교체
+
+    # 분기 3: 첫 줄이 평문 제목 한 줄 (outline title 의 sid 제거 평문 또는 원형과 일치)
+    if first_line and (first_line == bare_title or first_line == outline_title):
+        remaining = "\n".join(lines[1:]).lstrip()
+        return f"## {outline_title}\n\n{remaining}" if remaining else f"## {outline_title}\n"
+
+    # 분기 4: H3 이상 / 도입부 평문 → prepend
+    return f"## {outline_title}\n\n{body}"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 메인: 리포트 빌드
 # ─────────────────────────────────────────────────────────────────────────────
@@ -259,8 +308,10 @@ def build_final_report(
         ls = line.lstrip()
         if not ls.startswith("##"):
             continue
-        # "## 1. 제목" → "제목" 추출
-        s = strip_number_prefix(ls[2:].strip())
+        # §13-14-α B: strip_number_prefix misuse 정정 — sid prefix 보존 (prepend 정합).
+        # 함수 의도 (text_utils.py:227 docstring) = 매칭 폴백. report_builder 의 prepend 용도 misuse.
+        # section file 매칭은 `_load_section_body` 의 `section_slugify(title)` 가 내부 strip 처리 — 부작용 0.
+        s = ls[2:].strip()
         if s:
             titles.append(s)
 
@@ -280,7 +331,8 @@ def build_final_report(
             used_dir_counter[used_dir] += 1
         else:
             used_dir_counter["_other"] += 1
-        merged_parts.append(_ensure_heading(t, src))
+        # §13-14-α A2: section_writer 출력 post-process helper (in-memory, sections/.md 무수정).
+        merged_parts.append(_ensure_section_h2_normalized(t, src))
 
     # 2-b) Findings 부록 자동 포함(옵션)
     if _bool_cfg_env("INCLUDE_FINDINGS_IN_REPORT"):
