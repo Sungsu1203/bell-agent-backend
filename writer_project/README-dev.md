@@ -5,6 +5,50 @@
 
 ---
 
+## README-dev 트랙·catch 박제 인덱스
+
+본 인덱스는 README-dev.md 의 트랙·catch 박제 위치 신속 조회용. 분량 임계 도달 (~3296 줄) 로 분리 운영 진입 — `612cc87` commit (§13-14-2 트랙 close) 이후 박제는 `README-dev-2.md` 참조.
+
+### 트랙 박제 위치
+
+| 트랙 | line 범위 (README-dev.md) | 상태 | 핵심 자산 |
+|---|---|---|---|
+| (이전 트랙들) | line 1 ~ 2455 | 기존 박제 | §1~§12 + §13-1~§13-12 본문 |
+| §13-13 (Word/PPT export 결함 4건) | 2456 ~ 2737 | close (partial) | strip_number_prefix misuse 진단 + 결함 1+3 root → 2·4 cascade |
+| §13-14 (트랙 헤더) | 2738 ~ 2853 | 진행 중 | md → pptx 정보 충실도 트랙 + §13-14-1 patch v1 잠정 close |
+| §13-14-2 (md 정규화 placeholder) | 2854 ~ 2966 | close | §13-14-α 본문 + Phase 2·3 측정 (cascade 100% + 구조 변동 0/30) |
+| §13-14-α-sonnet | 2967 ~ 3126 | close | Sonnet 4.6 3 라운드 + dual track 채택 + catch 25 신규 |
+| §13-14-γ | 3127 ~ 3233 | close | linter 정식화 (ad9d40f) + sanity check 양 트랙 1:1 정합 |
+| §13-14-2 (트랙 close) | 3234 ~ 3296 | close | 4 sub-track 처리 확정 (α / β 흡수 / γ / δ 보류) |
+| (612cc87 이후) | `README-dev-2.md` 참조 | — | — |
+
+### catch 박제 위치
+
+| catch | line 위치 (README-dev.md) | 자산화 |
+|---|---|---|
+| catch 1~16 | line 1 ~ 2737 (§13-13 이전 + 본문) | 이전 트랙 박제 |
+| catch 17 (정밀화 3회) | 2828 / 2940 / 2967~ | stochasticity 표현 진화 — 불가항력 → 조건부 → 강하게 비례 (bf07d23 → 1106d7d → 76db4da) |
+| catch 20 | 2942 | md 구조 일관성 → 입력 정규화 우선 (bf07d23 확정) |
+| catch 21 | 3207~ (γ 확정) | linter 정규화 후 ground truth 정합 self-validation (ad9d40f 확정) |
+| catch 22 | 2940 / 3097 (multi-provider 확장) | 입력 정규화 원칙 provider-agnostic (bf07d23 → 76db4da) |
+| catch 24 | 2940 | 함수 의도 vs 호출처 의도 mismatch — misuse 정정 (bf07d23 확정) |
+| catch 25 | 3093 | 시각 검증이 정량 측정 권고를 조정한 사례 (76db4da 확정) |
+| catch 26 | 3207~ (γ 확정) | 측정 도구의 의존성 0 강제 원칙 (ad9d40f 확정) |
+
+### 분리 운영 진입
+
+- `README-dev.md` = §13-14-2 트랙 close (`612cc87`) 까지의 박제 자산 (~3296 줄)
+- `README-dev-2.md` = `612cc87` 이후 신규 박제 자산
+- `NEXT_SESSION.md` = 다음 세션 진입 시 두 파일 모두 cross-reference
+
+### 사용 가이드
+
+- **과거 트랙·catch 검색** → 본 인덱스에서 line 위치 확인 → `README-dev.md` 직접 참조
+- **최근 박제 추적** → `README-dev-2.md` 참조
+- **다음 세션 진입** → `NEXT_SESSION.md` 의 archived decisions 항목 참조
+
+---
+
 ## 1) 폴더 구조 & 의존 규칙
 ```
 D:\GPT_AGENT\writer_project
