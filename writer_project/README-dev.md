@@ -2964,4 +2964,164 @@ spec.py:66-94 — SlideSpec Field description 동기화:
 
 ---
 
+## §13-14-α-sonnet — Sonnet 4.6 호환성 + 풍부함 + dual track 채택 (2026-05-11)
+
+### 진입 배경
+
+§13-14-α A2+B fix 가 1106d7d 시점 gpt-4o 측정 (α1·α2·α3) 에서 cascade 100% 안정 + 구조 변동 0/30 입증 후, 사용자 직전 세션 종료 시점 NEXT_SESSION.md 박제는 §13-14-γ linter 진입 노트로 작성돼 있었음. 본 세션 사용자 명시 의도로 **§13-14-γ 잠정 보류 + Sonnet 4.6 1 라운드 탐색 우선** 결정. 1 라운드 후 사용자 시각 검증으로 **풍부함 = 가치** 판정 → 추가 2 라운드 측정 후 **dual track 운영 채택**.
+
+### Phase 1 — Sonnet 4.6 호환성 검증 (3 라운드 측정)
+
+**측정 환경**: .venv_anthropic + LLM_PROVIDER=anthropic + ANTHROPIC_MODEL=claude-sonnet-4-6 + temperature=0.1 + max_retries=0 + ANTHROPIC_REQUEST_TIMEOUT=600s
+
+**측정 방식**: section_writer × 7 (RAG references 는 gpt-4o 시점 `.refs.json` 직접 재사용 — RAG 우회로 fair 비교 보장) → build_final_report → plan_deck → render_deck
+
+**3 라운드 기본 측정값**:
+
+| round | n_slides | pptx KB | n_h3 (planner 입력) | section_writer 7회 (s) | plan_deck (s) | e2e 합계 (s) |
+|---|---|---|---|---|---|---|
+| R1 | 52 | 162.6 | 49 | 457.6 (mtime 추정) | 344.5 (retry) | 803.5 (≈13.4분) |
+| R2 | 53 | 165.8 | 50 | 379.8 | 284.8 | 665.2 (≈11.1분) |
+| R3 | 55 | 172.9 | 51 | 380.7 | 303.2 | 684.4 (≈11.4분) |
+| mean | 53.3 | 167.1 | 50.0 | 406.0 | 310.8 | 717.7 (≈12.0분) |
+| CV | 2.86% | 3.16% | 2.00% | 11.1% | 9.8% | 10.6% |
+
+### Phase 2 — §13-14-α A2+B 4 분기 cascade 안정도 (Sonnet 4.6 영역)
+
+| 분기 | R1 | R2 | R3 | 안정도 |
+|---|---|---|---|---|
+| (a) §4 SECTION_HEADER 존재 + 7개 sid prefix | 7/7 ✓ | 7/7 ✓ | 7/7 ✓ | **3/3 안정** |
+| (b) §7 평문 제목 중복 없음 | ✓ | ✓ | ✓ | **3/3 안정** |
+| (c) §4 본문 슬라이드 ≥5 | 6 | 6 | 7 | **3/3 안정** |
+| (d) §X cascade 권고 5건 표준 패턴 | 7/7 § 모두 표준 | 7/7 | 7/7 | **3/3 안정** |
+
+**판정**: §13-14-α A2+B fix 가 **Sonnet 4.6 에서 3/3 cascade 안정 작동 ✓**. gpt-4o (α1·α2·α3) 의 100% cascade 안정도가 그대로 재현 — **fix 가 provider-agnostic 입증** (catch 13 "변환 단계 fix = provider 무관" 의 multi-provider 측정값 입증).
+
+### Phase 3 — plan_deck 누락 분리 (본질 + stochastic 혼재)
+
+**누락률 분포**: R1 8.8% / R2 8.6% / R3 6.8% (mean 8.1%, range 2.0%, CV 13.6%)
+
+**§ 별 누락 패턴 (md H3 vs pptx buckets)**:
+
+| § | md H3 (R3) | R1 buckets | R2 buckets | R3 buckets | 양상 |
+|---|---|---|---|---|---|
+| §1 | 8 | 6 (-2) | 7 (-1) | 7 (-1) | stochastic 변동 |
+| §2 | 7 | 6 (-1) | 6 (-1) | 6 (-1) | **systematic 1개 누락** |
+| §3 | 7 | 6 (-1) | 6 (-1) | 7 (0) | 부분 누락 |
+| §4 | 8 | 6 (-2) | 6 (-2) | 7 (-1) | 부분 누락 |
+| §5 | 8 | 7 (-1) | 6 (-2) | 7 (-1) | stochastic |
+| §6 | 6 | 6 (0) | 7 (+1) | 6 (0) | 0 누락 / R2 +1 잉여 |
+| §7 | 7 | 7 (0) | 7 (0) | 7 (0) | **0 누락 3/3 안정** |
+
+**판정 = (i) 본질 한계 + (ii) stochastic 잔류 혼재**
+- §2 **systematic -1 누락 (3/3)** — Sonnet section_writer 의 §2 md 입력 양상이 plan_deck 처리 비호환 본질 한계
+- §7 0 누락 3/3 안정 — md 형태 plan_deck 호환 양상 (기준점)
+- §1, §3, §4, §5 stochastic 변동
+- §6 R2 +1 잉여 — plan_deck 가 md H3 외 슬라이드 추가 생성 가능성
+
+**향후 prompt 패치 진입 시 §2 양상 우선 분석 권고**.
+
+### Phase 4 — 풍부함 일관성 (박제 §13-8 "CV 3.6%" 검증)
+
+| metric | R1 | R2 | R3 | mean | CV % |
+|---|---|---|---|---|---|
+| n_slides | 52 | 53 | 55 | 53.3 | **2.86%** |
+| pptx KB | 162.6 | 165.8 | 172.9 | 167.1 | **3.16%** |
+| merged_md chars | 33,872 | 33,433 | 34,126 | 33,810 | **1.03%** |
+| n_h3 (md 입력) | 49 | 50 | 51 | 50.0 | **2.00%** |
+| TITLE_TABLE | 16 | 15 | 18 | 16.3 | 9.35% |
+| TITLE_CONTENT | 28 | 30 | 29 | 29.0 | 3.45% |
+
+**판정**: 핵심 풍부함 지표 (n_slides, pptx KB, merged_md chars, n_h3) CV **1~3% 범위** → 박제 §13-8 "CV 3.6%" **정확 재현**. TITLE_TABLE 만 CV 9.35% (표 산출 약간 stochastic). **batch use case 채택 정당성 강하게 입증**.
+
+### Phase 5 — dual track 운영 결정
+
+**비교 표 (gpt-4o vs Sonnet 4.6 3 라운드 mean)**:
+
+| 항목 | gpt-4o (α1·α2·α3) | Sonnet 4.6 (R1·R2·R3) | 비교 |
+|---|---|---|---|
+| 총 슬라이드 수 | 38 (3/3 안정) | 53.3 (CV 2.86%) | Sonnet **1.40×** |
+| md sections chars 합 | ~16,000~18,000 | merged 33,810 (CV 1.03%) | Sonnet **~1.86×** |
+| md 입력 H3 갯수 | ~30 | 50.0 (CV 2.00%) | Sonnet **~1.66×** |
+| pptx 파일 크기 | 99~105 KB | 167.1 KB (CV 3.16%) | Sonnet **~1.6×** |
+| plan_deck latency | ~30~32s | 310.8s (CV 9.8%) | Sonnet **~9.7×** |
+| e2e (full pipeline) | 추정 ~4~5 분 | 12.0 분 (CV 10.6%) | Sonnet **~2.6×** |
+| plan_deck 누락률 | 0% (구조 변동 0/30) | 8.1% (range 2.0%) | gpt-4o 압도 |
+| TITLE_TABLE 갯수 | 0 (추정) | 16.3 (CV 9.35%) | Sonnet 표 양상 풍부 |
+| cascade 안정도 (A2+B 4분기) | 3/3 안정 | **3/3 안정** | **동일** |
+| 권고 5건 표준 패턴 | 5/7 § 5 bullets | 7/7 § 표준 패턴 | Sonnet 우세 |
+
+**use case 매핑 (dual track 운영)**:
+
+- **gpt-4o 트랙** = 빠른 산출 / 비용 민감 / 단건 처리 / 즉시 응답 use case
+- **Sonnet 4.6 트랙** = 풍부한 산출 / batch 처리 / 시간 허용 / 정성 산출 use case
+
+**provider 토글 절차**:
+
+openai → anthropic:
+- `.env`: `LLM_PROVIDER=anthropic`
+- `.env.anthropic`: `ANTHROPIC_MODEL=claude-sonnet-4-6` (또는 `claude-haiku-4-5-20251001`)
+
+anthropic → openai 복귀:
+- `.env`: `LLM_PROVIDER=openai`
+- `.env.openai`: `OPENAI_MODEL=gpt-4o` 확인
+
+주의:
+- 글로벌 `.env` 의 `LLM_MODEL` 은 vertexai key 라 openai/anthropic 경로에서 무시
+- plan_deck + section_writer 가 싱글턴 공유 (core/llm.py `_LLM`) — provider 토글 시 동시 변경
+- 임베딩은 `RAG_EMBEDDING_MODEL` overlay 로 provider 자동 매칭 (anthropic 사용 시 `.env.anthropic` 가 `text-embedding-3-large` 3072d 강제 → `venfobel-vitamin-oa-*` 인덱스와 일치)
+
+### Phase 6 — timeout 240s → 600s 상향 결정
+
+**근거**: Sonnet 4.6 plan_deck mean 310.8s, 3/3 라운드 모두 240s 초과 (R1 첫 시도 = APITimeoutError after 240s)
+
+**조치**: `.env.anthropic` 의 `ANTHROPIC_REQUEST_TIMEOUT=600` 운영 default (anthropic provider 사용 시 필수). openai provider 는 기존 default 유지 가능.
+
+**적용 범위**: dual track 의 인프라 측 분기 — provider 별 timeout 분리는 `.env.<provider>` overlay 패턴으로 이미 지원 (catch 13 "측정 인프라 fix = provider 별 분리" 의 measurement-stage 입증).
+
+### Phase 7 — §13-8 재진입 갱신
+
+기존 박제 (사용자 메모리): "재진입 조건부 보류 — (a) latency improvement / (b) cost-insensitive batch / (c) suppression prompt patch"
+
+**본 측정 후 갱신**:
+- (a) latency: 기존 박제 "~5×" → 실측 **~2.6×** (e2e). dual track 채택 시 *시간 부담 = 선택 비용* 으로 흡수
+- (b) batch use case: CV 1~3% 측정으로 **batch 적합성 확정**
+- (c) suppression prompt patch: **미적용**. 다만 *사용자 시각 검증으로 풍부함 = 가치* 판정 → 패치 없이 dual track 채택 정당화
+
+**결론**: 재진입 조건부 보류 → **dual track 채택 확정**. §2 systematic 누락만 향후 prompt 패치 시 우선 분석 대상.
+
+### catch 박제 (§13-14-α-sonnet commit 시점 — catch 25 신규)
+
+- **catch 25 신규 확정 (§13-14-α-sonnet commit 시점)** — 시각 검증이 정량 측정 권고를 조정한 사례: 정량 측정 (1 라운드) 만으로 운영 채택 비권고 결론이 나왔으나, 사용자 시각 검증으로 *풍부함 = 가치* 판정 → dual track 분기 발견. **정량 측정 < 사용자 use case 평가** 의 사례. 자산화: **박제 권고에 *시각 검증 입력 항목* 포함 원칙**. 근거 측정값 — 본 세션 Sonnet 4.6 1 라운드 시점 본 세션 측 권고 ("재진입 조건 (c) 미충족, 채택 비권고 시사") vs 사용자 시각 검증 후 "dual track 채택" 결정 분기.
+
+- **catch 22 cascade 단서 확장 (§13-14-α-sonnet commit 시점)** — 입력 정규화 원칙 multi-provider 일관 작동: gpt-4o 에서 cascade 100% 안정 + 구조 변동 0/30 + Sonnet 4.6 에서 cascade 4분기 3/3 안정. **§13-14-α A2+B fix 가 provider-agnostic 변환 단계 fix 의 multi-provider 측정 입증** (catch 13 "변환 단계 fix = provider 무관" 의 multi-provider ground truth).
+
+- **catch 17 정밀화 (§13-14-α-sonnet commit 시점, 본 라운드 측정 후)** — stochasticity = *입력 양상 일관성* + *plan_deck 자체 stochasticity* 양 차원. gpt-4o 는 plan_deck stochasticity 가 bullet count 미세 변동 (§7 핵심요점 3→2 1/3 잔존) 으로만 발현. Sonnet 4.6 은 plan_deck stochasticity 가 **H3 누락 양상** 으로 발현 (§ 별 -1~-2 변동). 본 차이는 provider 의 plan_deck 처리 양상 차이 — A2+B 정규화 layer 가 입력 양상 차원만 일관화, plan_deck 자체 stochasticity 는 provider 별 발현 차이 유지.
+
+### 산출 자산 위치
+
+- pptx 3개:
+  - `reports/venfobel-vitamin/20260511_214020_sonnet_round1.pptx` (162.6 KB, 52 slides)
+  - `reports/venfobel-vitamin/20260511_221134_sonnet_round2.pptx` (165.8 KB, 53 slides)
+  - `reports/venfobel-vitamin/20260511_223033_sonnet_round3.pptx` (172.9 KB, 55 slides)
+- 종합 보고서: `scripts/_sonnet_3rounds_report.md` (본 박제 본문의 원자료)
+- 분석 dump: `scripts/_sonnet_3rounds_analysis_output.txt`
+- 1 라운드 단독 보고: `scripts/_sonnet_round1_report.md`
+- 라운드 별 meta JSON: `scripts/_sonnet_round{1_retry,2,3}_meta_*.json`
+- 라운드 별 콘솔 dump: `scripts/_sonnet_round{1,1_retry,2,3}_console.txt`
+- driver 스크립트: `scripts/regen_sonnet_round1.py` (round 인자 받는 generic e2e), `scripts/regen_sonnet_round1_retry_plan.py` (Phase B+C+D 재실행용), `scripts/sonnet_3rounds_analysis.py` (3 라운드 분석)
+- backup 체인:
+  - `reports/venfobel-vitamin/_backup_pre_sonnet_round1_*` — gpt-4o 원본 sections
+  - `reports/venfobel-vitamin/_backup_pre_sonnet_round2_*` — R1 sections
+  - `reports/venfobel-vitamin/_backup_pre_sonnet_round3_*` — R2 sections
+- 현재 sections/ = R3 (Sonnet 최신)
+
+### Re-entry conditions (§13-14-α-sonnet)
+
+- (R1) Sonnet 4.6 prompt 패치 진입 시 — §2 systematic 누락 양상 분석 우선
+- (R2) Haiku 4.5 평가 진입 (§13-8-3) 시 — 본 §13-14-α-sonnet 측정값 baseline 으로 비교
+- (R3) 다른 토픽 일반화 검증 (pet-food-premium 등) — provider-agnostic 양상 추가 측정
+
+---
+
 © Bell Agent · writer_project — Developer Guide
