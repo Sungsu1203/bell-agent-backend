@@ -2890,6 +2890,37 @@ spec.py:66-94 — SlideSpec Field description 동기화:
   - 보조 자료: `writer_project/scripts/_md_ground_truth_for_13_14_alpha.md` (untracked)
   - 라운드 1 산출 pptx: `writer_project/reports/venfobel-vitamin/20260511_13-14-alpha_round1.pptx` (38 slides, 105217 bytes)
 
+- **§13-14-α stochasticity 측정 (라운드 α2 + α3, 2026-05-11)** — Phase 2·3
+  - **측정 목적**: 라운드 α1 의 갯수 합병 5건 동시 해결이 stochastic 우연 vs 입력 정규화 cascade 의 안정 효과 분리. §7 핵심요점 3→2 잔존 원인 분리.
+  - **측정 환경**: 동일 (gpt-4o, temperature=0.1, max_retries=0, inter-run sleep 60s)
+  - **라운드 산출**:
+    - α2: `reports/venfobel-vitamin/20260511_alpha_round2.pptx` (38 slides, 97581 bytes, plan 32.0s)
+    - α3: `reports/venfobel-vitamin/20260511_alpha_round3.pptx` (38 slides, 99414 bytes, plan 32.2s)
+  - **결함 10건 × 3 라운드 측정 표**:
+
+  | 결함 | α1 | α2 | α3 | 양상 |
+  |---|---|---|---|---|
+  | §4 H2 누락 / SECTION_HEADER 누락 / cascade 4 슬라이드 누락 | 해결 | 해결 | 해결 | **3/3 안정 해결** |
+  | §7 평문 제목 중복 | 해결 | 해결 | 해결 | **3/3 안정 해결** |
+  | §5 데이터근거 3→2 | 3 (해결, cascade) | 3 | 3 | **3/3 안정** |
+  | §5 Rec 5→3 | 5 (해결, cascade) | 5 | 5 | **3/3 안정** |
+  | §6 데이터근거 3→2 | 3 (해결, cascade) | 3 | 3 | **3/3 안정** |
+  | §6 Rec 5→3 | 5 (해결, cascade) | 5 | 5 | **3/3 안정** |
+  | **§7 핵심요점 3→2** | **2 (잔존)** | **3 (해결)** | **3 (해결)** | **stochastic 변동 (1/3 잔존)** |
+  | §7 Rec 5→3 | 5 (해결, cascade) | 5 | 5 | **3/3 안정** |
+
+  - **추가 양상 (결함 아닌 LLM 자율 축약)**: §6 SECTION_HEADER title `α1: "벤포벨S" 누락 / α2: 원형 / α3: "벤포벨S" 누락` — SECTION_HEADER 자체는 정상, title 자율 축약 stochastic 변동.
+  - **cascade 효과 안정도**: 갯수 합병 cascade 해결 후보 5건 × 3 라운드 = **15/15 안정 해결 = 100%**. catch 22 단서 확증 강화 — 입력 정규화 cascade 메커니즘 안정 동작 입증.
+  - **§7 핵심요점 잔존 원인 분리 판정**: **(i) stochastic 잔류 확정**
+    - (ii) §7 핵심요점 특이 메커니즘 → 부정 (α2·α3 해결됨)
+    - (iii) 3 bullets 임계 양상 → 부정 (§5·§6 데이터근거 3 bullets 도 3/3 안정 해결)
+    - (i) stochastic 잔류 → 확정 — α1 잔존이 *우연 잔존*, α2·α3 에서 plan_deck LLM 이 정상 3 bullets 출력
+  - **§13-14-β 진입 영향**: A2+B 만으로 90%+ 결함 차단 + cascade 100% 안정 → **β-1 (LLM prompt 강화) 불필요 / β-2 (section_writer 후처리) 선택사항 / β-3 (build_final_report 후처리) 본 라운드 구현 완료**. **§13-14-β 본격 진입 의의 약화**.
+  - **§13-14-δ 진입 보류 확정**: §7 핵심요점 1건만으론 진입 트리거 약함 (3/3 안정 잔존 아니라 1/3 stochastic 잔류). 진입 트리거 조건:
+    - 추가 stochastic 변동 결함 발견 시
+    - 사용자 e2e 시각 검증 추가 결함 보고 시
+  - **§13-14-γ 비용 사전 조사**: 낙관 ~1.5h / 비관 ~4.25h. 비관 트리거 = edge case (참고문헌 자율 제외, §6 자율 축약, §7 평문 제목, §4 도입부 평문) 디버깅. **본 세션 컨텍스트 부담 + 비관 위험으로 다음 세션 분기 결정**.
+
 - **§13-14-β** — 정규화 layer 구현
   - 진입 조건: §13-14-α close 후
   - 작업: 규약 적용 위치 결정 (section_writer LLM 출력 직후 vs build_final_report 합성 직전 vs cascade) + 3 양상 변환 로직 + 단위 검증 케이스
@@ -2906,7 +2937,7 @@ spec.py:66-94 — SlideSpec Field description 동기화:
 
 ### catch 박제 (§13-14-α 1차 라운드 commit 시점 — catch 17 번복 / catch 20·22·24 확정 / catch 18·19 조건부 / catch 21 예약)
 
-- **catch 17 번복 (§13-14-α A2+B 적용 후)** — 1차 박제 (직전 §13-14-1 단계): "stochasticity = 결정론 강제 vs 정보 충실도 trade-off 의 운영 양상, LLM 자율 제외 + 강제 매핑 trade-off". **번복 (본 commit 시점)**: §13-14-α A2+B 적용 후 라운드 1 측정 결과 — **stochasticity = 입력 양상 일관성에 *조건부* 비례, 정규화 layer 로 *대부분* 차단 가능**. 라운드 (b) 33 slides + §4 누락 (입력 양상 불일치 — §4 sid 없는 H2) → 라운드 α1 38 slides + 7 SECTION_HEADER 정상 (입력 양상 일관성 — 7개 sid 보유 H2). *조건부* 표현은 §7 핵심요점 3→2 잔존 1건의 측정 근거 — plan_deck LLM downstream 결함은 입력 정규화로도 차단 안 됨. 자산화: **입력 양상 일관성이 downstream LLM stochasticity 의 *진폭 결정 변수*, 완전 차단 변수는 아님**.
+- **catch 17 번복 (§13-14-α A2+B 적용 후)** — 1차 박제 (직전 §13-14-1 단계): "stochasticity = 결정론 강제 vs 정보 충실도 trade-off 의 운영 양상, LLM 자율 제외 + 강제 매핑 trade-off". **번복 (본 commit 시점)**: §13-14-α A2+B 적용 후 라운드 1 측정 결과 — "stochasticity = 입력 양상 일관성에 *조건부* 비례, 정규화 layer 로 *대부분* 차단 가능". 라운드 (b) 33 slides + §4 누락 (입력 양상 불일치 — §4 sid 없는 H2) → 라운드 α1 38 slides + 7 SECTION_HEADER 정상 (입력 양상 일관성 — 7개 sid 보유 H2). *조건부* 표현은 §7 핵심요점 3→2 잔존 1건의 측정 근거 — plan_deck LLM downstream 결함은 입력 정규화로도 차단 안 됨. 자산화: 입력 양상 일관성이 downstream LLM stochasticity 의 *진폭 결정 변수*, 완전 차단 변수는 아님. **추가 정밀화 (Phase 2·3, α2+α3 측정 후)**: **stochasticity = 입력 양상 일관성에 *강하게* 비례, 정규화 layer 로 *대부분* 차단 + 잔존도 bullet 갯수 수준 미세 변동 (구조 변동 0)**. 보정 근거 — cascade 15/15 = 100% 안정 + §7 핵심요점 잔존이 bullet 1개 차이 (3→2) 수준 미세 변동 + SECTION_HEADER 누락·슬라이드 누락 같은 구조 변동 0/30 (3 라운드 30 케이스 모두 0). "조건부" → "강하게" 표현 보정은 측정값 (cascade 100% + 구조 변동 0) 의 정합 표현.
 
 - **catch 20 확정 (§13-14-α 1차 라운드 commit 시점)** — md 구조 일관성 → 입력 정규화 우선: 입력 양상의 분기 (sid prefix / 본문 패턴 / bullet KEY / 출처 마커) 가 downstream LLM (plan_deck) 처리 안정성을 결정. 규약 정의 = 결함 다양성의 차단점. 라운드 α1 측정값 — §4 sid 보유 H2 정규화 → SECTION_HEADER 매핑 안정성 강화 + cascade 효과로 갯수 합병 5건 동시 해결 입증.
 
@@ -2916,9 +2947,14 @@ spec.py:66-94 — SlideSpec Field description 동기화:
 
 - **catch 24 신규 확정 (§13-14-α 1차 라운드 commit 시점)** — 함수 의도 vs 호출처 의도 mismatch (misuse 정정): `strip_number_prefix` 함수 의도 (text_utils.py:227 docstring 명시 = 매칭 폴백) vs 호출처 의도 (report_builder.py:263 prepend strip) mismatch. 폐기 (함수 제거) 가 아니라 호출처 정정 (옵션 B = strip 호출 제거) 으로 해결. 자산화: **함수 자체는 정합 의도 보유, 호출처가 의도 외 용도로 사용한 misuse 케이스는 함수 폐기가 아니라 호출처 정정으로 해결**. catch 5 (helper 입력 계약 호출자별 비대칭) 의 *의도 비대칭* 변종 — catch 5 는 입력 형식 비대칭, catch 24 는 사용 의도 비대칭.
 
-- **catch 18 후보 (§13-14-δ 진입 조건부 박제)** — LLM 압축 양상의 차원별 분리 (텍스트 길이 vs 갯수): §7 핵심요점 3→2 잔존 분석 시 차원별 분리 양상 부합 여부로 확정/폐기 결정.
+- **catch 18 후보 (§13-14-δ 진입 조건부 박제)** — LLM 압축 양상의 차원별 분리 (텍스트 길이 vs 갯수): §7 핵심요점 3→2 잔존 분석 시 차원별 분리 양상 부합 여부로 확정/폐기 결정. **Phase 2·3 측정 후 갱신**: §7 핵심요점 α2·α3 해결 → 차원별 분리 양상 아닌 *stochastic 잔류*. catch 18 **폐기 시사 강함** — §13-14-δ 진입 보류와 정합.
 
-- **catch 19 후보 (§13-14-δ 진입 조건부 박제)** — few-shot 입력 분포 일반화 한계 (list vs 단락): 정규화 layer 가 입력 양상 통일하면 본 catch 의의 약화 가능성. 라운드 α1 결과로 입력 정규화 cascade 효과 강 → catch 19 폐기 시사 강함.
+- **catch 19 후보 (§13-14-δ 진입 조건부 박제)** — few-shot 입력 분포 일반화 한계 (list vs 단락): 정규화 layer 가 입력 양상 통일하면 본 catch 의의 약화 가능성. 라운드 α1 결과로 입력 정규화 cascade 효과 강 → catch 19 폐기 시사 강함. **Phase 2·3 측정 후 확정**: cascade 효과 100% 안정 (15/15) → catch 19 **폐기 확정** — few-shot 입력 분포 일반화 한계는 본 측정 범위에서 발현 안 됨.
+
+- **§13-14-δ 진입 보류 확정 (Phase 2·3 측정 후)**: 본 측정 범위 (3 라운드) §7 핵심요점 1건만 stochastic 잔류, 나머지 9건 안정 해결. **§13-14-δ 진입 트리거 조건**:
+  - 추가 stochastic 변동 결함 발견 시
+  - 사용자 e2e 시각 검증 추가 결함 보고 시
+  - 본 측정 범위 진입 보류, §13-14-2 트랙 잠정 close 후보로 이동
 
 ### 보조 자료 위치
 
