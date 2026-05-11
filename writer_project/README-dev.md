@@ -3231,4 +3231,67 @@ python scripts/lint_report_consistency.py `
 
 ---
 
+## §13-14-2 트랙 close (2026-05-11)
+
+§13-14-2 트랙 (md 입력 정규화 우선 패턴) 의 4 sub-track 모두 처리 완수.
+
+### sub-track 처리 상태
+
+| sub-track | 상태 | 산출 / 박제 commit |
+|---|---|---|
+| **§13-14-α** | **close** | A2+B fix (1616e88 report_builder.py) + cascade 100% gpt-4o (1106d7d) + Sonnet 4.6 호환 + dual track 채택 (76db4da) |
+| **§13-14-β** | **별도 진입 의의 약화** | β-3 (build_final_report 후처리) 가 α 안에 흡수. β-1·β-2 진입 의의 약화 박제 (1106d7d) |
+| **§13-14-γ** | **close** | linter 정식화 (ad9d40f, scripts/lint_report_consistency.py) + sanity check 양 트랙 1:1 정합 + catch 21 확정 + catch 26 신규 |
+| **§13-14-δ** | **진입 보류** | stochastic 잔류 1건만 발현, 진입 트리거 조건 박제 (1106d7d) |
+
+### 트랙 commit 시퀀스
+
+| commit | 내용 |
+|---|---|
+| 1616e88 | §13-14-α A2+B 코드 변경 (report_builder.py +55/-3) |
+| bf07d23 | §13-14-α 1차 라운드 박제 (catch 17 번복 + catch 20·22·24 확정) |
+| 1106d7d | §13-14-α Phase 2·3 측정 (cascade 100% + 구조 변동 0/30) + §13-14-δ 진입 보류 |
+| 76db4da | §13-14-α-sonnet dual track 박제 (Sonnet 4.6 3 라운드 + catch 25 신규) |
+| ad9d40f | §13-14-γ linter 구현 + sanity check (catch 21 확정 + catch 26 신규) |
+| (본 commit) | §13-14-2 트랙 close 박제 |
+
+### 트랙 자산 종합
+
+**측정 자산**:
+- 결함 10건 × 3 라운드 (gpt-4o α1·α2·α3): 결함 9/10 해결 (90%) + §7 핵심요점 1/3 stochastic 잔류
+- 4 분기 cascade × 3 라운드 (Sonnet 4.6 R1·R2·R3): 4/4 cascade 안정 + 누락 mean 8.1%
+- 풍부함 CV 1~3% (양 트랙 모두 §13-8 박제 "CV 3.6%" 정합)
+
+**운영 자산**:
+- dual track 운영 결정 (gpt-4o + Sonnet 4.6)
+- provider 토글 절차 (.env LLM_PROVIDER + .env.<provider> *_MODEL)
+- timeout 운영 default (anthropic 600s / openai 240s)
+- linter 정식화 (의존성 0, 자동 측정)
+
+**catch 자산 종합**:
+
+| catch | 박제 시점 | 자산 |
+|---|---|---|
+| catch 17 | bf07d23 번복 → 1106d7d 정밀화 → 76db4da 정밀화 | stochasticity = 입력 양상 + plan_deck provider 별 발현 |
+| catch 20 | bf07d23 확정 | md 구조 일관성 → 입력 정규화 우선 |
+| catch 21 | ad9d40f 확정 | linter 정규화 후 ground truth 정합 self-validation |
+| catch 22 | bf07d23 확정 → 76db4da multi-provider 확장 | 입력 정규화 우선 원칙 provider-agnostic |
+| catch 24 | bf07d23 확정 | 함수 의도 vs 호출처 의도 mismatch (misuse 정정) |
+| catch 25 | 76db4da 확정 | 시각 검증이 정량 측정 권고를 조정한 사례 |
+| catch 26 | ad9d40f 확정 | 측정 도구의 의존성 0 강제 원칙 |
+
+### Re-entry conditions (§13-14-2 트랙 전체)
+
+- (R1) **§13-14-δ 진입** — 추가 stochastic 변동 결함 발견 시 / 사용자 e2e 시각 검증 추가 결함 보고 시
+- (R2) **§13-14-α-sonnet R2** — Sonnet 4.6 prompt 패치 진입 (§2 systematic 누락 양상 분석 우선)
+- (R3) **§13-14-γ R3** — build_final_report 단계 reject/warning 도입 (linter 의 운영 layer 진입)
+- (R4) **다른 토픽 일반화 검증** — pet-food-premium / height-growth-supplement 등 (provider-agnostic + topic-agnostic 양상 측정)
+
+### 다음 트랙 후보
+
+- **§13-8-3** — Anthropic Haiku 4.5 평가 (사용자 메모리 박제 트랙)
+- 또는 사용자 결정 다른 트랙
+
+---
+
 © Bell Agent · writer_project — Developer Guide
