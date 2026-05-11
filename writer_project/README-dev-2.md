@@ -13,7 +13,7 @@
 ## 분리 운영 cut-off 시점
 
 - HEAD (분리 직전) = `612cc87` (§13-14-2 트랙 close)
-- 분리 commit hash = `{PHASE5_COMMIT_HASH}` (본 파일 신규 commit, Phase 5 박제)
+- 분리 commit hash = `08edfd7` (본 파일 신규 commit)
 - 다음 박제 진입 시점 = 신규 트랙 (§13-8-3 Haiku 4.5 평가 또는 사용자 결정 다른 트랙)
 
 ---
