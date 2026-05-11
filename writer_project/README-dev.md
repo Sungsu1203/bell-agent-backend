@@ -2827,15 +2827,104 @@ spec.py:66-94 — SlideSpec Field description 동기화:
 - **commit 03e0ef8** (§13-13-4-3 close, 본 commit 선결): `_ensure_heading` matcher 강화. §5 측정 환경 확보.
 - **본 commit** (§13-14-1 단계 1 close): prompts.py 압축 규칙 완화 + few-shot 2 추가 + spec.py Field 동기화. 라운드 (a-2)' KEY+설명 보존 4/5 슬라이드 PASS. catch 17 박제. 단계 2 사용자 결정 대기.
 
+### 잠정 close (2026-05-11, 사용자 ground truth 시각 검증 결과 후)
+
+**결정**: §13-14-1 단계 1 close (623238c) 결과 (patch v1 효과 KEY+설명 보존 4/5 유효, §13-9 결정성 baseline 38 회복) 는 유지. 단계 2 진입 + 후속 분기 4건 (§13-14-1-a/b/c + §13-14-1-b 이월) 은 **모두 폐기**. 잔존 양상 fix 는 §13-14-2 (md 정규화 우선 패턴) 로 이월.
+
+**사용자 판단 근거**: md 입력 분포 자체가 들쭉날쭉한 상태에서 plan_deck/render_deck downstream fix 누적은 결함 양상 다양성마다 새 cross-check 부담 → 입력 정규화로 N 결함 다양성 자체를 차단.
+
+**라운드 (b) 사용자 ground truth 시각 검증 결과 (8건)**:
+- 갯수 합병 7건: §4 실행방안 5→3 / §5 데이터근거 3→2 / §5 Rec 5→3 / §6 데이터근거 3→2 / §6 Rec 5→3 / §7 핵심요점 3→2 / §7 Rec 5→3
+- 구조 누락 1건: §4 SECTION_HEADER 전체 누락 (LLM stochasticity 가 sid prefix 불일치 케이스에 영향 직접 노출)
+
+**catch 17 강화 후보 폐기**: LLM stochasticity 가 별도 결함이 아니라 입력 정규화 부재의 후과로 재해석. §13-14-α 규약 + §13-14-β 정규화 layer 후 stochasticity 영향 측정 가능, 별도 catch 박제 불필요.
+
 ### Re-entry conditions
 
-- (R1) §13-14-1 단계 2 — 사용자가 잔존 양상 (갯수 합병 + 배경 단락 P3) fix 필요 판단 시 옵션 B 진입 (few-shot 확장 + 어조 강화). 본 세션 재합류 — 단계 2 보강 방향 (few-shot 어느 카테고리 / 어조 강화 어느 패턴) 결정 변수.
-- (R2) §13-14-2 SlideSpec 분할 허용 — §13-14-1 효과 부족 시 또는 사용자 요청 시. catch 17 (결정론 강제 vs 정보 충실도) 가이드 활용.
+- (R1) ~~§13-14-1 단계 2~~ — **폐기** (잠정 close 박제 본문 참조). 단계 2 진입 + 후속 분기 4건 모두 폐기, 잔존 양상은 §13-14-2 로 이월.
+- (R2) **§13-14-2 (md 정규화 우선 패턴)** — md 입력 정규화로 N 결함 다양성 자체 차단. sub-track 4건 (§13-14-α 규약 정의 / §13-14-β 정규화 layer / §13-14-γ linter / §13-14-δ 잔존 결함 fix 재진입).
 - (R3) §13-8-3 Anthropic Haiku 4.5 평가 — patch v1 의 catch 13 카테고리 = LLM 단계 (provider 의존). Anthropic 양상 재검증 트리거 (catch 14).
 
 ### catch 자산 (본 트랙)
 
-- **catch 17 (§13-14-1: 결정론 강제 vs 정보 충실도 트레이드오프)**: §13-9 Round 3 의 "정확히 1+H2+H3 슬라이드" 강제 매핑은 LLM 측에서 부분 무시되는 운영 양상 — baseline pptx (gpt-4o, 2026-05-08): expected 44 (= 1 + 6 H2 + 37 H3) vs actual 38, 참고문헌 ### 7 H3 자율 제외. §13-13-4-3 fix 후 expected 45 (= 1 + 7 H2 + 37 H3) vs actual 38, 동일 자율 제외 + §5 정규화. 라운드 (a-2) (§13-13-4-3 fix 전, patch v1 적용): 32 — §5 통째 누락 (catch 16). 라운드 (a-2)' (양쪽 fix 묶음): 38 회복. **patch v1 의 압축 규칙 완화 자체는 결정성 약화 효과 없음** — 양상의 본질은 LLM 의 참고문헌 등 의미 메타 ### 자율 제외 패턴. 자산화: **§13-9 결정론 강제 (강제 매핑 1+H2+H3) 와 LLM 의 자율 제외 (참고문헌·메타 ### 등) 가 운영상 일관된 trade-off** — 강제 매핑은 "최대 슬라이드 수" 가이드 역할, 자율 제외는 LLM 의 의미 판단 기준. §13-14-2 SlideSpec 분할 허용 트랙 진입 시 본 trade-off 의 양쪽 (강제 매핑 완화 + 자율 분할 허용) 가이드. catch 16 (공유 단계 fix 누락) 과 cross-check: catch 16 의 §5 누락이 라운드 (a-2) 32 의 직접 원인, catch 17 의 LLM 자율 제외가 라운드 (a-2)' 38 의 잔존 원인 — 두 catch 가 결정성 실패의 양면.
+- **catch 17 (§13-14-1: 결정론 강제 vs 정보 충실도 트레이드오프)**: §13-9 Round 3 의 "정확히 1+H2+H3 슬라이드" 강제 매핑은 LLM 측에서 부분 무시되는 운영 양상 — baseline pptx (gpt-4o, 2026-05-08): expected 44 (= 1 + 6 H2 + 37 H3) vs actual 38, 참고문헌 ### 7 H3 자율 제외. §13-13-4-3 fix 후 expected 45 (= 1 + 7 H2 + 37 H3) vs actual 38, 동일 자율 제외 + §5 정규화. 라운드 (a-2) (§13-13-4-3 fix 전, patch v1 적용): 32 — §5 통째 누락 (catch 16). 라운드 (a-2)' (양쪽 fix 묶음): 38 회복. **patch v1 의 압축 규칙 완화 자체는 결정성 약화 효과 없음** — 양상의 본질은 LLM 의 참고문헌 등 의미 메타 ### 자율 제외 패턴. 자산화: **§13-9 결정론 강제 (강제 매핑 1+H2+H3) 와 LLM 의 자율 제외 (참고문헌·메타 ### 등) 가 운영상 일관된 trade-off** — 강제 매핑은 "최대 슬라이드 수" 가이드 역할, 자율 제외는 LLM 의 의미 판단 기준. §13-14-2 md 정규화 우선 패턴 트랙 진입 시 본 trade-off 의 입력 단계 차단 가능성 검증. catch 16 (공유 단계 fix 누락) 과 cross-check: catch 16 의 §5 누락이 라운드 (a-2) 32 의 직접 원인, catch 17 의 LLM 자율 제외가 라운드 (a-2)' 38 의 잔존 원인 — 두 catch 가 결정성 실패의 양면.
+
+---
+
+## §13-14-2. md 정규화 우선 패턴 (placeholder)
+
+13-14-2. **md 정규화 우선 패턴** — 상태: `placeholder (2026-05-11)` — 본격 진입은 다음 세션 / 우선순위: 중
+
+**진입 트리거**: §13-14-1 잠정 close. md 입력 분포 들쭉날쭉 상태에서 plan_deck/render_deck downstream fix 누적은 결함 양상 다양성마다 새 cross-check 부담 → **입력 정규화로 N 결함 다양성 자체 차단** (사용자 판단).
+
+**사용자 결함 ground truth 시퀀스 (라운드 b 시각 검증, 8건)**:
+
+갯수 합병 7건:
+- §4 실행방안 5→3
+- §5 데이터근거 3→2
+- §5 Actionable Recommendations 5→3
+- §6 데이터근거 3→2
+- §6 Actionable Recommendations 5→3
+- §7 핵심요점 3→2
+- §7 Actionable Recommendations 5→3
+
+구조 누락 1건:
+- §4 SECTION_HEADER 전체 누락 (`## 벤포벨S 핵심 차별화 자산 기반 광고 클레임 개발` sid prefix 누락이 SECTION_HEADER 분리 실패로 노출, §3 마지막 TITLE_CONTENT 로 흡수)
+
+### sub-track 4건 (placeholder)
+
+- **§13-14-α** — md 규약 정의 + 1차 라운드 close (2026-05-11) ✓
+  - **commit 1616e88** (코드: `report_builder.py` +55/-3): 옵션 A2 helper (`_ensure_section_h2_normalized`) + 옵션 B (strip_number_prefix misuse 정정)
+  - **변경 위치**:
+    - `report_builder.py:263` (옵션 B): `strip_number_prefix(ls[2:].strip())` → `ls[2:].strip()`. 함수 의도 (text_utils.py:227 docstring 명시 = 매칭 폴백) vs 호출처 의도 (prepend strip) misuse 정정. section_slugify 가 자체 strip 처리 — 부작용 0
+    - `report_builder.py:220-256` (옵션 A2): `_ensure_section_h2_normalized(outline_title, body)` 신규 helper. outline_title ground truth 기반 H2 + sid prefix 정규화 (in-memory, sections/.md 무수정). 4 분기 — sid 일치 통과 / sid 불일치 첫 줄 교체 / 평문 제목 한 줄 제거 + prepend (§7 케이스) / H3 이상 또는 도입부 평문 prepend (§4 케이스)
+    - `report_builder.py:285` (호출 교체): `_ensure_heading(t, src)` → `_ensure_section_h2_normalized(t, src)`
+  - **라운드 1 측정 (e2e, gpt-4o, temperature=0.1, scripts/regen_pptx_13_14_1.py)**:
+    - n_total 38 slides (baseline 회복), SECTION_HEADER 7개 모두 sid 보유 (§1~§7)
+    - §4 결함 (SECTION_HEADER + cascade 4 슬라이드) 해결 — slide#15 SECTION_HEADER + 본문 5장 모두 정상
+    - §7 평문 제목 한 줄 잔존 제거 — latest.md line 233-235 `## 7. 실행 로드맵.../### 배경` 직결
+    - 갯수 합병 7건 중 6건 해결: §5·§6 데이터근거·Rec (4건) + §4·§7 Rec (2건) bullets 보존
+    - 잔존 1건: §7 핵심요점 3→2 (plan_deck LLM downstream, §13-14-δ 이월)
+  - **결과**: 9/10 결함 해결 (90%)
+  - **A1 후순위 유지**: A2 가 입력 정규화로 §4 결함 + §7 평문 제목 + sid prefix 일관성 모두 달성. A1 (section_writer prompt 강화) 추가 효과 = sections/.md 자체 정규화 (docx 단독 export 영향, catch 12 cascade) — 별도 트랙 이월
+  - 보조 자료: `writer_project/scripts/_md_ground_truth_for_13_14_alpha.md` (untracked)
+  - 라운드 1 산출 pptx: `writer_project/reports/venfobel-vitamin/20260511_13-14-alpha_round1.pptx` (38 slides, 105217 bytes)
+
+- **§13-14-β** — 정규화 layer 구현
+  - 진입 조건: §13-14-α close 후
+  - 작업: 규약 적용 위치 결정 (section_writer LLM 출력 직후 vs build_final_report 합성 직전 vs cascade) + 3 양상 변환 로직 + 단위 검증 케이스
+
+- **§13-14-γ** — linter
+  - 진입 조건: §13-14-β close 후
+  - 작업: 규약 위반 검출 (정규화 후 LLM stochasticity 잔존) + reject/warning 결정 + 호출 위치
+  - commit 시점 catch 21 박제 확정
+
+- **§13-14-δ** — 잔존 결함 fix 재진입
+  - 진입 조건: §13-14-α·β·γ close 후, 정규화 layer 차단 못 한 결함 잔존 시
+  - 작업: §13-14-1 patch v1 패턴 재활용 (prompts.py / spec.py) vs §13-14-2 정규화 layer 보강 분기 결정
+  - catch 18 후보 (LLM 압축 양상 차원별 분리) / catch 19 후보 (few-shot 입력 분포 일반화 한계) 박제 결정 — 정규화 layer 가 입력 양상 통일하면 catch 19 의의 약화 가능성
+
+### catch 박제 (§13-14-α 1차 라운드 commit 시점 — catch 17 번복 / catch 20·22·24 확정 / catch 18·19 조건부 / catch 21 예약)
+
+- **catch 17 번복 (§13-14-α A2+B 적용 후)** — 1차 박제 (직전 §13-14-1 단계): "stochasticity = 결정론 강제 vs 정보 충실도 trade-off 의 운영 양상, LLM 자율 제외 + 강제 매핑 trade-off". **번복 (본 commit 시점)**: §13-14-α A2+B 적용 후 라운드 1 측정 결과 — **stochasticity = 입력 양상 일관성에 *조건부* 비례, 정규화 layer 로 *대부분* 차단 가능**. 라운드 (b) 33 slides + §4 누락 (입력 양상 불일치 — §4 sid 없는 H2) → 라운드 α1 38 slides + 7 SECTION_HEADER 정상 (입력 양상 일관성 — 7개 sid 보유 H2). *조건부* 표현은 §7 핵심요점 3→2 잔존 1건의 측정 근거 — plan_deck LLM downstream 결함은 입력 정규화로도 차단 안 됨. 자산화: **입력 양상 일관성이 downstream LLM stochasticity 의 *진폭 결정 변수*, 완전 차단 변수는 아님**.
+
+- **catch 20 확정 (§13-14-α 1차 라운드 commit 시점)** — md 구조 일관성 → 입력 정규화 우선: 입력 양상의 분기 (sid prefix / 본문 패턴 / bullet KEY / 출처 마커) 가 downstream LLM (plan_deck) 처리 안정성을 결정. 규약 정의 = 결함 다양성의 차단점. 라운드 α1 측정값 — §4 sid 보유 H2 정규화 → SECTION_HEADER 매핑 안정성 강화 + cascade 효과로 갯수 합병 5건 동시 해결 입증.
+
+- **catch 21 (§13-14-γ commit 시점 박제 예약)** — linter (정규화 후 잔존 결함 검출): 정규화 layer 가 LLM stochasticity 영향까지 차단 못 함 (catch 17 *조건부* 표현 참조). linter 가 build_final_report 단계 reject/warning. catch 9 (XML 검증 PASS ≠ 시각 검증 PASS) 의 *입력 단계 변종*.
+
+- **catch 22 확정 (§13-14-α 1차 라운드 commit 시점)** — 입력 정규화 우선 원칙: md 입력 분포 들쭉날쭉 상태에서 downstream fix tree 누적 = 결함 양상 다양성마다 새 cross-check 부담. 입력 정규화로 N 결함 다양성 자체 차단. §13-14-1 downstream fix tree (§13-14-1-a/b/c) 폐기 결정의 ground truth. catch 16 (공유 단계 fix 누락) 의 *root cause 단계 결정 원칙* 변종. **단서 (라운드 α1 측정값 입증)**: **입력 정규화 효과가 직접 fix 범위를 *초과* 할 수 있음 — downstream LLM 처리 안정성 cascade 강화 메커니즘**. 본 라운드 갯수 합병 5건 (§5·§6 데이터근거·Rec + §4·§7 Rec) 동시 해결이 측정 근거 — A2+B 의 직접 fix 범위 (§4 H2 + §7 평문 제목 + sid prefix 일관성) 는 갯수 합병을 포함하지 않았으나 cascade 효과로 해결.
+
+- **catch 24 신규 확정 (§13-14-α 1차 라운드 commit 시점)** — 함수 의도 vs 호출처 의도 mismatch (misuse 정정): `strip_number_prefix` 함수 의도 (text_utils.py:227 docstring 명시 = 매칭 폴백) vs 호출처 의도 (report_builder.py:263 prepend strip) mismatch. 폐기 (함수 제거) 가 아니라 호출처 정정 (옵션 B = strip 호출 제거) 으로 해결. 자산화: **함수 자체는 정합 의도 보유, 호출처가 의도 외 용도로 사용한 misuse 케이스는 함수 폐기가 아니라 호출처 정정으로 해결**. catch 5 (helper 입력 계약 호출자별 비대칭) 의 *의도 비대칭* 변종 — catch 5 는 입력 형식 비대칭, catch 24 는 사용 의도 비대칭.
+
+- **catch 18 후보 (§13-14-δ 진입 조건부 박제)** — LLM 압축 양상의 차원별 분리 (텍스트 길이 vs 갯수): §7 핵심요점 3→2 잔존 분석 시 차원별 분리 양상 부합 여부로 확정/폐기 결정.
+
+- **catch 19 후보 (§13-14-δ 진입 조건부 박제)** — few-shot 입력 분포 일반화 한계 (list vs 단락): 정규화 layer 가 입력 양상 통일하면 본 catch 의의 약화 가능성. 라운드 α1 결과로 입력 정규화 cascade 효과 강 → catch 19 폐기 시사 강함.
+
+### 보조 자료 위치
+
+- §4·§7 ground truth md 본문 + 양상 메모: `writer_project/scripts/_md_ground_truth_for_13_14_alpha.md` (본 세션 작성, untracked)
+- 라운드 (b) 산출 pptx: `writer_project/reports/venfobel-vitamin/20260511_§13-14-1-patch-v1.pptx` (33 slides)
+- 사용자 baseline pptx: `D:\Downloads\종근당_'벤포벨S'_2026_광고기획___고함량_활성비타민_시장_3C_분석 (1).pptx` (38 slides)
 
 ---
 
