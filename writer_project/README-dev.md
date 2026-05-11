@@ -3124,4 +3124,111 @@ anthropic → openai 복귀:
 
 ---
 
+## §13-14-γ — linter 정식화 (2026-05-11)
+
+### 진입 배경
+
+§13-14-2 트랙의 명시적 sub-track 4건 (α / β / γ / δ) 중 마지막 — **linter 정식화로 트랙 정체성 완수**. 직전까지 ad-hoc grep + 수동 카운트로 측정해 온 결함 양상·cascade 안정도·풍부함 CV 를 *자동 측정 스크립트* 로 정식화. dual track (gpt-4o + Sonnet 4.6) 시점에서 양 트랙 ground truth 일치 검증 도구로 활용.
+
+### 모듈 구성
+
+단일 파일 `scripts/lint_report_consistency.py` (LLM 호출 0, python-pptx 의존 0):
+
+| 모듈 | 측정 항목 |
+|---|---|
+| `md_measure` | sections/.md + latest.md 의 H2 양상 (sid prefix / 평문 도입부 / 평문 제목 한 줄), H3 갯수, H3 별 bullet 갯수 |
+| `pptx_measure` | extract_pptx_text.py 의 zip+ET 패턴 재사용 — slide layout 분류, SECTION_HEADER sid prefix 보유, TITLE_CONTENT bullet 갯수, table 갯수 |
+| `compare` | md ↔ pptx cascade 안정도 + 누락률 (`expected = 1 + n_h2 + n_h3` vs actual) + § 별 본문 슬라이드 수 |
+| `report` | 결함 양상 표 + 다중 라운드 통합 (3 라운드 → CV 자동 계산) |
+| `CLI` | `--pptx` (단일) / `--rounds + --rounds-md` (다중 라운드 + 라운드별 latest.md) / `--outline` / `--sections-dir` / `--output` |
+
+### 재사용 자산
+
+| 자산 | 위치 | 재사용 |
+|---|---|---|
+| extract_pptx_text.py | scripts/ (119 lines) | zip + ET parsing 100% 재사용 (python-pptx 의존성 회피 — gpt-4o 측정 인프라와 동일 의존성 0 패턴) |
+| verify_13_14_1.py | scripts/ (305 lines) | bullet 측정 패턴 부분 재사용 |
+| sonnet_3rounds_analysis.py | scripts/ | python-pptx 기반 분석 — γ 와 의존성 별개 (linter 는 의존성 0 강제, analysis 는 신속 측정) |
+
+### Sanity check — 두 트랙 ground truth 정합 (catch 21 확정 근거)
+
+**gpt-4o 트랙** (sections/ = gpt-4o 복원 후, α1·α2·α3 pptx):
+
+| 측정값 | linter 출력 | 박제 ground truth (1106d7d / bf07d23) | 정합 |
+|---|---|---|---|
+| n_slides (3 라운드) | 38·38·38 | 38·38·38 (3/3 안정 해결) | ✓ |
+| SECTION_HEADER 7개 + sid prefix | 7/7 (3/3 라운드) | 7/7 | ✓ |
+| 누락률 | 0%·0%·0% | 0% (구조 변동 0/30) | ✓ |
+| §1~§7 본문 slides | 1·5·4·5·5·5·5 (CV 0%) | 동일 (cascade 15/15 = 100%) | ✓ |
+| pptx KB CV | 3.96% | 박제 §13-8 "CV 3.6%" 정합 | ✓ |
+| md §4 (벤포벨S 핵심) | H2 ✗ / 평문 도입부 ✓ | §13-14-α A2 분기 4 작동 대상 | ✓ |
+| md §7 (실행 로드맵) | H2 ✗ / 평문 제목 한 줄 ✓ | §13-14-α A2 분기 3 작동 대상 | ✓ |
+
+**Sonnet 4.6 트랙** (sonnet_round1·2·3 pptx, 라운드별 latest.md 와 1:1 매칭):
+
+| 측정값 | linter 출력 | 박제 ground truth (76db4da §13-14-α-sonnet) | 정합 |
+|---|---|---|---|
+| n_slides | 52·53·55 (CV 2.86%) | 52·53·55 (CV 2.86%) | ✓ |
+| pptx KB CV | 3.16% | 3.16% | ✓ |
+| 누락률 | 8.77%·8.62%·6.78% (mean 8.06%) | 8.8%·8.6%·6.8% (mean 8.1%) | ✓ |
+| §2 systematic 누락 | buckets 6·6·6 (CV 0%) | 3/3 모두 -1 (systematic) | ✓ |
+| §7 0 누락 안정 | buckets 7·7·7 (CV 0%) | 3/3 안정 | ✓ |
+| §1/§3/§4/§5/§6 stochastic | CV 8.66/9.12/9.12/8.66/9.12% | 박제 표 그대로 | ✓ |
+| TITLE_TABLE CV | 9.35% (16·15·18) | 9.35% | ✓ |
+| TITLE_CONTENT CV | 3.45% (28·30·29) | 3.45% | ✓ |
+| SECTION_HEADER 7+sid | 7/7 (3/3 라운드) | 7/7 (3/3) | ✓ |
+
+**판정**: linter 측정값이 직전 박제 ground truth 와 **1:1 정확 일치 (양 트랙 모두)**. **catch 21 확정 박제 자격 충족** (linter 정규화 후 ground truth 정합).
+
+### 사용 예시
+
+```powershell
+# gpt-4o 3 라운드 측정 (sections/ + outline + 3 pptx)
+python scripts/lint_report_consistency.py `
+  --sections-dir sections/venfobel-vitamin `
+  --rounds reports/venfobel-vitamin/20260511_13-14-alpha_round1.pptx `
+           reports/venfobel-vitamin/20260511_alpha_round2.pptx `
+           reports/venfobel-vitamin/20260511_alpha_round3.pptx `
+  --outline outlines/venfobel-vitamin/outline_report.md `
+  --output scripts/_lint_gpt4o_3rounds.md
+
+# Sonnet 3 라운드 측정 (라운드별 latest.md 1:1 매칭으로 정확한 누락률)
+python scripts/lint_report_consistency.py `
+  --rounds reports/venfobel-vitamin/20260511_214020_sonnet_round1.pptx `
+           reports/venfobel-vitamin/20260511_221134_sonnet_round2.pptx `
+           reports/venfobel-vitamin/20260511_223033_sonnet_round3.pptx `
+  --rounds-md reports/venfobel-vitamin/20260511-214020_report.md `
+              reports/venfobel-vitamin/20260511-221755_report.md `
+              reports/venfobel-vitamin/20260511-223653_report.md `
+  --outline outlines/venfobel-vitamin/outline_report.md `
+  --output scripts/_lint_sonnet_3rounds.md
+```
+
+### catch 박제 (§13-14-γ commit 시점 — catch 21 확정 + catch 26 신규)
+
+- **catch 21 확정 (§13-14-γ commit 시점, 직전 박제 예약 충족)** — linter (정규화 후 잔존 결함 검출 + ground truth 정합 자기검증): 본 linter 가 두 트랙 (gpt-4o + Sonnet 4.6) 의 직전 박제 ground truth 와 1:1 정확 일치 측정값 산출 → linter 측정 자체의 self-validation 양상. 향후 측정은 ad-hoc grep 이 아닌 본 linter 기준점으로 표준화 가능. **catch 9 "XML 검증 PASS ≠ 시각 검증 PASS" 의 *입력 단계 변종*** — linter 측정 PASS 가 시각 검증 PASS 를 보장하지는 않으나, *측정 일관성 + 박제 ground truth 정합* 의 자동화 도구.
+
+- **catch 26 신규 확정 (§13-14-γ commit 시점)** — 측정 도구의 *의존성 0 강제* 원칙: linter 가 python-pptx 미사용 (zip + xml.etree 표준 라이브러리만) → 다음 가치 입증:
+  - (i) **인프라 분리 catch 13 변환 단계 fix 의 측정 도구 변종** — 의존성 0 으로 운영 venv 변화 (gpt-4o/anthropic/vertex) 무관 작동
+  - (ii) **측정 인프라 보존성** — 의존성 추가 비용 0, 향후 dual track 운영 또는 추가 provider 추가 시 동일 linter 재사용
+  - (iii) **catch 24 (함수 의도 vs 호출처 의도) 의 정합 변종** — extract_pptx_text.py 의 zip+ET 패턴이 *의도된 재사용 자산* 으로 설계 (단일 책임 + 의존성 0). linter 가 그 의도를 100% 흡수 → misuse 없는 *catch 24 정합 케이스*.
+
+  추가 단서: python-pptx 기반 측정 (`sonnet_3rounds_analysis.py`) 과 linter 측정값이 일치 → 두 라이브러리 패턴의 cross-check 자산.
+
+### 산출 자산 위치
+
+- linter 본체: `scripts/lint_report_consistency.py` (LLM 0, python-pptx 0, 표준 라이브러리만)
+- sanity check 보고서:
+  - `scripts/_lint_gpt4o_3rounds.md` (gpt-4o 트랙 + sections/ 양상)
+  - `scripts/_lint_sonnet_3rounds.md` (Sonnet 트랙 + 라운드별 latest.md 매칭)
+- 재사용 의존: `scripts/extract_pptx_text.py` (zip+ET 패턴 100% 재사용)
+
+### Re-entry conditions (§13-14-γ)
+
+- (R1) 다른 토픽 (pet-food-premium / height-growth-supplement 등) 측정 시 — linter outline H2 vs SECTION_HEADER 매칭 일반화 확인
+- (R2) provider 추가 (Haiku 4.5 / Vertex Gemini 등) — linter 재사용 + ground truth 박제
+- (R3) build_final_report 단계 reject/warning 도입 — catch 21 의 *운영 layer 진입* 단계 (현재 linter 는 측정만, reject 없음)
+
+---
+
 © Bell Agent · writer_project — Developer Guide
