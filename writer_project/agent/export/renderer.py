@@ -88,7 +88,10 @@ def render_deck(
     prs = Presentation(str(template_path))
     _clear_template_slides(prs)
 
-    for s in spec.slides:
+    # §13-15 (2026-05-12): SECTION_HEADER chapter_number 를 LLM 산출 (title prefix) 의존에서
+    # deterministic counter 로 전환. + subtitle 의 layout default inheritance 차단.
+    section_header_counter = 0
+    for i, s in enumerate(spec.slides):
         if s.layout_id == 1 and s.table:
             # 표 슬라이드 — layout 5 ('TITLE_TABLE') 로 dispatch (placeholder/표 좌표 겹침 회피)
             layout = prs.slide_layouts[LAYOUT_TITLE_TABLE]
@@ -102,7 +105,13 @@ def render_deck(
             elif s.layout_id == 1:
                 _render_content_slide(slide, s)
             elif s.layout_id == 2:
-                _render_section_header_slide(slide, s)
+                section_header_counter += 1
+                subtitle_fallback = _next_titled_content_summary(spec.slides, i)
+                _render_section_header_slide(
+                    slide, s,
+                    chapter_number=section_header_counter,
+                    subtitle_fallback=subtitle_fallback,
+                )
         # python-pptx add_slide() 가 SLIDE_NUMBER placeholder 를 자동 상속하지 않음 →
         # layout 에 정의돼 있으면 sp XML 을 deep-copy 해서 슬라이드 spTree 에 명시 추가.
         # SECTION_HEADER (layout 2) 는 layout 자체에 SLIDE_NUMBER 가 없어 자동 skip — 의도적 제외.
@@ -354,13 +363,44 @@ def _set_column_widths(table, table_spec: TableSpec, n_cols: int) -> None:
         table.columns[c].width = Cm(adjusted[c])
 
 
-def _render_section_header_slide(slide, s: SlideSpec) -> None:
-    """layout 2 — placeholder 3개 (top 좌표 식별):
-      - top≈5.0cm  → 챕터 번호 ("01" zero-padded)
-      - top≈10.5cm → 챕터 제목 (번호 prefix 제거)
-      - top≈13.0cm → 부제 (s.body 또는 빈 문자열로 default text 숨김)
+def _next_titled_content_summary(slides, i: int) -> str:
+    """SECTION_HEADER (slides[i]) 다음 첫 TITLE_CONTENT slide 의 첫 bullet 또는 body 한 줄.
+
+    §13-15 (2026-05-12): subtitle_fallback 산출 — Phase 2 최소 변경 deterministic 추출.
+    다음 SECTION_HEADER 만나면 stop (인접 빈 section 케이스). LLM call 0 추가.
+    호출처 (render_deck) 가 결과를 _render_section_header_slide 의 subtitle_fallback 로 전달.
     """
-    number_str, clean_title = _split_chapter_title(s.title)
+    for j in range(i + 1, len(slides)):
+        ns = slides[j]
+        if ns.layout_id == 2:
+            return ""
+        if ns.layout_id == 1:
+            if ns.bullets and ns.bullets[0]:
+                return ns.bullets[0]
+            if ns.body and ns.body.strip():
+                return ns.body.split("\n", 1)[0]
+            return ""
+    return ""
+
+
+def _render_section_header_slide(
+    slide,
+    s: SlideSpec,
+    *,
+    chapter_number: int,
+    subtitle_fallback: str = "",
+) -> None:
+    """layout 2 — placeholder 3개 (top 좌표 식별):
+      - top≈5.0cm  → 챕터 번호 (deterministic counter "01"~"99", §13-15 fix)
+      - top≈10.5cm → 챕터 제목 (LLM 산출 title 의 prefix 정리)
+      - top≈13.0cm → 부제 — 3-단계 우선순위 (s.body → subtitle_fallback → NBSP)
+
+    §13-15 (2026-05-12) catch 33: layout master placeholder default 텍스트가 PowerPoint
+    inheritance 로 노출되는 버그 차단. 빈 문자열 set 만으로는 차단 불가 — NBSP 또는 명시적
+    텍스트 set 필수. chapter_number 는 LLM 산출 (title prefix) 의존성 제거하고 deterministic.
+    """
+    number_str = f"{chapter_number:02d}"
+    _, clean_title = _split_chapter_title(s.title)
 
     num_ph = _placeholder_by_top_cm(slide, SECTION_HEADER_NUMBER_TOP_CM)
     title_ph = _placeholder_by_top_cm(slide, SECTION_HEADER_TITLE_TOP_CM)
@@ -371,8 +411,17 @@ def _render_section_header_slide(slide, s: SlideSpec) -> None:
     if title_ph is not None:
         title_ph.text_frame.text = clean_title or s.title
     if subtitle_ph is not None:
-        # None 이어도 빈 문자열로 채워서 마스터 default text "한 줄 부제 또는 챕터 요약" 숨김.
-        subtitle_ph.text_frame.text = (s.body or "")
+        # subtitle 우선순위 (§13-15 명시화):
+        #   1. s.body — planner 명시적 산출 (None 아니고 strip 후 비어있지 않음)
+        #   2. subtitle_fallback — renderer 자동 추출 (다음 TITLE_CONTENT 의 첫 bullet/body)
+        #   3. NBSP — edge case, layout default inheritance 차단만
+        if s.body is not None and s.body.strip():
+            subtitle_text = s.body.strip()
+        elif subtitle_fallback.strip():
+            subtitle_text = subtitle_fallback.strip()
+        else:
+            subtitle_text = " "
+        subtitle_ph.text_frame.text = subtitle_text
 
 
 __all__ = ["render_deck"]
