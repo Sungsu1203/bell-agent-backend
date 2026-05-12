@@ -204,6 +204,15 @@ def measure_run(
             _print(f"  [sleep {inter_run_sleep_s:.0f}s — rate limit 보호]")
             time.sleep(inter_run_sleep_s)
         _print(f"  run {i+1} 시작 …")
+        # §13-8-3 (2026-05-12): bullets validator instrument reset — run granularity.
+        # ThreadPoolExecutor 비취소 race 인정 (timeout 후 background 호출이 다음 run
+        # 카운트 오염 가능). ok 케이스만 정확, timeout/fail 케이스는 부분 카운트.
+        try:
+            from agent.export import spec as _spec_mod
+            _spec_mod._INSTRUMENT["bullets_null_count"] = 0
+            _spec_mod._INSTRUMENT["bullets_total_count"] = 0
+        except Exception:
+            _spec_mod = None  # type: ignore
         t0 = time.monotonic()
         try:
             deck = _invoke_with_timeout(
@@ -222,6 +231,9 @@ def measure_run(
                 usage = getattr(_planner_mod, "_LAST_USAGE_METADATA", None)
             except Exception:
                 usage = None
+            # §13-8-3 instrument 회수 (catch 22 multi-provider 정규화 정량 박제).
+            _b_null = _spec_mod._INSTRUMENT.get("bullets_null_count", 0) if _spec_mod else 0
+            _b_total = _spec_mod._INSTRUMENT.get("bullets_total_count", 0) if _spec_mod else 0
             entry = {
                 "run": i + 1,
                 "slide_count": slide_count,
@@ -233,32 +245,44 @@ def measure_run(
                 "latency_s": round(lat, 2),
                 "input_tokens": (usage or {}).get("input_tokens") if isinstance(usage, dict) else None,
                 "output_tokens": (usage or {}).get("output_tokens") if isinstance(usage, dict) else None,
+                "bullets_null_count": _b_null,
+                "bullets_total_count": _b_total,
                 "ok": True,
             }
             _tok_str = ""
             if entry["input_tokens"] is not None and entry["output_tokens"] is not None:
                 _tok_str = f"  tok(in={entry['input_tokens']:,} out={entry['output_tokens']:,})"
+            _bn_str = f"  bullets(null={_b_null}/total={_b_total})" if _b_total else ""
             _print(f"  run {i+1}: slides={slide_count}  tables={table_count}  "
                    f"lang={lang} (kor={ratio:.2f})  src(body={body_n},notes={notes_n})  "
-                   f"lat={lat:.1f}s{_tok_str}")
+                   f"lat={lat:.1f}s{_tok_str}{_bn_str}")
         except FuturesTimeoutError:
             lat = time.monotonic() - t0
+            # §13-8-3 timeout/fail 카운트 — 부정확 (background race 가능), 박제 일관성용.
+            _b_null = _spec_mod._INSTRUMENT.get("bullets_null_count", 0) if _spec_mod else 0
+            _b_total = _spec_mod._INSTRUMENT.get("bullets_total_count", 0) if _spec_mod else 0
             entry = {
                 "run": i + 1,
                 "ok": False,
                 "error_class": "TimeoutError",
                 "error_msg": f"per-run timeout {per_run_timeout_s:.0f}s 초과",
                 "latency_s": round(lat, 2),
+                "bullets_null_count": _b_null,
+                "bullets_total_count": _b_total,
             }
             _print(f"  run {i+1}: TIMEOUT ({per_run_timeout_s:.0f}s 초과 — quota retry 누적 의심)")
         except Exception as err:
             lat = time.monotonic() - t0
+            _b_null = _spec_mod._INSTRUMENT.get("bullets_null_count", 0) if _spec_mod else 0
+            _b_total = _spec_mod._INSTRUMENT.get("bullets_total_count", 0) if _spec_mod else 0
             entry = {
                 "run": i + 1,
                 "ok": False,
                 "error_class": type(err).__name__,
                 "error_msg": str(err)[:200],
                 "latency_s": round(lat, 2),
+                "bullets_null_count": _b_null,
+                "bullets_total_count": _b_total,
             }
             _print(f"  run {i+1}: FAIL ({type(err).__name__}: {str(err)[:120]})")
         runs.append(entry)
@@ -343,6 +367,11 @@ def measure_run(
         cost_total = None
         cost_per_run = None
 
+    # §13-8-3 (2026-05-12): bullets null 분포 총계 (ok_runs 만, catch 22 정량 박제).
+    _b_null_sum = sum(r.get("bullets_null_count", 0) for r in ok_runs)
+    _b_total_sum = sum(r.get("bullets_total_count", 0) for r in ok_runs)
+    _b_null_ratio = round(_b_null_sum / _b_total_sum, 4) if _b_total_sum > 0 else None
+
     metrics_7 = {
         "ok_runs_count": len(ok_runs),
         "timeout_count": timeout_count,
@@ -351,6 +380,13 @@ def measure_run(
         "input_tokens_stats": _stat([float(x) for x in in_tok_vals]),
         "output_tokens_stats": _stat([float(x) for x in out_tok_vals]),
         "slide_count_distribution": [r["slide_count"] for r in ok_runs if r.get("slide_count") is not None],
+        "bullets_null_distribution": {
+            "null_total": _b_null_sum,
+            "validator_call_total": _b_total_sum,
+            "null_ratio": _b_null_ratio,
+            "per_run_null_count": [r.get("bullets_null_count", 0) for r in ok_runs],
+            "per_run_total_count": [r.get("bullets_total_count", 0) for r in ok_runs],
+        },
         "cost_estimate": {
             "model": model,
             "rate_in_per_mtok_usd": _rate["in"] if _rate else None,
@@ -477,6 +513,12 @@ def main() -> int:
     _print(f"  (7) cost 추정:         per_run=${ce.get('per_run_usd')}  "
            f"total(n={ce.get('n_runs')})=${ce.get('total_usd')} USD  "
            f"(rates: in=${ce.get('rate_in_per_mtok_usd')}/Mtok, out=${ce.get('rate_out_per_mtok_usd')}/Mtok)")
+    # §13-8-3 (2026-05-12): bullets null 분포 박제 (catch 22 multi-provider 정규화 정량)
+    bnd = m7.get("bullets_null_distribution", {})
+    _nr = bnd.get("null_ratio")
+    _nr_str = f"{_nr:.1%}" if isinstance(_nr, (int, float)) else "n/a"
+    _print(f"  (8) bullets null 분포: {bnd.get('null_total')}/{bnd.get('validator_call_total')} ({_nr_str})  "
+           f"per-run null={bnd.get('per_run_null_count')}  total={bnd.get('per_run_total_count')}")
 
     if args.out:
         out = Path(args.out)

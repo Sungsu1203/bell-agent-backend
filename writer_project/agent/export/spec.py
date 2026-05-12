@@ -3,6 +3,14 @@ from __future__ import annotations
 from typing import List, Optional
 from pydantic import BaseModel, Field, field_validator
 
+# §13-8-3 (2026-05-12): bullets validator instrument — multi-provider 정규화 정량 박제.
+# measure_stability.py 가 각 run 시작 시 reset, 종료 시 회수 (run granularity).
+# null_count / total_count → null 비율 박제 (catch 22 실증 자산).
+_INSTRUMENT = {
+    "bullets_null_count": 0,
+    "bullets_total_count": 0,
+}
+
 
 class TableSpec(BaseModel):
     """슬라이드에 삽입할 테이블 정의 (Markdown table → 구조화)."""
@@ -79,7 +87,11 @@ class SlideSpec(BaseModel):
         # §13-8-3 (2026-05-12): Haiku 4.5 가 bullets=null 응답 시 ValidationError 차단.
         # catch 22 (multi-provider 정규화) + catch 24 (호출처 List 의도 보존) 정신.
         # type signature (List[str]) 유지 → renderer 등 호출처 영향 0.
-        return [] if v is None else v
+        _INSTRUMENT["bullets_total_count"] += 1
+        if v is None:
+            _INSTRUMENT["bullets_null_count"] += 1
+            return []
+        return v
     body: Optional[str] = Field(
         default=None,
         description=(
