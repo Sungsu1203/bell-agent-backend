@@ -72,6 +72,14 @@ class SlideSpec(BaseModel):
             "md 의 `**KEY**: 설명` 패턴은 'KEY: 압축 설명' 으로 KEY 와 설명 둘 다 보존."
         ),
     )
+
+    @field_validator("bullets", mode="before")
+    @classmethod
+    def _bullets_none_to_empty(cls, v):
+        # §13-8-3 (2026-05-12): Haiku 4.5 가 bullets=null 응답 시 ValidationError 차단.
+        # catch 22 (multi-provider 정규화) + catch 24 (호출처 List 의도 보존) 정신.
+        # type signature (List[str]) 유지 → renderer 등 호출처 영향 0.
+        return [] if v is None else v
     body: Optional[str] = Field(
         default=None,
         description=(
