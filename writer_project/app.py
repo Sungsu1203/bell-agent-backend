@@ -1197,6 +1197,37 @@ def health():
     return {"ok": True}
 
 
+def _current_provider_info() -> dict:
+    """현재 활성 LLM provider + model 정보를 반환.
+
+    환경변수 (.env + .env.<provider> overlay + PowerShell $env: inline) 기반.
+    frontend Settings 카드의 read-only 표시용. 변경 자체는 PowerShell 외부 작업
+    (backend 종료 → $env: 또는 .env.<provider> 편집 → 재가동).
+
+    Provider 분기는 core/llm.py:72-138 의 ChatModelKey dict 박제와 정합 —
+    openai/anthropic/vertexai/gemini 4개. gemini default 는 frontend 드롭다운
+    노출 없음 (사용자 결정 박제 — backend 만 5개 분기 박제, 향후 frontend 정정 여지).
+    """
+    provider = os.getenv("LLM_PROVIDER", "openai").lower()
+
+    if provider == "openai":
+        model = os.getenv("OPENAI_MODEL", "gpt-4o")
+    elif provider == "anthropic":
+        model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    elif provider == "vertexai":
+        # vertexai 경로의 model key 는 LLM_MODEL (박제 §13-8)
+        model = os.getenv("LLM_MODEL", "gemini-2.5-flash")
+    elif provider == "gemini":
+        model = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
+    else:
+        model = "unknown"
+
+    return {
+        "provider": provider,
+        "model": model,
+    }
+
+
 @web_app.get("/api/state")
 def api_state():
     global _WEB_STATE
@@ -1234,6 +1265,7 @@ def api_state():
         "cancel_requested": bool(_CANCEL_EVENT.is_set()),
         "iteration_count": iter_count,
         "updated_at": _now_str(),
+        "current_provider": _current_provider_info(),
     }
 
 @web_app.post("/api/cancel")
