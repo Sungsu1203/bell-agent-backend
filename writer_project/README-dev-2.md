@@ -714,3 +714,135 @@ Phase 1 본 측정 (5-12) 에서 Sonnet 4.6 baseline 5-10 → 5-12 갱신 시 4�
 ### 3. Phase 2 진입 결정
 - §13-8-3-G 의사결정 트리 진입
 - 사전 점검 1 (코드 의존 분석) → 사전 점검 2 (산출물 일관성 정책) → 사전 점검 3 (Phase 2 baseline input 결정)
+
+---
+
+## §13-15 — SECTION_HEADER placeholder inheritance fix (Phase 2 blocker)
+
+진입 사유: §13-8-3 Phase 2 e2e single round 실행 (PPTX 산출) 후 Claude 웹 PPTX 시각
+분석에서 발견된 결함. 7개 SECTION_HEADER 슬라이드 모두 chapter number 가 "01" 로 고정
++ subtitle 영역에 layout master default 텍스트 노출. linter PASS 였음에도 검출 실패.
+
+**해결 결과**: commit 1 (1965164) renderer fix + commit 2 (7919c72) linter 보강 +
+commit 3 본 박제. Phase 2 정식 close 가능.
+
+### §13-15-A 증상 정량 박제
+
+- 결함 슬라이드: 7개 SECTION_HEADER (Slide 2/4/10/15/21/27/33)
+- chapter number (top≈5.0cm placeholder, idx=10) 가 전부 "01" 고정
+  → layout master default text "01" 이 inheritance 로 노출
+- subtitle (top≈13.0cm placeholder, idx=12) 가 전부 layout default
+  "한 줄 부제 또는 챕터 요약셋째 수준넷째 수준다섯째 수준" 으로 노출
+- linter PASS, missing 0 (현 linter 가 본 결함 미검출 — [[catch-34]] 원인)
+
+### §13-15-B Root cause
+
+- **PowerPoint placeholder inheritance 메커니즘**: slide instance 가 placeholder
+  텍스트를 명시적으로 set 하지 않으면 layout master 의 default text 자동 노출.
+  빈 문자열 `""` set 으로는 inheritance 차단 불가 (slide XML 에 `<a:t>` 미생성 = 미set).
+- renderer 가 idx=11 (title) 만 채움, idx=10 (chapter number) / idx=12 (subtitle) 미채움.
+- planner LLM 의 title prefix 미산출 ("1. xxx" 아닌 "xxx") + python-pptx 빈 text
+  inheritance 의 결합. _split_chapter_title 정규식이 prefix 부재 시 ("", title)
+  반환 → 빈 chapter_number 가 placeholder 에 set 시도 → 실제론 set 안되고 layout
+  default 노출.
+
+### §13-15-C Fix 설계 (Case 2 — renderer 1-layer)
+
+- **render_deck**: section_header_counter (1-based, deterministic) 도입 + enumerate
+  으로 SECTION_HEADER 슬라이드 순회. LLM 산출 (title prefix) 의존성 완전 제거.
+- **_next_titled_content_summary** 신규 helper: 다음 TITLE_CONTENT 슬라이드의 첫
+  bullet/body 한 줄 자동 추출. 다음 SECTION_HEADER 만나면 stop (인접 빈 section
+  케이스). LLM call 0 추가.
+- **_render_section_header_slide**: chapter_number 인자 + subtitle 우선순위 명시
+  (s.body → subtitle_fallback → NBSP). 3-단계 명시화로 edge case 처리 결정성 확보.
+
+### §13-15-D NBSP fallback 메커니즘
+
+- NBSP (`" "`) = 사용자에겐 빈 칸으로 보이지만 PowerPoint 에겐 "채워진 글자".
+- 빈 문자열 `""` 채움 → slide XML 에 `<a:t>` 미생성 → inheritance 활성화 → layout
+  default 노출 (버그 재발).
+- NBSP 채움 → slide XML 에 `<a:t> </a:t>` 생성 → inheritance 차단 → 사용자엔
+  빈 칸 (안전).
+- Phase 2 검증: NBSP edge case 진입 0건 (모든 SECTION_HEADER 가 subtitle_fallback
+  으로 충족). 보험 자산만 보유, 정량 발동 0건.
+
+### §13-15-E 부수 효과
+
+- sid prefix 1/7 → 7/7 (§13-14-α B 박제 영역 동시 해결).
+- chapter_number deterministic 화로 SECTION_HEADER 의 sid prefix 산정 layer 정합.
+- 향후 cross-cascade 측정에서 chapter_number 가 provider 무관 동일 산출 → PPTX
+  비교 자산의 노이즈 layer 1개 감소 ([[catch-36]] 후보).
+
+### §13-15-F Linter 보강 (commit 2 / 7919c72)
+
+- 범위 (a) 최소: SECTION_HEADER 의 idx=10 (chapter number) + idx=12 (subtitle)
+  fill 검증만.
+- 추가 함수:
+  - `_extract_slide_placeholder_texts()`: slide XML 의 placeholder idx → text 매핑.
+  - `validate_section_header_fills()`: idx=10/idx=12 fill 여부 검증.
+- 측정 로직:
+  - slide XML 에 명시 텍스트 없음 = "" 추출 → FAIL.
+  - NBSP 단독 set → bool True → PASS.
+  - layout default 일치는 참고 필드, FAIL 판정 미사용 (1st 챕터 의도값 "01" 보존).
+- 회귀 테스트:
+  - 현 latest.pptx (commit 1 fix 후): idx=10 7/7 / idx=12 7/7 PASS.
+  - 부정 테스트 (commit 1 이전 sonnet_round3.pptx): idx=12 7/7 FAIL 정확 검출.
+- 후속 트랙: 다른 layout (TITLE / TITLE_CONTENT) 의 placeholder fill 검증은 별도 §
+  분리 (현 §13-15 범위 밖).
+
+### §13-15-G 정식 박제 — catch 33 / catch 34
+
+#### catch 33 (정식 박제)
+**layout master placeholder default 텍스트는 renderer 가 채워야 할 hint, 정적
+상수 아님.**
+- 빈 문자열 `""` set 만으로 inheritance 차단 불가 (slide XML 에 `<a:t>` 미생성 =
+  실질 미set).
+- NBSP fallback 필수 — 의도된 "빈 칸" 도 명시적 fill 필요.
+- 적용 범위: python-pptx 의 모든 placeholder 기반 layout. SECTION_HEADER 가 가장
+  눈에 띄지만, TITLE 의 subtitle, TITLE_CONTENT 의 OBJECT 도 동일 패턴 위험.
+
+#### catch 34 (정식 박제)
+**linter 검증 범위가 outline 매칭 (구조 일관성) 에 한정, placeholder fill (내용
+완전성) 미검증 → §13-15 결함 미검출.**
+- 본 commit 2 (7919c72) 로 SECTION_HEADER idx=10/12 최소 범위 보강.
+- 잔여 범위: 다른 layout (TITLE / TITLE_CONTENT) 의 동일 결함 잠재 가능성. 후속
+  트랙 (§13-16 등) 으로 분리 검토.
+- linter 의 측정 패러다임 확장 필요: "구조 (n_slides / layout 분포 / outline 매칭)"
+  → "구조 + 내용 fill (placeholder text 명시 set 여부)".
+
+### §13-15-H 후보 박제 (정식 진입 조건 명시)
+
+#### catch 35 후보
+**subtitle_fallback 의 다층 탐색 (다음 slide 도 비어있는 edge case).**
+- 현 fix: _next_titled_content_summary 는 첫 TITLE_CONTENT 만 탐색. 그것도 비어있으면
+  NBSP fallback.
+- Phase 2 측정에선 진입 0건 — fallback 발동 자체가 0.
+- 정식 박제 조건: 후속 측정 (Haiku CV 10.2% 환경 등) 에서 NBSP fallback 발동 시 정량
+  박제. 또는 다층 탐색 (2nd, 3rd TITLE_CONTENT) 필요한 측정 케이스 발견 시.
+
+#### catch 36 후보
+**chapter_number deterministic 화의 cross-cascade 측정 영향.**
+- provider 무관 동일 산출 ("01" ~ "07") → PPTX 비교 자산의 노이즈 layer 1개 감소.
+- 정식 박제 조건: cross-cascade 측정 (gpt-4o vs Sonnet vs Haiku 동일 input md) 실시 후,
+  chapter_number 외 다른 layer 의 결정성 차이 정량화 후 본 catch 의 영향을 분리 측정 시.
+
+#### catch 37 후보
+**heredoc 내 동일 block 중복 → git log 가독성 훼손.**
+- commit 1 (1965164) 의 실제 사례 — commit message 내 일부 block 이 의도치 않게 중복
+  포함됨. amend force push 비용 > 가독성 issue → 정정 보류.
+- 정식 박제 조건: 후속 commit 에서 동일 패턴 재발 시 정식 박제. 본 commit 2/3
+  작성 시 heredoc 본문 view 1회 사전 점검으로 차단 시도.
+- 보호 패턴: commit message 작성 후 본문 view (git log -1 --format=%B) 1회 권고.
+
+### §13-15-I Phase 2 close 조건 정합
+
+- [x] Phase 2 e2e single round 통과 (sections 7 → latest.md 32KB → PPTX 38 slides
+      → linter PASS).
+- [x] §13-15 commit 1 (1965164) renderer fix 검증 통과 — 7/7 SECTION_HEADER 슬라이드
+      chapter "01"~"07" 순차 + subtitle fallback fill.
+- [x] §13-15 commit 2 (7919c72) linter 보강 완료 — idx=10/12 fill 검증 7/7 PASS.
+- [x] §13-15 commit 3 박제 완료 (본 sub-section).
+
+Phase 2 정식 close. 다음 트랙 진입 가능:
+- cross-cascade 측정 (§13-8-3-I Part 2) — Sonnet self-cascade + gpt-4o/Haiku 동일 input.
+- 또는 사용자 결정 다른 트랙.
