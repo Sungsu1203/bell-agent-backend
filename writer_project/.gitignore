@@ -72,3 +72,6 @@ logs/
 *structure.txt
 folder_tree.txt
 env_text.txt
+# ── Topic env files (NDA / client assets, since 2026-05-13) ──
+topics/*.env
+!topics/_template.env.example
