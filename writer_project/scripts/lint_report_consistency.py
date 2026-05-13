@@ -41,6 +41,13 @@ A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
+# §13-15 commit 2 (2026-05-13): SECTION_HEADER layout master placeholder default 텍스트.
+# templates/agency_default.pptx slideLayout3 에서 추출 (idx=10/idx=12).
+# layout default 와 정확히 일치 + slide XML 에 명시 set 없음 = inheritance 활성화 위험.
+# 단, slide XML 에 명시 텍스트가 있으면 값이 default 와 일치해도 안전 (1st 챕터 의도값 "01" 등).
+SECTION_HEADER_LAYOUT_DEFAULT_IDX10 = "01"
+SECTION_HEADER_LAYOUT_DEFAULT_IDX12 = "한 줄 부제 또는 챕터 요약셋째 수준넷째 수준다섯째 수준"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # md_measure
@@ -219,6 +226,34 @@ def _extract_layout_map(z: zipfile.ZipFile) -> dict[str, str]:
     return slide_to_layout
 
 
+def _extract_slide_placeholder_texts(xml_bytes: bytes) -> dict[int, str]:
+    """slide XML 의 placeholder idx → text 매핑 (§13-15 commit 2).
+
+    inheritance 위험 검출용: slide instance 의 sp 가 명시적으로 텍스트를 set 하지 않으면
+    PowerPoint 가 layout master 의 default 텍스트를 노출. 빈 문자열로 set 한 경우와 set
+    하지 않은 경우 모두 추출 text == "" 가 됨 → "" detect 시 FAIL.
+
+    NBSP ("\\u00a0") 단독 set 은 추출 text == "\\u00a0" → bool 평가 True → PASS.
+    """
+    root = ET.fromstring(xml_bytes)
+    result: dict[int, str] = {}
+    for sp in root.iter(f"{{{P_NS}}}sp"):
+        ph = sp.find(f".//{{{P_NS}}}ph")
+        if ph is None:
+            continue
+        idx_str = ph.attrib.get("idx", "")
+        try:
+            idx = int(idx_str)
+        except ValueError:
+            continue
+        texts = []
+        for t in sp.iter(f"{{{A_NS}}}t"):
+            s = t.text or ""
+            texts.append(s)
+        result[idx] = "".join(texts)
+    return result
+
+
 def _extract_slide_content(xml_bytes: bytes) -> tuple[list[str], list[list[list[str]]]]:
     """(texts list, tables list) — extract_pptx_text.py 와 동일 패턴."""
     root = ET.fromstring(xml_bytes)
@@ -249,6 +284,7 @@ def measure_pptx(path: Path) -> dict:
     p = path
     slides: list[Slide] = []
     layout_counts: dict[str, int] = {}
+    section_header_fills: list[dict] = []  # §13-15 commit 2
 
     with zipfile.ZipFile(str(p)) as z:
         names = z.namelist()
@@ -275,6 +311,15 @@ def measure_pptx(path: Path) -> dict:
                 n_tables=len(tables),
                 has_sid_prefix=_has_sid(title),
             ))
+            # §13-15 commit 2: SECTION_HEADER 슬라이드만 placeholder idx=10/idx=12 별도 추출.
+            if layout_id == 2:
+                ph_texts = _extract_slide_placeholder_texts(xml)
+                section_header_fills.append({
+                    "slide_idx": i,
+                    "idx10_text": ph_texts.get(10, ""),
+                    "idx11_text": ph_texts.get(11, ""),
+                    "idx12_text": ph_texts.get(12, ""),
+                })
 
     # section grouping: SECTION_HEADER → body until next SECTION_HEADER
     section_groups: list[dict] = []
@@ -307,7 +352,40 @@ def measure_pptx(path: Path) -> dict:
         "layout_counts": layout_counts,
         "slides": slides,
         "section_groups": section_groups,
+        "section_header_fills": section_header_fills,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §13-15 commit 2 — SECTION_HEADER placeholder fill 검증
+# ─────────────────────────────────────────────────────────────────────────────
+
+def validate_section_header_fills(fills: list[dict]) -> list[dict]:
+    """SECTION_HEADER placeholder idx=10 (chapter number) + idx=12 (subtitle) fill 검증.
+
+    범위 (a) 최소 — idx=10 / idx=12 만. 다른 layout (TITLE / TITLE_CONTENT) 검증은 본 범위 밖.
+
+    PASS: text 가 비어있지 않음 (NBSP 단독 포함).
+    FAIL: text == "" → slide XML 에 명시 set 없음 → PowerPoint inheritance 활성화 위험.
+
+    참고 필드: idx10_matches_default / idx12_matches_default — slide XML 에 명시 텍스트가
+    있다면 layout default 와 값이 일치해도 안전. 의도된 "01" (1st 챕터) 등 정상 케이스도
+    matches_default=True 가 될 수 있어 FAIL 판정에 사용하지 않음. 참고용으로만 노출.
+    """
+    results = []
+    for f in fills:
+        idx10 = f["idx10_text"]
+        idx12 = f["idx12_text"]
+        results.append({
+            "slide_idx": f["slide_idx"],
+            "idx10_text": idx10,
+            "idx12_text": idx12,
+            "idx10_pass": bool(idx10),
+            "idx12_pass": bool(idx12),
+            "idx10_matches_default": idx10 == SECTION_HEADER_LAYOUT_DEFAULT_IDX10,
+            "idx12_matches_default": idx12 == SECTION_HEADER_LAYOUT_DEFAULT_IDX12,
+        })
+    return results
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -390,6 +468,37 @@ def render_round_report(round_idx: int, pptx_m: dict, cmp_m: dict) -> str:
     for i, (title, n) in enumerate(cmp_m['per_section_body'], 1):
         out.append(f"| §{i} | {title} | {n} |")
     out.append(f"")
+
+    # §13-15 commit 2: SECTION_HEADER placeholder fill 검증 결과
+    sh_fills = pptx_m.get("section_header_fills", [])
+    if sh_fills:
+        validations = validate_section_header_fills(sh_fills)
+        total = len(validations)
+        n_pass_10 = sum(1 for v in validations if v["idx10_pass"])
+        n_pass_12 = sum(1 for v in validations if v["idx12_pass"])
+        out.append(f"### SECTION_HEADER placeholder fill 검증 (§13-15)")
+        out.append(f"")
+        out.append(f"- idx=10 (chapter number) fill: {n_pass_10}/{total}")
+        out.append(f"- idx=12 (subtitle)        fill: {n_pass_12}/{total}")
+        if n_pass_10 < total or n_pass_12 < total:
+            out.append(f"- ⚠ FAIL detected — slide XML 에 명시 set 없음, layout default inheritance 위험")
+        out.append(f"")
+        out.append(f"| slide | idx=10 | idx=12 | idx=10 text | idx=12 text |")
+        out.append(f"|---|---|---|---|---|")
+        for v in validations:
+            i10_disp = v['idx10_text'] if v['idx10_text'] else '(EMPTY)'
+            i12_disp = v['idx12_text'] if v['idx12_text'] else '(EMPTY)'
+            if len(i10_disp) > 16:
+                i10_disp = i10_disp[:14] + '..'
+            if len(i12_disp) > 40:
+                i12_disp = i12_disp[:38] + '..'
+            out.append(
+                f"| {v['slide_idx']} "
+                f"| {'OK' if v['idx10_pass'] else 'FAIL'} "
+                f"| {'OK' if v['idx12_pass'] else 'FAIL'} "
+                f"| {i10_disp} | {i12_disp} |"
+            )
+        out.append(f"")
     return "\n".join(out)
 
 
