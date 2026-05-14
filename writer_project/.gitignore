@@ -77,4 +77,7 @@ topics/*.env
 !topics/_template.env.example
 
 # ── §14-2 dump outputs ───────────────────────────────────
-scripts/output/
+# 디렉토리 자체가 아니라 내용 매치 — negation 가능하도록
+scripts/output/*
+# 단, 요약 보고서 (.md) 는 박제 — raw JSON/log 만 차단
+!scripts/output/*.md
