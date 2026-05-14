@@ -764,11 +764,49 @@ def web_search_agent(state: State):
                 if attempt == 0 and query and not _cfg_bool("SKIP_VERTEX_SEARCH", False):
                     try:
                         vertex_result = vertex_web_search(query)
-                        v_urls = list(vertex_result.get("urls") or [])
-                        if v_urls:
-                            combined_items.extend({"url": u} for u in v_urls)
+                        v_chunks = vertex_result.get("chunks") or []
+                        v_supports = vertex_result.get("supports") or []
+                        v_queries = vertex_result.get("web_search_queries") or []
+
+                        vertex_items_added = 0
+                        for support in v_supports:
+                            indices = support.get("chunk_indices") or []
+                            valid_indices = [i for i in indices if 0 <= i < len(v_chunks)]
+                            if not valid_indices:
+                                continue
+                            rep_idx = valid_indices[0]
+                            rep_chunk = v_chunks[rep_idx]
+                            rep_url = rep_chunk.get("uri") or ""
+                            if not rep_url:
+                                continue
+                            alt_urls = [
+                                v_chunks[i].get("uri") for i in valid_indices[1:]
+                                if v_chunks[i].get("uri")
+                            ]
+                            combined_items.append({
+                                "title": "",
+                                "url": rep_url,
+                                "content": support.get("text") or "",
+                                "raw_content": "",
+                                "source": rep_url,
+                                "metadata": {
+                                    "backend": "vertex_grounding",
+                                    "alt_urls": alt_urls,
+                                    "chunk_domain": rep_chunk.get("domain") or "",
+                                },
+                            })
+                            vertex_items_added += 1
+
+                        if vertex_items_added > 0:
                             logger.info(
-                                "[web_search] Vertex success (%d urls)", len(v_urls)
+                                "[web_search] Vertex success (chunks=%d supports=%d items=%d queries=%s)",
+                                len(v_chunks), len(v_supports), vertex_items_added,
+                                v_queries[:3] if v_queries else [],
+                            )
+                        elif v_chunks:
+                            logger.warning(
+                                "[web_search] Vertex returned chunks=%d but supports=0, skipping",
+                                len(v_chunks),
                             )
                     except Exception as e:
                         logger.warning("[web_search] Vertex failed: %s", e)
