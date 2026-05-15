@@ -381,15 +381,22 @@ def _stats(vals: list[float]) -> dict:
             "cv_pct": round(cv, 1), "min": round(min(vals), 2), "max": round(max(vals), 2)}
 
 
-# §14-3 Step 1 박제 — _SOURCE_KEYS 분류 기준:
-# - vertex_grounding: state.references.docs[i].source 가
-#     'vertexaisearch.cloud.google.com' 포함 (classify_source @ _phase_b_run_inner:122)
-# - web: source 가 http(s):// 로 시작 (Naver/Tavily/redirect 등)
-# - local: source 가 file:// 로 시작 (ChromaDB 인덱싱 PDF/문서)
-# - other: source 값 있으나 위 3개 외 분류
-# - unknown: source 키 부재 / None / 빈 문자열
-# Phase 3 변동성 분석 시 vertex_grounding 단독 + (vertex_grounding + web)
-# 합계 양쪽 측정 권장 (web search backend fallback 박제).
+# _SOURCE_KEYS 분류 기준 (§14-3 Step 1 박제):
+# - vertex_grounding: state.references.docs[i].source == 'vertex_grounding'
+#   - Vertex AI Gemini 의 Grounding with Google Search metadata
+#   - LLM 응답 생성 중 Google Search 결과를 retrieval augmentation 으로 활용
+#   - grounding_metadata (Vertex SDK 용어) 파싱 후 references 에 누적
+#   - §14-2 Step 1b patch (5078a2d, agent/web_search.py:766) 의 누적 대상
+#   - §14-3 본 검증 핵심 metric (patch 전 0 vs patch 후 >0)
+# - web: state.references.docs[i].source == 'web'
+#   - Naver/Tavily 등 외부 search API 가 직접 fetch 한 결과
+#   - vertex_grounding 과 달리 명시 호출, LLM 응답 부산물 아님
+# - local: state.references.docs[i].source == 'local' (ChromaDB)
+# - other: 명시적 source 값 있으나 위 3개 외 (예: 'api', 'manual')
+# - unknown: source 키 자체 부재 / None / 빈 문자열
+# Phase 3 변동성 분석 시 vertex_grounding 단독 + (vertex_grounding + web) 합계
+# 양쪽 측정 권장
+# 상세 정의 → scripts/output/§14-3/metric_definitions.md
 _SOURCE_KEYS = ("vertex_grounding", "web", "local", "other", "unknown")
 
 
