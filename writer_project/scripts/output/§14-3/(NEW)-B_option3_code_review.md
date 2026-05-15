@@ -280,3 +280,19 @@ T4/T5/T6 모든 dry-run 이 글로벌 `.env` 의 SKIP=1 그대로 활성 상태�
 - `scripts/output/§14-3/topic_selection.md` (Tier 2 dry-run 결과)
 - `scripts/output/§14-3/_dry_run/T4_*.json, T5_*.json, T6_*.json`
 - `scripts/output/§14-3/_dry_run/T4_*.console.log, T5_*.console.log, T6_*.console.log`
+
+---
+
+## 부록 정정 reference (§14-3 (NEW)-B 트랙 2 결과)
+
+§14-3 (NEW)-B 트랙 2 (commit 본 시점) sub-task 1+2 결과로 본 박제 자산의 일부 항목 정정 확인.
+
+정정 항목:
+1. **§14-2 commit 식별** (직전: "5078a2d vs 1135ac1") → 정확: "5078a2d vs ba44637", 실제 patch commit = `d88a8b9`
+2. **Phase A 가설** (직전: "SKIP_VERTEX 우회 사실 확인 필요") → 기각: SKIP_VERTEX_SEARCH 무관, vertex_web_search 직접 호출
+3. **Phase B 재해석** (직전: "vertex 우회 측정, SKIP=1 활성") → 정확화: web_search 노드 자체 미진입 (writer-lock 흐름)
+4. **Step 1b patch 본 검증 valid 조건** (직전: "위협") → 정확화: Phase B 시나리오 (write 명령) 에서 patch dead path, 시나리오 자체 변경 필요
+
+상세 정확화 박제 → `scripts/output/§14-3/(NEW)-B_track2_phase_b_review.md`
+
+본 박제 자산의 timeline 정합 유지 (직전 commit `ca148bc` 시점 박제 보존), 정정 reference 로 박제 자산 신뢰성 보장.

@@ -244,3 +244,47 @@ origin 박제 요약:
 - (Q) chroma 결함 진단 트랙 우선
 - (R) §14-2 재검증 트랙 우선
 - (S) 병행
+
+## §14-3 (NEW)-B 트랙 2 close
+
+- 박제 자산: `scripts/output/§14-3/(NEW)-B_track2_phase_b_review.md` (7 섹션, ~9.67KB)
+- 진입 commit: `2d3dd1f` (트랙 1 P-2 close)
+- 분기 결정: (R) §14-2 재검증 트랙 진행
+
+### 미션 결과
+
+§14-2 재검증:
+- **§14-2 commit 식별 정정**: 직전 "5078a2d vs 1135ac1" → 정확 "5078a2d vs ba44637" (실제 patch = `d88a8b9`)
+- **Phase A 가설 기각**: SKIP_VERTEX 무관, `vertex_web_search` 직접 호출
+- **Phase B 재해석 정확화**: web_search 노드 미진입 (writer-lock 빠른 경로), Step 1b patch dead path
+- **trigger 시나리오 박제**: `"write: <섹션명>"` (writer-lock) vs `"최신 자료로 RAG 업데이트해줘"` (web_search 진입)
+- **사전 plan 정합 확정**: Phase B summary § 7 "web_search 노드 호출 시나리오 발굴" 사전 plan 과 P-2 결과 정합
+
+### Phase 3 본 측정 plan
+
+- **시나리오 (α)** 단발 RAG 업데이트 trigger (P-2 패턴 확장) 결정
+- 측정 환경: `topics/<slug>.env` + `SKIP_VERTEX_SEARCH=0` override (P-2 패턴 정합)
+- N=3 × 2 commit (5078a2d vs ba44637) = 6 run
+- §13-7 측정 표준 (max_retries=0, warmup 2, timeout, sleep 60s, utf-8) 적용
+
+### 직전 박제 자산 정정 reference
+
+`(NEW)-B_option3_code_review.md` 끝에 "부록 정정 reference (§14-3 (NEW)-B 트랙 2 결과)" 섹션 추가:
+- §14-2 commit 식별 정정
+- Phase A 가설 기각
+- Phase B 재해석 정확화
+- Step 1b patch 본 검증 시나리오 자체 변경 필요
+
+timeline 정합 유지 (직전 commit `ca148bc` 시점 박제 보존), 정정 reference 로 박제 자산 신뢰성 보장.
+
+### 신규 트랙 후보 (Phase 3 진입 전 또는 병행)
+
+- chroma collection_count=0 결함 진단 (P-3 또는 (NEW)-C, ★★★)
+- (β) 혼합 시나리오 측정 트랙 (사후 e2e 효과 측정)
+- Phase 3 본 측정 driver 작성 (시나리오 (α) + N=3×2 인프라)
+
+### 다음 단계 분기 (user 결정 미박제)
+
+- (P3-A) Phase 3 본 측정 즉시 진입 (시나리오 α + topics/<slug>.env override)
+- (P3-Q) chroma 결함 진단 트랙 (P-3 또는 (NEW)-C) 우선
+- (P3-S) 병행 (Phase 3 진입 + chroma 진단 별도 트랙)
