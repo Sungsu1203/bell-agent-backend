@@ -381,6 +381,37 @@ def _stats(vals: list[float]) -> dict:
             "cv_pct": round(cv, 1), "min": round(min(vals), 2), "max": round(max(vals), 2)}
 
 
+# §14-3 Step 1 박제 — _SOURCE_KEYS 분류 기준:
+# - vertex_grounding: state.references.docs[i].source 가
+#     'vertexaisearch.cloud.google.com' 포함 (classify_source @ _phase_b_run_inner:122)
+# - web: source 가 http(s):// 로 시작 (Naver/Tavily/redirect 등)
+# - local: source 가 file:// 로 시작 (ChromaDB 인덱싱 PDF/문서)
+# - other: source 값 있으나 위 3개 외 분류
+# - unknown: source 키 부재 / None / 빈 문자열
+# Phase 3 변동성 분석 시 vertex_grounding 단독 + (vertex_grounding + web)
+# 합계 양쪽 측정 권장 (web search backend fallback 박제).
+_SOURCE_KEYS = ("vertex_grounding", "web", "local", "other", "unknown")
+
+
+def _aggregate_source_dist(runs_ok: list[dict]) -> dict:
+    out: dict[str, dict] = {}
+    for k in _SOURCE_KEYS:
+        vals: list[float] = []
+        for r in runs_ok:
+            sd = ((r.get("inner") or {}).get("state_references_analysis") or {}).get("source_dist", {}) or {}
+            vals.append(float(sd.get(k, 0)))
+        out[k] = _stats(vals)
+    return out
+
+
+def _per_run_source_dist(runs_ok: list[dict]) -> list[dict]:
+    out: list[dict] = []
+    for r in runs_ok:
+        sd = ((r.get("inner") or {}).get("state_references_analysis") or {}).get("source_dist", {}) or {}
+        out.append({k: int(sd.get(k, 0)) for k in _SOURCE_KEYS if int(sd.get(k, 0)) > 0} or dict(sd))
+    return out
+
+
 def _run_single(label: str, timeout_s: float, max_turns: int,
                 recursion_limit: int, snapshot_root: Path, save_dir: Path,
                 clear_timeout_s: float = DEFAULT_CLEAR_TIMEOUT) -> dict:
@@ -512,6 +543,13 @@ def run_measure(commit: str, n: int, warmup: int, timeout_s: float, inter_sleep:
         "turn_count_per_run": _stats([
             float(len((r.get("inner") or {}).get("turn_log") or [])) for r in ok
         ]),
+        # §14-3: state.references.docs 총 개수 + source_dist 변동성 분석.
+        "state_refs_count_per_run": _stats([
+            float(((r.get("inner") or {}).get("state_references_analysis") or {}).get("count") or 0)
+            for r in ok
+        ]),
+        "source_dist_stats": _aggregate_source_dist(ok),
+        "source_dist_per_run": _per_run_source_dist(ok),
     }
     return payload
 
@@ -534,10 +572,150 @@ def run_summary() -> dict:
                 pass
     ok = [r for r in payload["runs"] if not r.get("error_class")]
     payload["summary"] = {
-        "n_ok": len(ok),
+        "n_ok": len(ok), "n_total": len(payload["runs"]),
         "elapsed": _stats([r["elapsed_sec"] for r in ok]),
+        "refs_docs_per_run": _stats(
+            [float(r.get("metrics", {}).get("totals", {}).get("refs_docs", 0)) for r in ok]
+        ),
+        "state_refs_count_per_run": _stats([
+            float(((r.get("inner") or {}).get("state_references_analysis") or {}).get("count") or 0)
+            for r in ok
+        ]),
+        "source_dist_stats": _aggregate_source_dist(ok),
+        "source_dist_per_run": _per_run_source_dist(ok),
     }
     return payload
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §14-3: 측정 결과 마크다운 박제 (phase_b_summary.md 동일 구조)
+# ─────────────────────────────────────────────────────────────────────────────
+def _fmt_stats_row(label: str, s: dict, unit: str = "") -> str:
+    n = s.get("n", 0)
+    mean = s.get("mean", 0.0)
+    stdev = s.get("stdev", 0.0)
+    cv = s.get("cv_pct", 0.0)
+    rng = f"[{s.get('min', 0)}, {s.get('max', 0)}]"
+    u = unit
+    return f"| {label} | {mean}{u} | {stdev}{u} | {cv}% | {rng} | n={n} |"
+
+
+def _write_summary_md(
+    payload: dict,
+    out_path: Path,
+    *,
+    section_label: str = "§14-3",
+    trigger: str | None = None,
+    topic_slug: str | None = None,
+) -> None:
+    """phase_b_summary.md 와 동일 구조의 측정 결과 마크다운 박제.
+
+    §14-3 Step 1 박제 — summary mode 사용 제약:
+    - --mode summary 의 payload 는 git_head/commit_tag/env/n/warmup/per_run_timeout_s
+      등 메타 필드를 포함하지 않는다 (run_summary() 가 *_run*.json 들만 통합하기
+      때문). md 의 메타 박스에는 <unknown> / ? 가 표시된다.
+    - 본 측정 박제 용도로는 --mode measure / dry 권장 (payload 메타 정합 보장).
+    - summary mode 는 기존 run JSON replay / 검증 / archive 용도.
+
+    §14-3 Step 1 박제 — inner script TOPIC_SLUG 제약:
+    - scripts/_phase_b_run_inner.py 의 TOPIC_SLUG 는 hard-coded
+      (현재 'venfobel-vitamin'). driver 의 --topic-slug 는 본 md 의 메타
+      박제 전용이며 inner 실행 토픽을 변경하지 않는다.
+    - 토픽 변경은 Step 4 에서 inner script 직접 수정 (env-var refactor 는 분리).
+    """
+    s = payload.get("summary", {}) or {}
+    env = payload.get("env", {}) or {}
+    git_head = (payload.get("git_head") or "")[:7] or "<unknown>"
+    commit_tag = payload.get("commit_tag") or git_head
+    ts_label = payload.get("timestamp") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    n_ok = s.get("n_ok", 0)
+    n_total = s.get("n_total", len(payload.get("runs") or []))
+    runs = payload.get("runs") or []
+
+    elapsed_s = s.get("elapsed", {})
+    refs_docs_s = s.get("refs_docs_per_run", {})
+    state_refs_s = s.get("state_refs_count_per_run", {})
+    src_stats = s.get("source_dist_stats", {}) or {}
+    src_per_run = s.get("source_dist_per_run", []) or []
+
+    lines: list[str] = []
+    lines.append(f"# {section_label} 측정 박제")
+    lines.append("")
+    lines.append(f"close 일자: {ts_label[:10]}")
+    lines.append("")
+    lines.append("## 1. 메타 박제")
+    lines.append("")
+    lines.append("| 항목 | 값 |")
+    lines.append("|---|---|")
+    lines.append(f"| 측정 일자 | {ts_label} |")
+    lines.append(f"| commit | `{commit_tag}` ({git_head}) |")
+    lines.append(f"| 측정 표준 | §13-7 (max_retries=0, warmup={payload.get('warmup', '?')}, "
+                 f"per-run-timeout {payload.get('per_run_timeout_s', '?')}s, "
+                 f"inter-run-sleep {payload.get('inter_run_sleep_s', '?')}s, PYTHONIOENCODING=utf-8) |")
+    lines.append(f"| 환경 | LLM_PROVIDER={env.get('LLM_PROVIDER', '?')}, "
+                 f"LLM_MODEL={env.get('LLM_MODEL', '?')}, "
+                 f"SKIP_VERTEX_SEARCH={env.get('SKIP_VERTEX_SEARCH', '?')}, "
+                 f"VERTEX_MAX_RETRIES={env.get('VERTEX_MAX_RETRIES', '?')} |")
+    lines.append(f"| GCP | project=`{env.get('GCP_PROJECT_ID', '?')}`, region=`{env.get('GCP_REGION', '?')}` |")
+    lines.append(f"| 토픽 | {topic_slug or '<unset>'} |")
+    lines.append(f"| trigger 명령어 | `{trigger or '<unset>'}` |")
+    lines.append(f"| 호출 단위 | graph.invoke multi-turn (max_turns={payload.get('max_turns', '?')}, "
+                 f"recursion_limit={payload.get('recursion_limit', '?')}) |")
+    lines.append(f"| N | {payload.get('n', '?')} (n_ok={n_ok}/{n_total}) |")
+    lines.append("")
+
+    lines.append("## 2. 측정 결과 통계")
+    lines.append("")
+    lines.append("| 지표 | mean | stdev | cv | range | sample |")
+    lines.append("|---|---:|---:|---:|---|---:|")
+    lines.append(_fmt_stats_row("elapsed", elapsed_s, "s"))
+    lines.append(_fmt_stats_row("refs_docs (sidecar)", refs_docs_s))
+    lines.append(_fmt_stats_row("state_references count", state_refs_s))
+    for k in _SOURCE_KEYS:
+        kstats = src_stats.get(k) or {}
+        if (kstats.get("mean") or 0) > 0 or (kstats.get("max") or 0) > 0:
+            lines.append(_fmt_stats_row(f"source: {k}", kstats))
+    lines.append("")
+    # §14-3 변동성 분석 사전 박제 — vertex_grounding 단일 지표 부각.
+    vg_stats = src_stats.get("vertex_grounding") or {}
+    lines.append("### vertex_grounding 변동성 (Phase 3 분석 사전 박제)")
+    lines.append("")
+    lines.append(f"- n={vg_stats.get('n', 0)}, mean={vg_stats.get('mean', 0)}, "
+                 f"stdev={vg_stats.get('stdev', 0)}, cv={vg_stats.get('cv_pct', 0)}%")
+    lines.append(f"- range: [{vg_stats.get('min', 0)}, {vg_stats.get('max', 0)}]")
+    lines.append("- 임계값 (사전 박제): CV > 30% → 측정 무효 판정 → 재시도 또는 Tier 1 fallback")
+    lines.append("")
+
+    lines.append("## 3. Per-run raw")
+    lines.append("")
+    lines.append("| label | elapsed_sec | refs_docs | state_refs | source_dist | error |")
+    lines.append("|---|---:|---:|---:|---|---|")
+    for i, r in enumerate(runs):
+        label = r.get("label", f"run{i+1}")
+        elapsed = r.get("elapsed_sec", 0)
+        refs_docs = (r.get("metrics", {}) or {}).get("totals", {}).get("refs_docs", 0)
+        sra = (r.get("inner") or {}).get("state_references_analysis") or {}
+        state_refs = sra.get("count") or 0
+        sd = sra.get("source_dist") or {}
+        sd_str = "{" + ", ".join(f"{k}: {v}" for k, v in sorted(sd.items()) if v) + "}" if sd else "{}"
+        err = r.get("error_class") or ""
+        lines.append(f"| {label} | {elapsed:.2f} | {refs_docs} | {state_refs} | `{sd_str}` | {err} |")
+    lines.append("")
+
+    lines.append("## 4. Per-run source_dist (요약)")
+    lines.append("")
+    for i, sd in enumerate(src_per_run):
+        lines.append(f"- run {i+1}: `{sd}`")
+    lines.append("")
+
+    lines.append("## 5. 측정 자산")
+    lines.append("")
+    lines.append(f"- payload JSON: 동일 디렉토리 (timestamp 매칭)")
+    lines.append(f"- inner snapshots: `scripts/output/phase_b/snapshot/` (gitignore)")
+    lines.append("")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def main() -> int:
@@ -549,6 +727,19 @@ def main() -> int:
     p.add_argument("--inter-sleep", type=float, default=DEFAULT_INTER_RUN_SLEEP)
     p.add_argument("--max-turns", type=int, default=DEFAULT_MAX_TURNS)
     p.add_argument("--recursion-limit", type=int, default=DEFAULT_RECURSION_LIMIT)
+    # §14-3: 측정 결과 마크다운 박제. 명시 시 measure/dry/summary 모두 md 생성.
+    p.add_argument("--summary-md", type=str, default=None,
+                   help="결과 마크다운 박제 경로 (예: scripts/output/§14-3/§14-3_summary.md)")
+    p.add_argument("--section-label", type=str, default="§14-3",
+                   help="md 헤더용 § 라벨 (default: §14-3)")
+    p.add_argument("--trigger", type=str, default=None,
+                   help="측정에 사용한 자연어 명령어 (메타 박제, inner script 와는 연동 안 함)")
+    # §14-3 Step 1 박제 — --topic-slug 는 메타 박제 전용.
+    # scripts/_phase_b_run_inner.py 의 TOPIC_SLUG 는 hard-coded 이므로 이 flag
+    # 만으로 inner 실행 토픽을 바꿀 수 없다. 토픽 변경은 Step 4 에서 inner
+    # script 직접 수정.
+    p.add_argument("--topic-slug", type=str, default=None,
+                   help="측정 토픽 slug (메타 박제. inner script TOPIC_SLUG 변경은 별도)")
     args = p.parse_args()
 
     print("[env diag]", flush=True)
@@ -589,6 +780,18 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print(f"\n[saved] {out}", flush=True)
+
+    if args.summary_md:
+        md_path = Path(args.summary_md)
+        if not md_path.is_absolute():
+            md_path = PROJECT_ROOT / md_path
+        _write_summary_md(
+            payload, md_path,
+            section_label=args.section_label,
+            trigger=args.trigger,
+            topic_slug=args.topic_slug,
+        )
+        print(f"[saved-md] {md_path}", flush=True)
 
     s = payload.get("summary", {})
     if s:
