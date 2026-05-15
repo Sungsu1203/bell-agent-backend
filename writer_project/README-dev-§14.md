@@ -202,3 +202,45 @@ origin 박제 요약:
 - standalone 형식 측정 신뢰성 박제
 
 상세 → `README-dev-2.md` 의 "디버깅 표준 박제 (영구 박제, §14-3 origin)" 섹션
+
+## §14-3 (NEW)-B 트랙 1 P-2 close
+
+- 박제 자산: `scripts/output/§14-3/(NEW)-B_track1_P2_result.md` (10 섹션, ~8.5KB)
+- 토픽 env 파일: `topics/ai-generated-creative-ad-platforms.env` (검증용, 792 bytes)
+- 진입 commit: `ca148bc` (§14-3 (NEW)-B 옵션 3 close)
+
+### 측정 결과 요약
+
+| metric | 직전 T4 | P-2 | 변화 |
+|--------|---------|-----|------|
+| elapsed_sec | 99.72 | 166.08 | +66.36 (+66.5%) |
+| refs_docs_count | 5 | 8 | +3 |
+| source_dist.vertex_grounding | 0 | 1 | +1 ★★★★★ |
+
+### 핵심 결론
+
+- **분기 (가) 확정**: vertex_grounding > 0 도달
+- doc[7] URL `vertexaisearch.cloud.google.com/grounding-api-redirect/` unambiguous
+- §12-19 per-topic override 패턴 검증 완료 (글로벌 .env SKIP=1 base + topics/<slug>.env SKIP=0 override)
+- 환경 변수 흐름 5 단계 모두 매칭 (특히 단계 4 토픽 프리셋 로드 ★)
+- §14-3 (NEW)-B 트랙 1 본 미션 완료
+
+### Phase 3 본 측정 진입 valid 조건
+
+- vertex_grounding > 0 도달 가능 토픽 + env 파일 + 환경 변수 흐름 박제 완료
+- §14-2 Step 1b patch 본 검증 (5078a2d vs 1135ac1) 진입 가능
+
+### 신규 트랙 후보 (Phase 3 진입 전 검토)
+
+- **chroma collection_count=0 결함 진단** 트랙 (P-3 또는 §14-3 (NEW)-C, ★★★)
+  - 본 P-2 측정에서 throughout 0 발견, references state 만 정상 누적
+  - Phase B 측정 시 동일 패턴 가능성
+- **§14-2 측정 재검증** 트랙 (sub-step)
+  - Phase A 단독 + Phase B 의 vertex 우회 상태 재해석 필요
+
+### 다음 단계 분기 (user 결정 미박제)
+
+- (P) Phase 3 본 측정 즉시 진입
+- (Q) chroma 결함 진단 트랙 우선
+- (R) §14-2 재검증 트랙 우선
+- (S) 병행
