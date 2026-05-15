@@ -148,3 +148,46 @@ ba44637:
 ## 9. Patch 코드 처리
 
 §14-2 Step 1b patch (`d88a8b9`, `agent/web_search.py:766` 화이트리스트 통과) 는 dead path 에 있어도 **코드 정합성 차원에서 유지**. revert 불요. 추후 web_search 노드 활성화 시 다시 필요 (vertex grounding 결과 통합 정상화 자체는 정합 변경).
+
+## §14-2 Phase B post-close addendum (2026-05-15, 사용자 기억 확인)
+
+### 측정 시나리오 명시화
+
+"write: <섹션명>" 명령의 의도된 동작 (사용자 기억 확인):
+- vector_search → section_writer **빠른 경로** (의도된 설계)
+- web_search 노드 건너뜀
+- 이미 임베딩된 자료 전제 (ns_web=0 + ns_local=349 상태)
+- venfobel-vitamin 토픽은 ns_web 비어있어 web/vertex footnote 안 붙는 게 정상
+
+### §14-2 Step 1b patch 의 의미 재해석
+
+- patch 가 dead path 가 **아님**
+- Phase B 측정 시나리오가 patch 검증에 **부적합**
+- Phase B 는 "빠른 경로" 시나리오만 커버, web_search 활성 시나리오 미커버
+
+### 진짜 검증 조건 (사용자 기억 단서)
+
+"최신 자료로 RAG 업데이트" 류 명령 (정확한 트리거 미확인) 시:
+- ChromaDB 전체 재인덱싱
+- web_search 부터 다시 실행되는 정상 경로
+- ns_web 채워지는 흐름
+- 이 시나리오에서 §14-2 Step 1b patch 효과 본 검증 가능
+
+### §14-3 진입 단계 (재정의)
+
+1. "RAG 업데이트" 명령 핸들러 코드 리뷰
+   - `agent/supervisor.py`: task 라우팅 조건
+   - `agent/rag_expression.py`: `extract_*_title` 패턴 (`extract_write_title` 형식)
+   - `agent/web_search.py`: 진입 조건
+   - `ingest_vector.py` / `tools/web_rag/`: 재인덱싱 entry
+2. supervisor 라우팅 조건 식별 (`write:` vs `research:` vs `update:` 등)
+3. web_search 진입 시나리오 driver 작성 (Phase B 인프라 재활용 가능)
+4. 그 시나리오에서 N=3 재측정 → §14-2 Step 1b patch 효과 본 검증
+
+### Phase B 인프라 활용 가능 자산
+
+- `scripts/measure_vertex_phase_b.py`: multi-turn A-1 driver (명령어만 변경 시 재활용)
+- `scripts/_phase_b_clear_ns.py`: 2-subprocess clear 패턴
+- `scripts/_phase_b_run_inner.py`: measurement subprocess
+- §13-7 측정 표준 적용 검증 완료
+- vertex 429 quota pitfall 박제 (multi-turn 5~6분 누적 호출 한계)
