@@ -43,15 +43,16 @@ try:
 except ImportError:
     pass
 
-TOPIC_SLUG = "venfobel-vitamin"
-NS_WEB = f"{TOPIC_SLUG}-web"
+# §14-3 Step 3: --ns 인자로 토픽 변경 가능 (back-compat: 미지정 시 기존 hard-coded).
+DEFAULT_TOPIC_SLUG = "venfobel-vitamin"
+DEFAULT_NS_WEB = f"{DEFAULT_TOPIC_SLUG}-web"
 
 
-def _resolve_persist_dir() -> tuple[str | None, str | None]:
+def _resolve_persist_dir(ns_web: str) -> tuple[str | None, str | None]:
     """ns_web 의 persist_dir 해석. import _default_chroma_dir 만 사용 (Chroma 객체 미생성)."""
     try:
         from tools.web_rag.ingest_vector import _default_chroma_dir
-        return _default_chroma_dir(NS_WEB), None
+        return _default_chroma_dir(ns_web), None
     except Exception as e:
         return None, f"{type(e).__name__}: {str(e)[:200]}"
 
@@ -77,11 +78,15 @@ def _dir_size_files(p: Path) -> tuple[int, int]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
+    parser.add_argument("--ns", default=None,
+                        help="대상 ns_web 이름 (default: venfobel-vitamin-web, §14-3 Step 3 추가)")
     args = parser.parse_args()
+
+    ns_web = args.ns or DEFAULT_NS_WEB
 
     t0 = time.monotonic()
     result: dict = {
-        "ns": NS_WEB,
+        "ns": ns_web,
         "persist_dir": None,
         "before_count": None,        # filesystem file count (proxy)
         "before_bytes": None,
@@ -93,9 +98,9 @@ def main() -> int:
         "errors": [],
         "elapsed_sec": 0.0,
     }
-    print(f"[clear] target ns={NS_WEB}", flush=True)
+    print(f"[clear] target ns={ns_web}", flush=True)
 
-    pd_str, pd_err = _resolve_persist_dir()
+    pd_str, pd_err = _resolve_persist_dir(ns_web)
     if pd_err:
         result["errors"].append(f"persist_dir resolve: {pd_err}")
         result["elapsed_sec"] = round(time.monotonic() - t0, 2)
