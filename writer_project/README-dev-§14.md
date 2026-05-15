@@ -135,3 +135,70 @@
 ba44637: detached HEAD 임시 commit (1135ac1 + driver cherry-pick, Phase B 측정 후 GC 대상).
 
 branch: `feature/vertex-web-search` (push 미실행)
+
+## §14-3 Phase 2 Step 3 close
+
+- commit: 670fb09 — §14-3 Phase 2 Step 3: Tier 2 토픽 dry-run + 선정 박제 (stress test 트랙, vertex_grounding=0 패턴 박제, Tier 1 fallback 보류)
+- 박제 자산: scripts/output/§14-3/topic_selection.md (12 섹션, 247 줄)
+
+### 측정 결과 요약
+
+Tier 2 3 토픽 (T4 영어 / T5 한국어 / T6 영어) 모두 vertex_grounding=0 완전 일관 패턴.
+
+| 토픽 | invoke_elapsed | refs_docs | source_dist | vertex_grounding |
+|------|---------------|-----------|-------------|------------------|
+| T4 ai-generated-creative-ad-platforms | 93.61s | 5 | {'web': 5} | **0** |
+| T5 kr-digital-ad-spend-2026-forecast | 72.11s | 3 | {'web': 3} | **0** |
+| T6 programmatic-dooh-growth-drivers | 115.84s | 10 | {'web': 10} | **0** |
+
+### 핵심 결론
+
+- 영어/한국어 토픽 무관, 메커니즘 부재 가능성 ★★★★
+- §14-2 Step 1b patch 본 검증 valid 조건 위협 (Phase A 단독 vs graph 통합 대조)
+- Tier 1 fallback 결정 보류 (메커니즘 결함 위험 회피)
+- 가설 A (vertex_search 호출 안 됨) 강한 의심 ★★★
+
+### 미진입 트랙
+
+- **Phase 2 Step 4 보류**: 선정 토픽 부재 (Tier 2 모두 grounding=0) → 진입 부적합
+- **Phase 3 본 측정 보류**: valid 조건 미확보, §14-3 (NEW)-B 완료 후 재평가
+
+## §14-3 (NEW)-B: vertex_search 호출 검증 트랙
+
+### 진입 사유
+
+§14-3 Phase 2 Step 3 결과 (Tier 2 3 토픽 모두 vertex_grounding=0) 가 메커니즘 결함 가능성 ★★★ 시사. Phase 3 본 측정 (5078a2d vs 1135ac1) 진입 전 가설 A/B/C 분리 검증 필수.
+
+### 미션
+
+- 가설 A: vertex_web_search 호출 자체가 안 됨 — 강한 의심 ★★★
+- 가설 B: 호출되나 grounding metadata 비어있음 — Phase A 대조로 부분 약화 ★★
+- 가설 C: §14-2 Step 1b patch 의 supports loop dead path — ★
+
+### 진행 방식 (사용자 컨펌)
+
+단계적 진행:
+1. 옵션 3 (graph 내부 분기 점검, 코드 review) — 가설 A 우선 검증
+2. 분기 결정:
+   - (가) 가설 A 코드 기반 확정 → 원인 추가 분석 + 수정 plan
+   - (나) 가설 A 기각 → 옵션 2 (Phase A repro) 진입, 가설 B 검증
+   - (다) 미확정 → 옵션 1 (logger 추가) 진입, 직접 검증
+
+### 완료 조건
+
+- 가설 A/B/C 분리 검증 (확정/기각)
+- vertex_search 호출 분기 + grounding metadata 흐름 박제
+- Phase 3 본 측정 진입 valid 조건 확보 또는 재설계 plan 박제
+
+## §14-3 디버깅 표준 박제 (origin)
+
+§14-3 Phase 2 Step 3 진행 중 T4/T5 dry-run hang 진단 사이클에서 12차 누적된 박제 자산. 영구 박제 자산은 README-dev-2.md 의 "디버깅 표준 박제" 섹션 참조.
+
+origin 박제 요약:
+- 추정 기반 진단 위험성 (12차 누적 확인)
+- 사전 확인 (B) 가치 박제
+- Phase 1 코드 리뷰 결손 패턴 박제 (4 결손)
+- PowerShell 5.1 + Bash tool vs PowerShell tool 환경 박제
+- standalone 형식 측정 신뢰성 박제
+
+상세 → `README-dev-2.md` 의 "디버깅 표준 박제 (영구 박제, §14-3 origin)" 섹션

@@ -846,3 +846,82 @@ commit 3 본 박제. Phase 2 정식 close 가능.
 Phase 2 정식 close. 다음 트랙 진입 가능:
 - cross-cascade 측정 (§13-8-3-I Part 2) — Sonnet self-cascade + gpt-4o/Haiku 동일 input.
 - 또는 사용자 결정 다른 트랙.
+
+## 디버깅 표준 박제 (영구 박제, §14-3 origin)
+
+§14-3 Phase 2 Step 3 진행 중 T4/T5 dry-run hang 진단 사이클에서 누적된 박제 자산. 향후 다른 § 의 진단 작업의 표준 박제.
+
+origin: §14-3 Phase 2 Step 3 (commit 670fb09) 의 T4/T5 dry-run hang 진단 사이클.
+상세 origin → `README-dev-§14.md` 의 "§14-3 디버깅 표준 박제 (origin)" 섹션.
+
+### 추정 기반 진단 위험성 (★★★★★)
+
+§14-3 진단 사이클에서 12차 누적 확인:
+
+| 차수 | 추정 가설 | 후속 검증 결과 |
+|------|----------|---------------|
+| 1차 | subprocess 가 sys.executable 안 씀 | 코드 확인 결과 정확히 사용 → 추정 폐기 |
+| 2차 | WindowsApps Python redirect = root cause | venv 재생성 결정, 그러나 Cygwin TP_NUM_C_BUFS 발견 |
+| 3차 | Cygwin TP_NUM_C_BUFS = root cause | RuntimeError LOCAL RAG 0 items 발견, TP_NUM_C_BUFS 는 warning |
+| 4차 | LOCAL_RAG_ALLOW_EMPTY 우회 후 정상 | exit 5 silent fail, ns mismatch 발견 |
+| 5차 | 시나리오 1 (pre-clear 가 baseline 파괴) | T4 동일 조건 success 로 기각 |
+| 6차 | 시나리오 4 (한국어 처리) | T4 retry 동일 한국어 trigger success 로 기각 |
+| 7차 | 시나리오 8 (Tee-Object UTF-16 LE) | T4 success log 도 동일 인코딩으로 기각 |
+| 8차 | 시나리오 9 (-Encoding UTF8 보강) | PowerShell 5.1 미지원으로 syntax error |
+| 9차 | 신규 가설 (graph import 비결정적 race) | T5 retry standalone success 로 시나리오 7 와 통합 |
+| 10차 | Tier 1 fallback 의 토픽 부적합 가정 | 메커니즘 결함 가능성으로 약화, 보류 |
+| 11차 | Claude Code 옵션 X-1 권장 | Phase A 대조 단서 미반영, 추정 기반 |
+| 12차 | (박제 자산 자체) `-Encoding UTF8` 보강 | PowerShell 5.1 환경 검증 누락 |
+
+박제: 모든 추정은 박제 컨벤션의 "사전 확인" 트랙 필수. 추정 → 검증 → 박제 순서. 박제 자산 작성 시도 환경 검증 포함.
+
+### 사전 확인 (B) 가치 박제
+
+진단 사이클에서 "추정으로 작업 진행" vs "사전 확인 후 진행" 의 시간 비용 비교:
+
+- 추정 기반: venv 재생성 (40~80분) → root cause 다른 곳 식별 시 추가 사이클
+- 사전 확인 기반: 코드 grep (5~10분) → root cause 정확 식별 → 작업 진행
+
+박제: 사전 확인의 비용 < 추정 후 재작업의 비용. 박제 컨벤션 "박제 매 결정 시점" 정신과 정합.
+
+### Phase 1 코드 리뷰 결손 패턴 박제
+
+§14-3 진행 중 식별된 Phase 1 결손 4건:
+1. `_phase_b_run_inner.py` 가 multi-turn write 전용 + outline 의존
+2. LOCAL RAG abort 가드 (LOCAL_RAG_ALLOW_EMPTY env var 우회 필요)
+3. ns resolution = env 기반, state.topic_slug 무시
+4. clear 정책 (shutil.rmtree + mkdir 통째 재생성) 박제 부정확
+
+박제: 향후 Phase 1 류 코드 리뷰 표준에 다음 항목 추가 필수:
+- entry function 의 signature + 의존 state 박제
+- state field 의 실제 영향 검증 (graph 내부 사용 여부)
+- abort 가드 + env var 우회 패턴 박제
+- subprocess 호출 시 환경 영향 (PATH, sys.executable, child process 격리) 박제
+
+### PowerShell 5.1 환경 박제
+
+본 환경 (D:\GPT_AGENT\writer_project) = Windows PowerShell 5.1 (powershell.exe, not pwsh.exe 7+).
+
+박제 표준:
+- `Tee-Object` default = UTF-16 LE BOM, `-Encoding` 미지원
+- `Out-File -Encoding utf8` 사용 가능
+- `ConvertFrom-Json` 의 UTF-16 LE 입력 처리 한계
+- WSL bash 도구 사용 시 § 문자 + 한국어 한계
+- subprocess chain 의 PowerShell session 누적 영향 (시나리오 7)
+
+### Bash tool vs PowerShell tool 박제
+
+Claude Code 의 Bash tool (Git Bash / Cygwin) = 무거운 Python import (langchain/chromadb 등) 시 fatal 가능성 (TP_NUM_C_BUFS 한계).
+
+박제 표준:
+- 무거운 Python 실행은 PowerShell tool 사용
+- Bash tool 은 file 조작 (grep/cat/sed) 전용
+- console.log 분석 시 UTF-16 LE mojibake 주의
+
+### standalone 형식 측정 신뢰성 박제
+
+박제 표준:
+- 1 명령 = 1 측정 형식
+- subprocess chain 회피 (시나리오 7 박제)
+- pre-clear 등 환경 준비는 별도 standalone 실행
+- 측정 간 inter-run-sleep 60s (§13-7 표준)
