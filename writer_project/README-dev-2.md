@@ -886,17 +886,24 @@ origin: §14-3 Phase 2 Step 3 (commit 670fb09) 의 T4/T5 dry-run hang 진단 사
 
 ### Phase 1 코드 리뷰 결손 패턴 박제
 
-§14-3 진행 중 식별된 Phase 1 결손 4건:
+§14-3 진행 중 식별된 Phase 1 결손 6건 (4건 → 6건, (NEW)-B 옵션 3 결과 통합):
 1. `_phase_b_run_inner.py` 가 multi-turn write 전용 + outline 의존
 2. LOCAL RAG abort 가드 (LOCAL_RAG_ALLOW_EMPTY env var 우회 필요)
 3. ns resolution = env 기반, state.topic_slug 무시
 4. clear 정책 (shutil.rmtree + mkdir 통째 재생성) 박제 부정확
+5. **(신규)** env 파일 설정 박제 미식별 (.env / .env.vertex / topics/<slug>.env 흐름)
+6. **(신규)** dry-run script TOPIC_SLUG env var 미설정 (state.topic_slug vs os.environ 분리 미식별)
 
 박제: 향후 Phase 1 류 코드 리뷰 표준에 다음 항목 추가 필수:
 - entry function 의 signature + 의존 state 박제
 - state field 의 실제 영향 검증 (graph 내부 사용 여부)
 - abort 가드 + env var 우회 패턴 박제
 - subprocess 호출 시 환경 영향 (PATH, sys.executable, child process 격리) 박제
+- **(신규)** env 파일 load 흐름 박제 (글로벌 / overlay / 토픽 프리셋)
+- **(신규)** env var vs state field 의 graph 내부 사용 차이 박제
+
+origin update: §14-3 (NEW)-B 옵션 3 진단 사이클 (결손 5, 6 식별).
+상세 origin → `scripts/output/§14-3/(NEW)-B_option3_code_review.md`
 
 ### PowerShell 5.1 환경 박제
 

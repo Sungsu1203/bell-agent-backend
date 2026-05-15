@@ -197,7 +197,7 @@ Tier 2 3 토픽 (T4 영어 / T5 한국어 / T6 영어) 모두 vertex_grounding=0
 origin 박제 요약:
 - 추정 기반 진단 위험성 (12차 누적 확인)
 - 사전 확인 (B) 가치 박제
-- Phase 1 코드 리뷰 결손 패턴 박제 (4 결손)
+- Phase 1 코드 리뷰 결손 패턴 박제 (6 결손) — (NEW)-B 옵션 3 진단 결과 update (env 파일 설정 + TOPIC_SLUG env var)
 - PowerShell 5.1 + Bash tool vs PowerShell tool 환경 박제
 - standalone 형식 측정 신뢰성 박제
 
