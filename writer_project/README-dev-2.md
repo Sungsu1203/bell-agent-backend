@@ -846,3 +846,176 @@ commit 3 본 박제. Phase 2 정식 close 가능.
 Phase 2 정식 close. 다음 트랙 진입 가능:
 - cross-cascade 측정 (§13-8-3-I Part 2) — Sonnet self-cascade + gpt-4o/Haiku 동일 input.
 - 또는 사용자 결정 다른 트랙.
+
+## 디버깅 표준 박제 (영구 박제, §14-3 origin)
+
+§14-3 Phase 2 Step 3 진행 중 T4/T5 dry-run hang 진단 사이클에서 누적된 박제 자산. 향후 다른 § 의 진단 작업의 표준 박제.
+
+origin: §14-3 Phase 2 Step 3 (commit 670fb09) 의 T4/T5 dry-run hang 진단 사이클.
+상세 origin → `README-dev-§14.md` 의 "§14-3 디버깅 표준 박제 (origin)" 섹션.
+
+### 추정 기반 진단 위험성 (★★★★★)
+
+§14-3 진단 사이클에서 12차 누적 확인:
+
+| 차수 | 추정 가설 | 후속 검증 결과 |
+|------|----------|---------------|
+| 1차 | subprocess 가 sys.executable 안 씀 | 코드 확인 결과 정확히 사용 → 추정 폐기 |
+| 2차 | WindowsApps Python redirect = root cause | venv 재생성 결정, 그러나 Cygwin TP_NUM_C_BUFS 발견 |
+| 3차 | Cygwin TP_NUM_C_BUFS = root cause | RuntimeError LOCAL RAG 0 items 발견, TP_NUM_C_BUFS 는 warning |
+| 4차 | LOCAL_RAG_ALLOW_EMPTY 우회 후 정상 | exit 5 silent fail, ns mismatch 발견 |
+| 5차 | 시나리오 1 (pre-clear 가 baseline 파괴) | T4 동일 조건 success 로 기각 |
+| 6차 | 시나리오 4 (한국어 처리) | T4 retry 동일 한국어 trigger success 로 기각 |
+| 7차 | 시나리오 8 (Tee-Object UTF-16 LE) | T4 success log 도 동일 인코딩으로 기각 |
+| 8차 | 시나리오 9 (-Encoding UTF8 보강) | PowerShell 5.1 미지원으로 syntax error |
+| 9차 | 신규 가설 (graph import 비결정적 race) | T5 retry standalone success 로 시나리오 7 와 통합 |
+| 10차 | Tier 1 fallback 의 토픽 부적합 가정 | 메커니즘 결함 가능성으로 약화, 보류 |
+| 11차 | Claude Code 옵션 X-1 권장 | Phase A 대조 단서 미반영, 추정 기반 |
+| 12차 | (박제 자산 자체) `-Encoding UTF8` 보강 | PowerShell 5.1 환경 검증 누락 |
+
+박제: 모든 추정은 박제 컨벤션의 "사전 확인" 트랙 필수. 추정 → 검증 → 박제 순서. 박제 자산 작성 시도 환경 검증 포함.
+
+### 사전 확인 (B) 가치 박제
+
+진단 사이클에서 "추정으로 작업 진행" vs "사전 확인 후 진행" 의 시간 비용 비교:
+
+- 추정 기반: venv 재생성 (40~80분) → root cause 다른 곳 식별 시 추가 사이클
+- 사전 확인 기반: 코드 grep (5~10분) → root cause 정확 식별 → 작업 진행
+
+박제: 사전 확인의 비용 < 추정 후 재작업의 비용. 박제 컨벤션 "박제 매 결정 시점" 정신과 정합.
+
+### Phase 1 코드 리뷰 결손 패턴 박제
+
+§14-3 진행 중 식별된 Phase 1 결손 6건 (4건 → 6건, (NEW)-B 옵션 3 결과 통합):
+1. `_phase_b_run_inner.py` 가 multi-turn write 전용 + outline 의존
+2. LOCAL RAG abort 가드 (LOCAL_RAG_ALLOW_EMPTY env var 우회 필요)
+3. ns resolution = env 기반, state.topic_slug 무시
+4. clear 정책 (shutil.rmtree + mkdir 통째 재생성) 박제 부정확
+5. **(신규)** env 파일 설정 박제 미식별 (.env / .env.vertex / topics/<slug>.env 흐름)
+6. **(신규)** dry-run script TOPIC_SLUG env var 미설정 (state.topic_slug vs os.environ 분리 미식별)
+
+박제: 향후 Phase 1 류 코드 리뷰 표준에 다음 항목 추가 필수:
+- entry function 의 signature + 의존 state 박제
+- state field 의 실제 영향 검증 (graph 내부 사용 여부)
+- abort 가드 + env var 우회 패턴 박제
+- subprocess 호출 시 환경 영향 (PATH, sys.executable, child process 격리) 박제
+- **(신규)** env 파일 load 흐름 박제 (글로벌 / overlay / 토픽 프리셋)
+- **(신규)** env var vs state field 의 graph 내부 사용 차이 박제
+
+origin update: §14-3 (NEW)-B 옵션 3 진단 사이클 (결손 5, 6 식별).
+상세 origin → `scripts/output/§14-3/(NEW)-B_option3_code_review.md`
+
+### PowerShell 5.1 환경 박제
+
+본 환경 (D:\GPT_AGENT\writer_project) = Windows PowerShell 5.1 (powershell.exe, not pwsh.exe 7+).
+
+박제 표준:
+- `Tee-Object` default = UTF-16 LE BOM, `-Encoding` 미지원
+- `Out-File -Encoding utf8` 사용 가능
+- `ConvertFrom-Json` 의 UTF-16 LE 입력 처리 한계
+- WSL bash 도구 사용 시 § 문자 + 한국어 한계
+- subprocess chain 의 PowerShell session 누적 영향 (시나리오 7)
+
+### Bash tool vs PowerShell tool 박제
+
+Claude Code 의 Bash tool (Git Bash / Cygwin) = 무거운 Python import (langchain/chromadb 등) 시 fatal 가능성 (TP_NUM_C_BUFS 한계).
+
+박제 표준:
+- 무거운 Python 실행은 PowerShell tool 사용
+- Bash tool 은 file 조작 (grep/cat/sed) 전용
+- console.log 분석 시 UTF-16 LE mojibake 주의
+
+### standalone 형식 측정 신뢰성 박제
+
+박제 표준:
+- 1 명령 = 1 측정 형식
+- subprocess chain 회피 (시나리오 7 박제)
+- pre-clear 등 환경 준비는 별도 standalone 실행
+- 측정 간 inter-run-sleep 60s (§13-7 표준)
+
+---
+
+# §14-8-B 종결 박제 — wrapper subprocess env regression mystery 1+2 종결
+
+박제 일자: 2026-05-17
+branch: `feature/vertex-web-search`
+commit chain (B-3 fix): `6a9e0dc` (commit 1 fix O) → `b0fae59` (commit 2 fix C) → `6e8f152` (commit 3 regression test) → 본 close commit (commit 4)
+
+---
+
+## §14-8-B 미션 + 종결 status
+
+- **mystery 1**: wrapper subprocess `CFG.CHROMA_NAMESPACE_WEB = venfobel-vitamin-oa-web` 회귀 → **★★★ resolved**
+- **mystery 2**: wrapper subprocess vertex API call `model = gpt-4o` → 404 → **★★★ resolved**
+
+두 mystery 단일 root cause:
+- production `tools/web_rag/search.py:1367` 의 `reload_config()` 가 `reload_config_inplace()` (core/config.py:660) 호출
+- `load_dotenv(find_dotenv(usecwd=True), override=True)` 가 driver-set env 를 글로벌 `.env` 의 정적 default 값으로 회귀:
+  - `LLM_PROVIDER` vertexai → openai (글로벌 `.env L2`)
+  - `LLM_MODEL` gemini-2.5-flash → gpt-4o (글로벌 `.env L3`)
+  - `TOPIC_SLUG` ai-generated-... → venfobel-vitamin (글로벌 `.env L50`)
+- 직후 `_apply_provider_overlay` 가 LLM_PROVIDER=openai 기준 `.env.openai` overlay load → CHROMA_NAMESPACE*/OPENAI_MODEL 도입 (cascading)
+
+---
+
+## §14-8-B 진단 chain (B-1 → B-3)
+
+| cycle | 박제 |
+|---|---|
+| B-1, B-1ext | namespace 결정 logic grep + hypothesis (α~ε) |
+| B-2, B-2ext | initial fix C + F vertex 404 평가 |
+| B-2ext2 (envdump) | STAGE_1/2 envdump → (γ) **잘못된** 기각 (★ measurement gap) |
+| B-2ext3 (static code) | 단일 mechanism 추론 + (γ) 정정 |
+| B-2ext4 (in-chain probe) | empirical CONFIRMED + override=True 의도 박제 |
+| **B-3 (fix + regression)** | **(O) protected env list + (C) embed dim strengthening + regression test FULL PASS** ★★★ |
+
+priors 정정/신규 누적: **14건** (자기 비판 §1 강화 자산)
+
+---
+
+## §14-8-B fix 자산
+
+### (O) protected env list — primary root cause fix
+
+`core/config.py`:
+- `_PROTECTED_ENV_KEYS = ("LLM_PROVIDER", "LLM_MODEL", "TOPIC_SLUG", "SKIP_VERTEX_SEARCH", "MIRROR_STATE_TO_ENV")`
+- `reload_config_inplace()` snapshot/restore — driver intent 보호 + §12-20 hot-reload 의도 보존 (None → skip, value → restore)
+
+### (C) embedding dim mismatch 강화 — wrapper safety net
+
+- `agent/vector_search.py:_call_retrieve` — mismatch signal 분리 log
+- `tools/web_rag/ingest_vector.py:1656` — raise 직전 `[CHECK][embed-mismatch]` 명시 log
+
+---
+
+## §14-8-B 자산 위치
+
+- audit: `scripts/output/§14-8/B-3_audit.md`
+- regression test: `scripts/output/§14-8/B-3_regression_test.md`
+- close: `scripts/output/§14-8/B-3_close.md`
+- prior chain: `scripts/output/§14-8/B-1*, B-2*, B-2ext*, B-2ext4_*.md` (B-2ext4 까지 박제)
+- regression infra: `scripts/diag/§14-8/b2ext4_trigger.py` (.gitignore 적용, 박제 자산 inline 보존)
+
+---
+
+## §14-8-B defer / reserve list
+
+다음 cycle 또는 §14-8 전체 close 시 통합 검토:
+
+| 항목 | priority |
+|---|---|
+| CWD-independent .env resolution — `find_dotenv(usecwd=True)` 의 CWD 의존성 | 中 |
+| 다른 `reload_config()` 호출처 audit — `tools/local_rag.py:252`, `tools/web_rag/utils.py:168`, `app.py:2207/2282` (driver path) | 中 |
+| protected list 외부화 / config 화 — runtime mutable 가능성 | 低 |
+| CHROMA_DIR 미보호 영향 — driver pop vs `.env` default 충돌 | 低 |
+| prior cycle 박제 자산 commit — B-1/B-2ext* 등 untracked | 中 |
+
+---
+
+## §14-8-B 종결 + 다음 분기
+
+→ **§14-8-B close ★★★**
+→ 다음 분기 user 결정 대기:
+  - (가) §14-8 전체 close (§14-8-A + §14-8-B 통합)
+  - (나) reserve 항목 즉시 진행 (CWD-independent .env 등)
+  - (다) §12-13 사용자 검증 본 미션 복귀

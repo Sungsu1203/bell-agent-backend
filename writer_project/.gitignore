@@ -75,3 +75,13 @@ env_text.txt
 # ── Topic env files (NDA / client assets, since 2026-05-13) ──
 topics/*.env
 !topics/_template.env.example
+
+# ── §14-2 dump outputs ───────────────────────────────────
+# Raw 측정 결과 (json/log/ndjson) 차단. nested 경로 포함.
+# .md 박제 (summary 등) 는 차단 대상 아님 — 자동 추적.
+scripts/output/**/*.json
+scripts/output/**/*.log
+scripts/output/**/*.ndjson
+scripts/output/**/*.console.log
+# §14-3 G4-2: patch 산출물 ignore (재생성 가능 — git format-patch -1 <hash>)
+scripts/output/**/*.patch

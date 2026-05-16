@@ -647,6 +647,19 @@ def _build_config() -> Config:
 # ── 싱글턴 구성 객체 ─────────────────────────────────────────
 CFG: Config = _build_config()
 
+# [§14-8-B fix O] driver subprocess 환경에서 driver 가 명시 set 한 env 가
+# reload_config_inplace 의 load_dotenv(override=True) 로 글로벌 .env 정적
+# default 값에 회귀하던 문제 차단. None (key 부재) 인 경우 .env 값 허용 —
+# §12-20 의 hot-reload 의도는 보존. 자세한 박제는
+# scripts/output/§14-8/B-3_audit.md 참조.
+_PROTECTED_ENV_KEYS = (
+    "LLM_PROVIDER",
+    "LLM_MODEL",
+    "TOPIC_SLUG",
+    "SKIP_VERTEX_SEARCH",
+    "MIRROR_STATE_TO_ENV",
+)
+
 def reload_config_inplace() -> Config:
     """
     ENV 변경을 반영하되, CFG 객체를 재바인딩하지 않고
@@ -656,10 +669,16 @@ def reload_config_inplace() -> Config:
     with _cfg_lock:
         # .env 재적용(override=True) → os.environ 갱신
         if _DOTENV_READY:
+            # [§14-8-B fix O] driver intent snapshot
+            _saved_env = {k: os.environ.get(k) for k in _PROTECTED_ENV_KEYS}
             try:
                 load_dotenv(find_dotenv(usecwd=True), override=True)
             except Exception:
                 pass
+            # [§14-8-B fix O] driver intent restore (None 은 skip — .env 값 허용)
+            for _k, _v in _saved_env.items():
+                if _v is not None:
+                    os.environ[_k] = _v
             # 우선순위 유지: 글로벌 → provider overlay → 토픽 프리셋
             _apply_provider_overlay(verbose=False)
             _apply_topic_preset(verbose=False)

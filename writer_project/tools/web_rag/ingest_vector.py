@@ -1661,6 +1661,15 @@ def retrieve(
             ("expected" in emsg and "got" in emsg and "dimension" in emsg)
         )
         if mismatch_signals:
+            # [§14-8-B fix C] embedding dim mismatch — caller correlation 가능하도록
+            # raise 직전 명시 log. wrapper subprocess 환경에서 (O) 우회 path 의
+            # 잠재 mismatch (예: 다른 reload_config 호출처) 진단 자산.
+            logger.warning(
+                "[CHECK][embed-mismatch] ns=%s pd=%s — embedding dim/model mismatch (likely "
+                "different embedding between ingestion and retrieval). raise → caller(_call_retrieve) "
+                "에서 []  반환 (wrapper safety net). err=%s",
+                ns, pd, e,
+            )
             raise RuntimeError(
                 "Vector query failed due to a likely embedding model/dimension mismatch between "
                 "ingestion and retrieval.\n\n"

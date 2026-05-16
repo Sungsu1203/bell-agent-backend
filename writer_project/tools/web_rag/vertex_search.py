@@ -130,8 +130,12 @@ def vertex_web_search(query: str) -> Dict[str, Any]:
 
     summary_text: str = getattr(response, "text", "") or ""
 
-    # 3) grounding 메타에서 URL 추출
-    urls: List[str] = []
+    # 3) grounding 메타에서 chunks/supports/web_search_queries 추출
+    #    chunks 의 인덱스는 supports.chunk_indices 와 매칭되어야 하므로 dedup 하지 않음.
+    #    urls 는 chunks 의 uri 를 redirect-resolve 후 dedup 한 별도 list (기존 호환).
+    chunks_out: List[Dict[str, Any]] = []
+    supports_out: List[Dict[str, Any]] = []
+    web_search_queries: List[str] = []
 
     try:
         candidates = getattr(response, "candidates", []) or []
@@ -139,26 +143,53 @@ def vertex_web_search(query: str) -> Dict[str, Any]:
             candidate = candidates[0]
             grounding_md = getattr(candidate, "grounding_metadata", None)
 
-            if grounding_md and getattr(grounding_md, "grounding_chunks", None):
-                for chunk in grounding_md.grounding_chunks:
+            if grounding_md:
+                # 3-1) chunks (원본 인덱스 보존)
+                raw_chunks = getattr(grounding_md, "grounding_chunks", None) or []
+                for chunk in raw_chunks:
                     web = getattr(chunk, "web", None)
-                    uri = getattr(web, "uri", None) if web else None
-                    if uri:
-                        urls.append(uri)
+                    if web is None:
+                        # image chunk 등은 skip 하되 인덱스 어긋남 방지를 위해 빈 항목 자리 유지
+                        chunks_out.append({"uri": "", "title": "", "domain": ""})
+                        continue
+                    uri = getattr(web, "uri", None) or ""
+                    title = getattr(web, "title", None) or ""
+                    domain = getattr(web, "domain", None) or ""
+                    chunks_out.append({"uri": uri, "title": title, "domain": domain})
+
+                # 3-2) supports (segment ↔ chunk 매핑)
+                raw_supports = getattr(grounding_md, "grounding_supports", None) or []
+                for sup in raw_supports:
+                    seg = getattr(sup, "segment", None)
+                    chunk_indices = list(getattr(sup, "grounding_chunk_indices", None) or [])
+                    supports_out.append({
+                        "chunk_indices": [int(i) for i in chunk_indices],
+                        "text": (getattr(seg, "text", "") or "") if seg else "",
+                        "start_index": int(getattr(seg, "start_index", 0) or 0) if seg else 0,
+                        "end_index": int(getattr(seg, "end_index", 0) or 0) if seg else 0,
+                    })
+
+                # 3-3) web_search_queries (Vertex 가 실제 발사한 검색 쿼리들)
+                wsq = getattr(grounding_md, "web_search_queries", None) or []
+                web_search_queries = [str(q) for q in wsq if q]
     except Exception:
         # 구조 변경 등으로 인해 grounding 을 못 읽어도 전체 실패는 막는다.
         pass
 
     # 🔹 Vertex grounding redirect URL → 실제 URL로 치환
-    resolved: List[str] = []
-    for u in urls:
-        resolved.append(_resolve_vertex_redirect(u))
+    #    chunks 의 uri 도 동일하게 resolve 하여 downstream 에서 일관 사용.
+    for c in chunks_out:
+        if c["uri"]:
+            c["uri"] = _resolve_vertex_redirect(c["uri"])
 
-    # 중복 제거 (순서 유지)
-    urls = list(dict.fromkeys(resolved))
+    resolved_urls = [c["uri"] for c in chunks_out if c["uri"]]
+    urls = list(dict.fromkeys(resolved_urls))
 
     return {
         "summary": summary_text,
         "urls": urls,
         "raw_response": response,
+        "chunks": chunks_out,
+        "supports": supports_out,
+        "web_search_queries": web_search_queries,
     }
