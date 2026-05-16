@@ -768,8 +768,6 @@ def web_search_agent(state: State):
                         v_supports = vertex_result.get("supports") or []
                         v_queries = vertex_result.get("web_search_queries") or []
 
-                        print(f"[VERTEX_DUMP] chunks={len(v_chunks)} supports={len(v_supports)} queries={len(v_queries)}", flush=True)
-
                         vertex_items_added = 0
                         for support in v_supports:
                             indices = support.get("chunk_indices") or []
@@ -798,8 +796,6 @@ def web_search_agent(state: State):
                                 },
                             })
                             vertex_items_added += 1
-
-                        print(f"[VERTEX_DUMP] items_added={vertex_items_added}", flush=True)
 
                         if vertex_items_added > 0:
                             logger.info(
