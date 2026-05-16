@@ -173,6 +173,37 @@ env 차단 success 후에도 vertex_grounding=0 유지 → **vertex_grounding �
 - §14-2 본 미션 완성 또는 §15 진입 결정
 - §14-4 미션 진입 결정 (vertex_grounding > 0)
 
+### §14-4 cycle close + §14-5 entry cross-ref (2026-05-16 추가)
+
+§14-4 cycle (G5-c chain + standalone bypass) 종결 박제, §14-5 entry 시점 cross-ref.
+
+**§14-4 핵심 발견**:
+- (c'-2) sub-gate 가설 잠정 falsified — standalone bypass (chunks=15, supports=27) 박제 (`_g5c6_standalone/result.txt`)
+- (c'-9) state mapping 가설 활성 강화 — §14-3 v2 vertex_grounding=0 origin 재배치 후보
+- (가-η) graph import 무한 hang 별 cycle 분리 — §14-6 (사용자 측 PC 환경 진단)
+- patch+revert+docs commit chain (2355783→bbbadf6→f9e6643) push 완료
+
+**§14-5 H4 read 결과 (★ (c'-9-d) CONFIRMED)**:
+- `_phase_b_run_inner.py:120-130 classify_source` + `_step3_dry_run_rag_update.py:126-136 _classify_source` 동일 logic
+- URL pattern only 분류 — `"vertexaisearch.cloud.google.com" in src` check
+- vertex_search.py 가 chunks URL 을 `_resolve_vertex_redirect` 로 FINAL URL 변환 (L181-183) → 분류 시점에 vertex 도메인 사라짐 → **"web" 으로 오분류 박제**
+- backend metadata = "vertex_grounding" 은 row dict 에 추출되지만 classify_source 가 미사용
+- ★ §14-3 v2 측정 source_dist={web:N, vertex_grounding:0} 의 직접 원인
+
+**본 미션 정의 박제 확정 (Claude.ai 세션 9 항 컨펌)**:
+- (해석-β + γ hybrid) = "production path 의 vertex_grounding > 0 산출 + grounding annotation 본질 활용"
+- (해석-α) 단독 (vertex API call) = 미달 박제
+- §14-3 (env 차단) + standalone bypass = (해석-α) 만 충족
+
+**다음 cycle plan**:
+- §14-6 (사용자 측 환경 fix) → §14-5 verbose 검증 사전 조건
+- §14-5 (c'-9-d) fix 검토 — classify_source 의 backend metadata 우선 분류 plan 박제
+
+**박제 자산 chain (추가)**:
+- §14-4 close: `scripts/output/§14-4/cycle_close_summary.md`
+- §14-4 standalone: `scripts/output/§14-4/_g5c6_standalone/result.txt`
+- §14-5 H4 (c'-9-d) 박제: 본 cross-ref subsection (별 파일 미생성, v2_result.md 직접 흡수)
+
 ---
 
 ## § 15. 메타 박제
