@@ -85,6 +85,3 @@ scripts/output/**/*.ndjson
 scripts/output/**/*.console.log
 # §14-3 G4-2: patch 산출물 ignore (재생성 가능 — git format-patch -1 <hash>)
 scripts/output/**/*.patch
-
-# §14-3 (보조-2): NEXT_SESSION.md (1회용 자산, commit 3 후 사용 종료)
-NEXT_SESSION.md
