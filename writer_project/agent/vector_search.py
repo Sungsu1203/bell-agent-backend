@@ -434,7 +434,17 @@ def _dual_retrieve(query: str, *, top_k: int, ns_default: str, persist_dir: str)
             )
             return list(retrieve(q_clean, namespace=ns_name, persist_directory=_dir_for(ns_name), top_k=k) or [])
         except Exception as e:
-            logger.warning("retrieve 실패(ns='%s'): %s", ns_name, e)
+            # [§14-8-B fix C] embedding dim mismatch 와 일반 retrieve 실패 분리 log.
+            # (O) fix 가 root cause 차단하지만 다른 origin 의 mismatch 도 wrapper
+            # safety net 으로 graceful skip ([]) 유지.
+            emsg = (str(e) or "").lower()
+            if "dimension" in emsg or ("embed" in emsg and "mismatch" in emsg):
+                logger.warning(
+                    "[vector_search][fix-C] embed dim/model mismatch — skip ns=%s (graceful, []). err=%s",
+                    ns_name, e,
+                )
+            else:
+                logger.warning("retrieve 실패(ns='%s'): %s", ns_name, e)
             return []
 
     # ✅ [CHECK] 현재 ns/persist_dir 기준으로 실제 컬렉션이 있는지 카운트 확인 (0-hit 원인 규명용)
