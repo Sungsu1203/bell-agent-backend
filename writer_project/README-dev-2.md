@@ -932,3 +932,90 @@ Claude Code 의 Bash tool (Git Bash / Cygwin) = 무거운 Python import (langcha
 - subprocess chain 회피 (시나리오 7 박제)
 - pre-clear 등 환경 준비는 별도 standalone 실행
 - 측정 간 inter-run-sleep 60s (§13-7 표준)
+
+---
+
+# §14-8-B 종결 박제 — wrapper subprocess env regression mystery 1+2 종결
+
+박제 일자: 2026-05-17
+branch: `feature/vertex-web-search`
+commit chain (B-3 fix): `6a9e0dc` (commit 1 fix O) → `b0fae59` (commit 2 fix C) → `6e8f152` (commit 3 regression test) → 본 close commit (commit 4)
+
+---
+
+## §14-8-B 미션 + 종결 status
+
+- **mystery 1**: wrapper subprocess `CFG.CHROMA_NAMESPACE_WEB = venfobel-vitamin-oa-web` 회귀 → **★★★ resolved**
+- **mystery 2**: wrapper subprocess vertex API call `model = gpt-4o` → 404 → **★★★ resolved**
+
+두 mystery 단일 root cause:
+- production `tools/web_rag/search.py:1367` 의 `reload_config()` 가 `reload_config_inplace()` (core/config.py:660) 호출
+- `load_dotenv(find_dotenv(usecwd=True), override=True)` 가 driver-set env 를 글로벌 `.env` 의 정적 default 값으로 회귀:
+  - `LLM_PROVIDER` vertexai → openai (글로벌 `.env L2`)
+  - `LLM_MODEL` gemini-2.5-flash → gpt-4o (글로벌 `.env L3`)
+  - `TOPIC_SLUG` ai-generated-... → venfobel-vitamin (글로벌 `.env L50`)
+- 직후 `_apply_provider_overlay` 가 LLM_PROVIDER=openai 기준 `.env.openai` overlay load → CHROMA_NAMESPACE*/OPENAI_MODEL 도입 (cascading)
+
+---
+
+## §14-8-B 진단 chain (B-1 → B-3)
+
+| cycle | 박제 |
+|---|---|
+| B-1, B-1ext | namespace 결정 logic grep + hypothesis (α~ε) |
+| B-2, B-2ext | initial fix C + F vertex 404 평가 |
+| B-2ext2 (envdump) | STAGE_1/2 envdump → (γ) **잘못된** 기각 (★ measurement gap) |
+| B-2ext3 (static code) | 단일 mechanism 추론 + (γ) 정정 |
+| B-2ext4 (in-chain probe) | empirical CONFIRMED + override=True 의도 박제 |
+| **B-3 (fix + regression)** | **(O) protected env list + (C) embed dim strengthening + regression test FULL PASS** ★★★ |
+
+priors 정정/신규 누적: **14건** (자기 비판 §1 강화 자산)
+
+---
+
+## §14-8-B fix 자산
+
+### (O) protected env list — primary root cause fix
+
+`core/config.py`:
+- `_PROTECTED_ENV_KEYS = ("LLM_PROVIDER", "LLM_MODEL", "TOPIC_SLUG", "SKIP_VERTEX_SEARCH", "MIRROR_STATE_TO_ENV")`
+- `reload_config_inplace()` snapshot/restore — driver intent 보호 + §12-20 hot-reload 의도 보존 (None → skip, value → restore)
+
+### (C) embedding dim mismatch 강화 — wrapper safety net
+
+- `agent/vector_search.py:_call_retrieve` — mismatch signal 분리 log
+- `tools/web_rag/ingest_vector.py:1656` — raise 직전 `[CHECK][embed-mismatch]` 명시 log
+
+---
+
+## §14-8-B 자산 위치
+
+- audit: `scripts/output/§14-8/B-3_audit.md`
+- regression test: `scripts/output/§14-8/B-3_regression_test.md`
+- close: `scripts/output/§14-8/B-3_close.md`
+- prior chain: `scripts/output/§14-8/B-1*, B-2*, B-2ext*, B-2ext4_*.md` (B-2ext4 까지 박제)
+- regression infra: `scripts/diag/§14-8/b2ext4_trigger.py` (.gitignore 적용, 박제 자산 inline 보존)
+
+---
+
+## §14-8-B defer / reserve list
+
+다음 cycle 또는 §14-8 전체 close 시 통합 검토:
+
+| 항목 | priority |
+|---|---|
+| CWD-independent .env resolution — `find_dotenv(usecwd=True)` 의 CWD 의존성 | 中 |
+| 다른 `reload_config()` 호출처 audit — `tools/local_rag.py:252`, `tools/web_rag/utils.py:168`, `app.py:2207/2282` (driver path) | 中 |
+| protected list 외부화 / config 화 — runtime mutable 가능성 | 低 |
+| CHROMA_DIR 미보호 영향 — driver pop vs `.env` default 충돌 | 低 |
+| prior cycle 박제 자산 commit — B-1/B-2ext* 등 untracked | 中 |
+
+---
+
+## §14-8-B 종결 + 다음 분기
+
+→ **§14-8-B close ★★★**
+→ 다음 분기 user 결정 대기:
+  - (가) §14-8 전체 close (§14-8-A + §14-8-B 통합)
+  - (나) reserve 항목 즉시 진행 (CWD-independent .env 등)
+  - (다) §12-13 사용자 검증 본 미션 복귀
