@@ -1,0 +1,75 @@
+# §14-4 G5-c-6 standalone test result
+
+## context
+- timestamp (실행): 2026-05-16 (option-4 turn 시점)
+- patch commit (당시 active): 2355783c0ea569bd4459b488e2b6fb4f40362ee7
+- 목적: graph chain 우회 vertex_web_search 단독 호출 박제
+  ((가-η) graph import hang 차원 분리 + vertex 자체 작동 검증)
+- branch: feature/vertex-web-search
+- venv: .venv_vertex
+
+## env (inline set, .env.vertex 미로드)
+GCP_PROJECT_ID=gemini-rag-search-final
+GCP_REGION=us-central1
+GOOGLE_APPLICATION_CREDENTIALS=D:\GPT_AGENT\writer_project\service_account_vertex.json
+LLM_MODEL=gemini-2.5-flash
+LLM_PROVIDER=vertexai
+
+## command
+cd D:\GPT_AGENT\writer_project
+.venv_vertex\Scripts\python.exe -c "
+  import sys, time
+  sys.path.insert(0, '.')
+  t0 = time.time()
+  print(f'[t={time.time()-t0:.1f}s] importing vertex_search...', flush=True)
+  from tools.web_rag.vertex_search import vertex_web_search
+  print(f'[t={time.time()-t0:.1f}s] import done. calling vertex_web_search...', flush=True)
+  r = vertex_web_search('AI generated creative ad platforms 2026 trends')
+  print(f'[t={time.time()-t0:.1f}s] call done.', flush=True)
+  print('---RESULT---')
+  print(f'chunks={len(r.get(\"chunks\") or [])}')
+  print(f'supports={len(r.get(\"supports\") or [])}')
+  print(f'queries={len(r.get(\"web_search_queries\") or [])}')
+  print(f'summary_head={(r.get(\"summary\") or \"\")[:200]}')
+  print(f'urls_count={len(r.get(\"urls\") or [])}')
+"
+
+## stdout raw
+[t=0.0s] importing vertex_search...
+[t=5.1s] import done. calling vertex_web_search...
+[t=46.9s] call done.
+---RESULT---
+chunks=15
+supports=27
+queries=5
+summary_head=AI-generated creative ad platforms in 2026 are characterized by advanced automation, hyper-personalization, and a collaborative "human-plus-AI" approach, despite a growing demand for authenticity in c
+urls_count=15
+
+## meta
+- exit code: 0 (success)
+- elapsed_total: 46.9s
+  - module import: 5.1s
+  - vertex API call: ~41.8s
+- self-timeout: 120s (set, 미도달)
+
+## 4 변수 정수 박제
+- chunks = 15 (non-zero)
+- supports = 27 (non-zero)
+- queries = 5
+- urls_count = 15 (= chunks, 빈 uri 0개 시사)
+
+## 분기 판정 (1-query 기준, 추정)
+- v_chunks=15 ∧ v_supports=27 → 분기 ③ 또는 ④
+- web_search.py L772-798 loop 27회 iterate 가정 시 valid_indices/rep_url
+  대부분 non-empty 추정 → vertex_items_added ≈ 27 추정
+- → 분기 ④ 활성 강력 추정 (단 graph chain 호출 시 실측 박제 필요)
+
+## 의의
+1. vertex_search 모듈 import: 5.1s success — (가-η) hang 차원 무관 박제
+2. Vertex API call: success — 인증/네트워크/서비스 모두 작동 박제
+3. Gemini grounding: 풍부 (chunks=15, supports=27)
+4. (c'-2 sub-gate-a/-b/-c) 가설 잠정 falsified — vertex 자체 grounding 산출 가능
+5. (c'-9) state mapping 가설 활성 강화 — §14-3 v2 vertex_grounding=0 origin
+   재배치 후보 (graph 호출 시 vertex 결과를 web_search.py 가 받았으나 state
+   aggregation 누락 가능성)
+6. 본 미션 (vertex 활용) 부분 진척 박제 — vertex 응답 1회 success
