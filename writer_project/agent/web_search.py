@@ -1036,7 +1036,7 @@ def web_search_agent(state: State):
                         new_docs_preview.append(
                             type(d)(
                                 page_content=(d.page_content or "")[:500],
-                                metadata={"source": src_disp}
+                                metadata={**md, "source": src_disp}
                             )
                         )
                 except Exception as prev_e:

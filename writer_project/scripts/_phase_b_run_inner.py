@@ -117,7 +117,9 @@ def _doc_to_dict(doc: Any) -> dict:
     return out
 
 
-def classify_source(src: str) -> str:
+def classify_source(src: str, backend: str = "") -> str:
+    if backend == "vertex_grounding":
+        return "vertex_grounding"
     s = (src or "").strip()
     if "vertexaisearch.cloud.google.com" in s:
         return "vertex_grounding"
@@ -140,7 +142,8 @@ def analyze_references_docs(docs: list) -> dict:
         except Exception as e:
             row = {"_form": "error", "error": f"{type(e).__name__}: {str(e)[:120]}"}
         src = str(row.get("source") or row.get("url") or "")
-        key = classify_source(src)
+        backend = str(row.get("backend") or "")
+        key = classify_source(src, backend)
         dist[key] = dist.get(key, 0) + 1
         row["source_class"] = key
         serialized.append(row)
