@@ -232,3 +232,109 @@ fix-α vs fix-β 사용자 결정
 §-numbered task queue, 박제 자산 chain.
 
 §14-5 read-only 진단 close. verbose 검증 = §14-6 완료 후 별 entry.
+
+## § 15. close v2 정정 박제 (2026-05-16 추가)
+
+§14-5 close v1 작성 후 verbose 검증 chain (옵션-C → 옵션-γ → 옵션-α)
+누적 박제 결과로 다음 정정 사항 발생.
+
+### § 15-1. (c'-9-d) → (c'-9-d') 정정
+
+close v1 § 3 박제: "(c'-9-d) source 분류 helper backend 무시 → CONFIRMED"
+
+정정 박제 (옵션-C 결과):
+- 71/71 docs metadata_keys = ['source'] 단일 박제
+- backend 가 state.references.docs 에 도달 못 함
+- classify_source 가 backend check 추가해도 effect 0
+- **(c'-9-d) technically true but moot**
+
+### § 15-2. (c'-9-i) NEW CONFIRMED at first read ★★★★★
+
+옵션-α 결과 박제 — 본 미션 origin 확정:
+
+**bug 1-line 정의**:
+agent/web_search.py L1036-1041: web_page_json_to_documents output
+Document reconstruct 시 `metadata={"source": src_disp}` 명시적
+hardcode → 모든 원본 metadata (backend, title, content_type,
+chunk_domain) 폐기.
+
+**raw 박제** (file:line):
+```python
+1035   new_docs_preview.append(
+1036       type(d)(
+1037           page_content=(d.page_content or "")[:500],
+1038           metadata={"source": src_disp}   # ★ HARDCODED strip
+1039       )
+1040   )
+```
+
+**8-step chain 정정 박제**:
+- Step 5: web_page_json_to_documents (메타 보존 추정)
+- **Step 6: ★ web_search.py L1035-1041 HARDCODE STRIP**
+- Step 7: merge_refs (보존)
+- Step 8: state.references.docs (mkey={'source'} 단일)
+
+### § 15-3. (c'-9-h) REFUTED
+
+옵션-γ 시점 박제 (c'-9-h) URL re-fetch metadata 누락 가설 →
+**REFUTED**. load_urls_as_documents 함수 자체 부재 박제.
+
+직전 옵션-γ 박제는 함수 명명 추정 단계 — refutation 정확.
+
+### § 15-4. (c'-9-f) Chroma metadata strip → 정정
+
+close v1 추정: Chroma 측 metadata strip 활성
+정정 박제 (옵션-α):
+- documents_to_chroma metadata 보존 (source_version 추가만)
+- Chroma persist/retrieve 보존
+- **Chroma 무관, strip 위치는 web_search.py 내부 L1037-1041**
+
+### § 15-5. fix 방향 재정립 ★
+
+close v1 fix 방향:
+- fix-α classify_source backend check
+- fix-β metadata.original_uri
+
+정정 박제:
+- fix-α: 직전 효과 0 박제 → **fix-γ 와 조합 시 효과 회복 (재부활)**
+- fix-β: 무효 유지 (state 에 metadata 없으면 효과 0)
+- **fix-γ NEW**: web_search.py L1038 metadata 보존
+  - 변경: `metadata={"source": src_disp}` → `metadata={**md, "source": src_disp}`
+  - 1-2 lines patch
+
+**완전 fix chain = fix-γ + fix-α (재부활) 조합**:
+1. fix-γ (L1038): metadata 보존 → state.references.docs 의 backend 보존
+2. fix-α (classify_source 양 파일): backend 우선 check → "vertex_grounding" 분류 회복
+
+본 미션 (해석-β + γ hybrid) 완전 달성 path 박제.
+
+### § 15-6. 가설 매트릭스 final v2
+(c'-9) state mapping 누락
+├─ (c'-9-d/-d') classify_source moot               [정정 확정]
+├─ (c'-9-e) vertex graph 호출 부재                  [미박제, 본 미션 무관 박제]
+├─ (c'-9-f) Chroma metadata strip                  [정정 — Chroma 무관]
+├─ (c'-9-g) docs entry path                        [확정 — new_docs_preview 단일]
+├─ (c'-9-h) URL re-fetch metadata 누락              [REFUTED — 함수 부재]
+└─ (c'-9-i) NEW web_search.py L1037-1041 hardcode  [★★★ CONFIRMED at first read]
+
+### § 15-7. 박제 chain 자기 정정 메커니즘 효과 박제
+
+§14-5 cycle 의 4 단계 자기 정정 trace:
+H4 (코드 read):    (c'-9-d) CONFIRMED
+↓
+옵션-C (json):     (c'-9-d) → (c'-9-d') moot, (c'-9-e/-f/-g) NEW
+↓
+옵션-γ (H5):       (c'-9-h) NEW root cause 후보
+↓
+옵션-α (H6):       (c'-9-h) REFUTED, (c'-9-i) CONFIRMED ★
+
+박제 컨벤션 정신 ("추정 회피, 사실 검증 우선") 완벽 부합 학습 자산.
+
+### § 15-8. 후속 cycle 진입
+
+§14-7 fix cycle entry plan (별 turn):
+- fix-γ + fix-α 완전 fix chain
+- 본 미션 (해석-β + γ hybrid) 종결 단계
+- 진단/fix 분리 정신 부합
+
+§14-5 cycle close v2 박제 종결.
