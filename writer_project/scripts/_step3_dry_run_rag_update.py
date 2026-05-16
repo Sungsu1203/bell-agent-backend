@@ -39,6 +39,22 @@ if str(PROJECT_ROOT) not in sys.path:
 
 CLEAR_SCRIPT = HERE / "_phase_b_clear_ns.py"
 
+
+def env_snapshot(label: str) -> None:
+    """env stage 박제 — graph 내부 modification 추적용 (§14-3 G4-2)."""
+    keys = (
+        "LLM_PROVIDER", "LLM_MODEL", "TOPIC_SLUG",
+        "SKIP_VERTEX_SEARCH", "MIRROR_STATE_TO_ENV",
+        "CHROMA_NAMESPACE", "CHROMA_NAMESPACE_WEB",
+        "CHROMA_NAMESPACE_LOCAL", "CHROMA_DIR",
+    )
+    print(f"[env_trace] {label}", flush=True)
+    for k in keys:
+        print(f"  {k} = {os.environ.get(k, '')}", flush=True)
+
+
+env_snapshot("STAGE_1_script_start")
+
 try:
     from dotenv import load_dotenv
     env_vertex = PROJECT_ROOT / ".env.vertex"
@@ -49,6 +65,8 @@ try:
         print(f"[env] WARN: {env_vertex} not found", flush=True)
 except ImportError:
     print("[env] WARN: python-dotenv not installed", flush=True)
+
+env_snapshot("STAGE_2_dotenv_vertex_loaded")
 
 
 def _run_clear_subprocess(ns: str, out_dir: Path, timeout_s: float) -> dict:
@@ -189,6 +207,7 @@ def main() -> int:
     from langchain_core.messages import HumanMessage
     graph = build_graph()
     print("[graph] build_graph done.", flush=True)
+    env_snapshot("STAGE_3_graph_imported")
 
     state: dict = {
         "topic_slug": args.topic_slug,
@@ -202,6 +221,7 @@ def main() -> int:
     }
 
     print(f"\n[invoke] trigger={args.trigger!r}", flush=True)
+    env_snapshot("STAGE_4_before_invoke")
     t_inv = time.monotonic()
     try:
         result_state = graph.invoke(state, config={"recursion_limit": args.recursion_limit})
@@ -209,6 +229,7 @@ def main() -> int:
         if isinstance(result_state, dict):
             state.update(result_state)
         print(f"[invoke] elapsed={invoke_elapsed}s", flush=True)
+        env_snapshot("STAGE_5_after_invoke")
     except Exception as e:
         invoke_elapsed = round(time.monotonic() - t_inv, 2)
         result["abort_reason"] = f"invoke_exception: {type(e).__name__}: {str(e)[:300]}"
