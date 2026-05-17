@@ -898,6 +898,71 @@ python tools\diagnose_chunks_deep.py
     - 검토안: (a) record_llm_call 호출 측(section_writer)에서 명시적으로 topic_slug 인자 전달 — `state.get("topic_slug")` 를 그대로 넘김. (b) set_topic_slug 호출 위치를 supervisor/세션 진입점에 강제. (a) 가 호출 측 한 줄 추가로 끝나는 정공법.
     - 진입 트리거: 일별 토픽별 호출 집계가 필요해질 때 또는 별도 cosmetic 정리 시.
 
+    ---
+
+    ### §12-13 close (2026-05-17 close session, post HEAD `bff6dd0` = γ 박제) — α/β/γ + RAG 업데이트 전수 PASS
+
+    CLAUDE.md `Current focus (§12-13)` 의 3 영역 (Q&A 헬스체크 / venfobel QA / end-to-end) 전수 충족. §12-13 사용자 검증 본 미션 close.
+
+    **(1) cycle 누적 결과**:
+    - **α** (일반 LLM Q&A 헬스체크, 2026-05-17): 3 cases ALL PASS — α-1 off-topic guard + α-2 vector retrieval + α-3 explicit write fast-path. 박제: `scripts/output/§12-13/alpha_smoke_test.md`. commit `cdfc076`.
+    - **β** (venfobel 인덱스 직접 QA, 2026-05-17): 9 queries × 3 ns × top-5 = 27 retrievals PASS. threshold_sweep §12-12 exact reproduction (13일 안정). priors 15 신규 자산 (web/base ns 비어있음). 박제: `scripts/output/§12-13/beta_dual_retrieve.md`. commit `cdfc076`.
+    - **RAG 업데이트** (S4 + 재indexing, 2026-05-17): S4 scope 11 logical delete + production 7건 무손실 + venfobel-vitamin-web 신규 indexed (17 docs / 768d vertex). priors 15 해소. 박제: `scripts/output/§12-13/rag_update_log.md`. commit `fa27769`.
+    - **γ** (end-to-end 리포트 생성, 2026-05-17): driver script 8 invocation FULL PASS, 총 **236.0s** (mean 33.7s / min 19.3s / max 46.2s / **long-tail 0건**). final deliverable: `reports/venfobel-vitamin/20260517-121759_report.md` (**65,719 bytes = 64.2 KB**). 박제: `scripts/output/§12-13/{gamma_step0a_entry_contract.md, gamma_end_to_end.md}`. commit `bff6dd0`.
+
+    **(2) priors 17 scope refinement** (자기 비판 §1 강화):
+    - **원** (cdfc076 / fa27769 박제): "research_synthesizer 188s long-tail (vertex chat_models grpc blocking)"
+    - **정정** (γ 7 sections 누적 검증 기반):
+      - **scope**: RAG ingest auto path 한정 (web_search_agent + vector_search_agent + research_synthesizer chain). 트리거 = `최신 자료로 RAG 업데이트해줘` (supervisor.py:L608-619 `_rag_re` fast-path).
+      - **non-scope**: write fast-path (supervisor.py:L716-743) — vector_search + section_writer 단독, research_synthesizer 미진입. γ 7 sections 모두 duration < 50s (long-tail threshold 120s 의 절반 이하).
+    - **함의**: §12-13-6 (b)(c) 진입 트리거 ("빈도 증가 시점") 의 측정 영역 = RAG update auto path 한정. write fast-path 빈도 변화는 (b)(c) 진입과 무관.
+
+    **(3) §14-8-B fix 4-layer cumulative CONFIRMED** ★★★:
+    - 기존 3-layer (commit `6a9e0dc` `feat(config): protected env list snapshot/restore`):
+      - **communicator** (α 3 cases) — POST CFG/env 4 field 회귀 부재
+      - **retrieval** (β 27 retrievals + reload_config 명시 invoke) — driver intent 보존
+      - **ingest** (188s long invoke = web_search + vector_search + research_synthesizer faulthandler) — state preserved
+    - **신규 4 layer**: **section_writer (γ 7회 누적)** — production write path 핵심 경로에서 LLM_PROVIDER/LLM_MODEL/TOPIC_SLUG/CHROMA_NAMESPACE_WEB 4 field 회귀 부재. gamma_run_meta.json post_cfg/post_env 정합 박제.
+    - 함의: `_PROTECTED_ENV_KEYS` (core/config.py:L655-661) 의 5 key 보호가 production 운영의 **모든 LLM-bearing path** 에서 effective. wrapper subprocess 환경 (CWD=writer_project, `find_dotenv(usecwd=True)` 의 CWD 의존성 영역) 에서도 안전.
+
+    **(4) priors 누적 17 → 18**:
+    - **18 (신규, Step 0 박제)**: chromadb collection metadata 미저장 — `add_collection` 시 명시적 metadata set 부재 → `col.metadata = {}` (실측). embedding_function provenance 단언 근거 = naming convention (`-web` suffix) + sample dim (768d) 의 2-source triangulation 만 가능.
+    - **mitigation**: `add_collection(metadata={"embedder": "vertex-multilingual-embedding-002"})` 명시 권장 영역. 별 cycle 또는 housekeeping. 본 close 비포함.
+
+    **(5) sub-§ 상태 (Phase 2 재평가 결과)**:
+    - **closed** (6 sub-§): §12-13-1 / §12-13-4 / §12-13-5 / §12-13-6 (a) / §12-13-7 / §12-13-10 — 2026-05-05 §12-13 코드 수정 세션 + 2026-05-05 metric 도입 세션. + 본 cycle: **α / β / γ / RAG 업데이트 4 cycle 자산 close**.
+    - **defer (별 cycle, 본 §12-13 close 비포함)** (4 sub-§):
+      - §12-13-6 (b)(c) — original intent "추세 데이터 누적 후 결정" 정합 (γ 7 sections + RAG update 누적 데이터, 429 빈도 부재). priors 17 refinement 으로 측정 영역 명확화 (RAG ingest auto path 한정).
+      - §12-13-8 — γ 7회 재현 (cosmetic, `[router.tail] outline exists but not shown` 반복 발화). 별 cycle: communicator outline_shown=True 명시 설정 또는 router 우선순위 조정.
+      - §12-13-9 — γ section 3/5/7 재현 매핑 (cosmetic). 신규 발견: idx 5 (콜론 + smart-quote) 추가 매핑 — Step 0-α 미예측. 별 cycle: `utils.text_utils.slugify(allow_unicode=True)` 정책 검토.
+      - §12-13-11 — cosmetic, 분석 영향 없음. 별 cycle: record_llm_call 호출 측 topic_slug 명시 전달 (정공법).
+    - **re-cycle (post-§12-13, substantive 잔여)** (2 sub-§):
+      - §12-13-2 — web_search OBJ vs user query 분리 로직. §12-13-1 다층 방어선이 trigger 차단 → 본 §12-13 close 시점 active issue 아님. 별 cycle: web_search 진입 시나리오 재발 시 또는 OBJ 로직 자체 수정 결정 시 진입.
+      - §12-13-3 — after_vector 루프 카운터 정확성. §12-13-1/2 와 패키지로 처리 가능. 별 cycle: routers 코드 손댈 때 함께.
+
+    **(6) 의외 발견 별 cycle reserve**:
+    - **γ-baseline 87% 단축 가설** — C 미션 (2026-05-05) ~31분 (7+1 invocation) vs 본 γ 4분 (236s). 가설:
+      - (a) gemini-2.5-flash vs C 미션 시점 모델 차이 (당시 모델 미박제)
+      - (b) state continuity 효과 (vector_search 7회 reuse — 동일 ns 누적 캐시 가능성)
+      - (c) §13~§14 cycle 의 prompt/retrieval 누적 최적화 효과
+      - → 별 cycle: γ-baseline 측정 정식화 (control variable 통제 + 3-run mean 비교)
+    - **§12-13-9 신규 매핑**: idx 5 (`3040 직장인 ... 분석: '어른들의 비타민' 유효성 검증`) → 콜론 (`:`) → `-` + smart-quote (`'`, `'`) 제거. Step 0-α 의 §12-13-9 예측 범위 (괄호 + KPI 소문자화) 외 추가 변환 영역.
+
+    **(7) defer / reserve list 통합 (§12-13 close 시점)**:
+    - **γ 후속**: γ-baseline 측정 정식화 (87% 단축 가설 검증)
+    - **내용 평가 cycle**: γ 산출 보고서 (64.2 KB, 7 sections) advertising agency tester 관점 quality review — 본 §12-13 close = pipeline 작동 검증, **내용 quality 별 cycle 영역**
+    - **§14-8 reserve** (5건, B-3 close 시 박제):
+      - CWD-independent .env resolution (`find_dotenv(usecwd=True)` CWD 의존성)
+      - 다른 `reload_config()` 호출처 audit (local_rag / web_rag/utils / app.py driver path)
+      - `_PROTECTED_ENV_KEYS` 외부화 / config 화
+      - CHROMA_DIR 미보호 영향 분리 검증
+      - feature/vertex-web-search branch — 1-2주 안정 후 삭제 결정 (현 보존, M2 merge 후 origin/local 모두 존재)
+    - **§12-13 cosmetic batch patch**: §12-13-8 (router.tail outline_shown) + §12-13-9 (slug 정규화) 묶음 처리 가능
+    - **운영 housekeeping**: chroma store 정기 점검 (S4 정신 적용) + priors 18 (collection metadata 명시 set)
+    - **§12-13 re-cycle (post-close)**: §12-13-2 / §12-13-3 (web_search OBJ + routers 카운터, 패키지 처리)
+
+    ---
+
 14. **§12-14 — 사용자 관점 진행 이벤트 채널 (frontend LogPanel 헤더 공급)** — 상태: `closed (2026-05-05)` / 의존: 없음 / 우선순위: 중
 
     **출처**: 프런트엔드 사용자가 진행 로그(원시 백엔드 로그) 가 개발자용이라 "지금 어느 단계에서 작업 중인지" 한눈에 안 보인다는 보고. 짝 박제: `Bell_Agent/frontend/README-dev.md` §12-12.
