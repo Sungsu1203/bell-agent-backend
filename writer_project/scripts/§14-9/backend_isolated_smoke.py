@@ -29,7 +29,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
+import re
 import statistics
 import sys
 import time
@@ -39,9 +41,97 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+
+# ── Log capture (Task 2 보강) ────────────────────────────────────────────────
+class _BackendLogHandler(logging.Handler):
+    """tools.web_rag.search 의 backend invocation/result 로그를 구조화 캡처.
+
+    캡처 패턴 (search.py 정합):
+      - "[web_search][chain] <chain> | policy=..."         search.py:1496
+      - "[web_search] calling backend=<bk> variant=<v> ..." search.py:1556
+      - "[web_search] backend=<bk> variant=<v> got=<n>"     search.py:1614/1617
+      - "[web_search][backend tried] <bk> got=<n> in ..."  search.py:1674
+      - "[web_search][backend] <bk> | got=<n> ..."         search.py:1817
+
+    record schema: list[{event, backend?, variant?, got?, raw_msg, timestamp}]
+    """
+    _RE_CHAIN = re.compile(r"\[web_search\]\[chain\]\s+(.+?)\s+\|")
+    _RE_CALL = re.compile(r"\[web_search\]\s+calling\s+backend=(\S+)\s+variant=(\S+)")
+    _RE_GOT = re.compile(r"\[web_search\]\s+backend=(\S+)\s+variant=(\S+)\s+got=(\d+)")
+    _RE_TRIED = re.compile(r"\[web_search\]\[backend tried\]\s+(\S+)\s+got=\s*(\d+)")
+    _RE_FINAL = re.compile(r"\[web_search\]\[backend\]\s+(\S+)\s+\|\s+got=(\d+)")
+    _RE_SKIPPED = re.compile(r"\[web_search\]\s+time budget exceeded.*?backend=(\S+)|reserve budget.*?skip\s+(\S+)")
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.DEBUG)
+        self.events: list[dict] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return
+        ts = round(time.monotonic(), 3)
+        if (m := self._RE_GOT.search(msg)):
+            self.events.append({"event": "got", "backend": m.group(1), "variant": m.group(2), "got": int(m.group(3)), "raw_msg": msg[:200], "t": ts})
+        elif (m := self._RE_TRIED.search(msg)):
+            self.events.append({"event": "tried", "backend": m.group(1), "got": int(m.group(2)), "raw_msg": msg[:200], "t": ts})
+        elif (m := self._RE_FINAL.search(msg)):
+            self.events.append({"event": "final", "backend": m.group(1), "got": int(m.group(2)), "raw_msg": msg[:200], "t": ts})
+        elif (m := self._RE_CALL.search(msg)):
+            self.events.append({"event": "call", "backend": m.group(1), "variant": m.group(2), "raw_msg": msg[:200], "t": ts})
+        elif (m := self._RE_CHAIN.search(msg)):
+            self.events.append({"event": "chain", "chain": m.group(1).strip(), "raw_msg": msg[:200], "t": ts})
+        elif (m := self._RE_SKIPPED.search(msg)):
+            self.events.append({"event": "skipped", "backend": m.group(1) or m.group(2), "raw_msg": msg[:200], "t": ts})
+
+    def reset(self) -> None:
+        self.events = []
+
+    def snapshot(self) -> list[dict]:
+        return list(self.events)
+
+
+_LOG_HANDLER: _BackendLogHandler | None = None
+
+
+def _install_log_capture() -> _BackendLogHandler:
+    """tools.web_rag.search logger 에 capture handler 설치 (1회만)."""
+    global _LOG_HANDLER
+    if _LOG_HANDLER is not None:
+        return _LOG_HANDLER
+    handler = _BackendLogHandler()
+    target = logging.getLogger("tools.web_rag.search")
+    target.addHandler(handler)
+    if target.level == logging.NOTSET or target.level > logging.INFO:
+        target.setLevel(logging.INFO)
+    _LOG_HANDLER = handler
+    print("[log-capture] installed handler on tools.web_rag.search (level=INFO)", flush=True)
+    return handler
+
+
+def _log_to_per_backend_dist(events: list[dict]) -> dict[str, int]:
+    """log event list → backend별 got 합산 (per-backend distribution).
+
+    - 'got' event: 각 backend×variant 호출 직후 success count (search.py:1614, INFO 레벨)
+    - 'tried' / 'final' event: 후속 집계 로그 (DEBUG/INFO 혼재)
+    - merge 패턴 (final bk='merged') 은 별도 키 'merged_total' 로 분리해 per-backend 와 혼동 방지
+    """
+    out: dict[str, int] = {}
+    for ev in events:
+        bk = ev.get("backend")
+        if not bk:
+            continue
+        if bk == "merged":
+            out["_merged_total"] = max(out.get("_merged_total", 0), int(ev.get("got", 0)))
+            continue
+        if ev.get("event") == "got":
+            out[bk] = out.get(bk, 0) + int(ev.get("got", 0))
+    return out
+
 # writer_project 를 sys.path 에 올려 tools.* / agent.* / core.* import 가능
 HERE = Path(__file__).resolve().parent
-PROJECT_ROOT = HERE.parents[2]  # diag/§14-9/ → scripts/ → writer_project/
+PROJECT_ROOT = HERE.parents[1]  # scripts/§14-9/ → scripts/ → writer_project/
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -180,6 +270,10 @@ def _call_legacy_only(query: str, timeout_s: float) -> dict:
     items: list[dict] = []
     json_path: str = ""
 
+    # log capture reset (호출 전 events 초기화 — per-call 격리)
+    if _LOG_HANDLER is not None:
+        _LOG_HANDLER.reset()
+
     def _inner():
         from tools.web_rag.search import web_search  # late import
         return web_search.invoke({"query": query})
@@ -229,6 +323,13 @@ def _call_legacy_only(query: str, timeout_s: float) -> dict:
     # dedup 효과 측정 (URL-level)
     urls_unique = list({u.split("#")[0].rstrip("/") for u in urls_seen if u})
 
+    # log-based per-backend dist (heuristic 의 ground truth axis)
+    log_events: list[dict] = []
+    log_per_backend: dict[str, int] = {}
+    if _LOG_HANDLER is not None:
+        log_events = _LOG_HANDLER.snapshot()
+        log_per_backend = _log_to_per_backend_dist(log_events)
+
     return {
         "mode": "legacy_only",
         "elapsed_sec": round(elapsed, 3),
@@ -238,7 +339,9 @@ def _call_legacy_only(query: str, timeout_s: float) -> dict:
         "items_post_dedup": len(urls_unique),
         "urls_before_dedup": len(urls_seen),
         "urls_after_dedup": len(urls_unique),
-        "per_backend_dist": per_backend,
+        "per_backend_dist": per_backend,  # heuristic (URL host 기반, 한계 박제)
+        "per_backend_dist_log": log_per_backend,  # log-based (정확 attribution)
+        "backend_log_events": log_events,
         "first_3_urls": urls_seen[:3],
         "item_keys_observed": sorted(keys_seen),
         "json_path_returned": json_path,
@@ -326,10 +429,12 @@ def measure(
                 else:
                     results["measured_records"].append(rec)
                 err = f" ERR={rec.get('error_class')}" if rec.get("error_class") else ""
+                log_bk = rec.get("per_backend_dist_log") or {}
+                log_tag = f" log_bk={log_bk}" if log_bk else ""
                 print(
                     f"elapsed={rec['elapsed_sec']:.2f}s "
                     f"raw={rec.get('raw_items', 0)} "
-                    f"dedup={rec.get('items_post_dedup', 0)}{err}",
+                    f"dedup={rec.get('items_post_dedup', 0)}{log_tag}{err}",
                     flush=True,
                 )
                 stop = _check_stop(rec, backend)
@@ -386,9 +491,12 @@ def summarize(results: dict) -> dict:
         }
 
     backend_agg: dict[str, int] = {}
+    backend_agg_log: dict[str, int] = {}
     for r in measured:
         for bk, c in (r.get("per_backend_dist") or {}).items():
             backend_agg[bk] = backend_agg.get(bk, 0) + int(c)
+        for bk, c in (r.get("per_backend_dist_log") or {}).items():
+            backend_agg_log[bk] = backend_agg_log.get(bk, 0) + int(c)
 
     return {
         "n_measured": len(measured),
@@ -397,6 +505,7 @@ def summarize(results: dict) -> dict:
         "raw_items": _stats([float(v) for v in all_raw]),
         "items_post_dedup": _stats([float(v) for v in all_dedup]),
         "per_backend_total": backend_agg,
+        "per_backend_total_log": backend_agg_log,
         "per_query": per_query,
     }
 
@@ -422,6 +531,7 @@ def main() -> int:
     ap.add_argument("--out-dir", default=None, help="raw JSON output dir override")
     ap.add_argument("--tag", default="", help="output filename suffix tag")
     ap.add_argument("--sanity", action="store_true", help="--warmup 0 --n 1 --inter-sleep 0 강제 override")
+    ap.add_argument("--log-capture", action="store_true", help="tools.web_rag.search backend invocation logger 캡처 활성 (legacy_only mode)")
     args = ap.parse_args()
 
     if args.n > 5:
@@ -442,6 +552,10 @@ def main() -> int:
 
     # TOPIC_SLUG 명시 (cred 의 일관 정합)
     os.environ.setdefault("TOPIC_SLUG", args.topic)
+
+    # log capture 설치 (import 이전 — handler 가 logger 생성 후에도 attach 되도록)
+    if args.log_capture:
+        _install_log_capture()
 
     queries: list[str] = DEFAULT_QUERIES
     if args.queries:
