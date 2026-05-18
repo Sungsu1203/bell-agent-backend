@@ -1,0 +1,94 @@
+[env] loaded D:\GPT_AGENT\writer_project\.env (override=False)
+[env] loaded D:\GPT_AGENT\writer_project\.env.openai (override=True)
+[log-capture] installed handler on tools.web_rag.search (level=INFO)
+[pre-dump] {"provider": "openai", "backend_mode": "legacy_only", "LLM_PROVIDER": "openai", "LLM_MODEL": "gpt-4o", "OPENAI_MODEL": "gpt-4o", "ANTHROPIC_MODEL": "", "SKIP_VERTEX_SEARCH": "0", "VERTEX_MAX_RETRIES": "", "OPENAI_MAX_RETRIES": "3", "ANTHROPIC_MAX_RETRIES": "", "SEARCH_BACKENDS": "naver_direct,tavily", "WEB_SEARCH_ENGINE": "auto", "has_TAVILY_API_KEY": true, "has_NAVER_CLIENT_ID": true, "has_NAVER_CLIENT_SECRET": true, "has_GCP_PROJECT_ID": true, "has_GOOGLE_APPLICATION_CREDENTIALS": true, "python_exec": "D:\\gpt_agent\\.venv_openai\\Scripts\\python.exe", "cwd": "D:\\gpt_agent\\writer_project"}
+
+[start] provider=openai backend=legacy_only topic=venfobel-vitamin warmup=2 n=3 timeout=240.0s inter_sleep=60.0s queries=7
+
+[query] 벤포벨S 종근당 광고비 2024
+  warmup 1/5: [Config] LLM provider overlay 로드: D:\GPT_AGENT\writer_project\.env.openai
+[Config] 토픽 프리셋 로드: D:\GPT_AGENT\writer_project\topics\venfobel-vitamin.env
+elapsed=6.98s raw=8 dedup=8 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  warmup 2/5: elapsed=3.34s raw=8 dedup=8 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 3/5: elapsed=3.56s raw=8 dedup=8 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 4/5: elapsed=3.67s raw=8 dedup=8 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 5/5: elapsed=3.59s raw=8 dedup=8 log_bk={'naver_direct': 10, 'tavily': 5}
+
+[query] 활성형 비타민 시장 규모 한국
+  [sleep 60.0s]
+  warmup 1/5: elapsed=2.39s raw=0 dedup=0 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  warmup 2/5: elapsed=1.59s raw=0 dedup=0 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 3/5: elapsed=1.66s raw=0 dedup=0 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 4/5: elapsed=1.41s raw=0 dedup=0 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 5/5: elapsed=1.66s raw=0 dedup=0 log_bk={'naver_direct': 10, 'tavily': 5}
+
+[query] 비타민 B군 임상시험 효능
+  [sleep 60.0s]
+  warmup 1/5: elapsed=3.19s raw=4 dedup=4 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  warmup 2/5: elapsed=3.14s raw=1 dedup=1 log_bk={'naver_direct': 0, 'tavily': 5, '_merged_total': 5}
+  [sleep 60.0s]
+  measured 3/5: elapsed=2.30s raw=4 dedup=4 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 4/5: elapsed=2.48s raw=4 dedup=4 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 5/5: elapsed=2.00s raw=4 dedup=4 log_bk={'naver_direct': 10, 'tavily': 5}
+
+[query] vitamin B benfotiamine clinical trial
+  [sleep 60.0s]
+  warmup 1/5: elapsed=4.28s raw=0 dedup=0 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  warmup 2/5: elapsed=2.89s raw=0 dedup=0 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 3/5: elapsed=2.66s raw=0 dedup=0 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 4/5: elapsed=2.88s raw=0 dedup=0 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 5/5: elapsed=3.12s raw=0 dedup=0 log_bk={'naver_direct': 10, 'tavily': 5}
+
+[query] benfotiamine clinical trial
+  [sleep 60.0s]
+  warmup 1/5: elapsed=3.42s raw=1 dedup=1 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  warmup 2/5: elapsed=2.72s raw=1 dedup=1 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 3/5: elapsed=2.73s raw=1 dedup=1 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 4/5: elapsed=2.61s raw=1 dedup=1 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 5/5: elapsed=2.58s raw=1 dedup=1 log_bk={'naver_direct': 10, 'tavily': 5}
+
+[query] vitamin B1 pharmacokinetics
+  [sleep 60.0s]
+  warmup 1/5: elapsed=10.05s raw=3 dedup=3 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  warmup 2/5: elapsed=14.11s raw=4 dedup=4 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 3/5: elapsed=12.27s raw=4 dedup=4 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 4/5: elapsed=10.88s raw=4 dedup=4 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 5/5: elapsed=12.30s raw=4 dedup=4 log_bk={'naver_direct': 10, 'tavily': 5}
+
+[query] 한국 광고 시장 규모 2026
+  [sleep 60.0s]
+  warmup 1/5: elapsed=5.48s raw=5 dedup=5 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  warmup 2/5: elapsed=4.20s raw=5 dedup=5 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 3/5: elapsed=4.25s raw=5 dedup=5 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 4/5: elapsed=4.34s raw=5 dedup=5 log_bk={'naver_direct': 10, 'tavily': 5}
+  [sleep 60.0s]
+  measured 5/5: elapsed=4.41s raw=5 dedup=5 log_bk={'naver_direct': 10, 'tavily': 5}
+
+[summary] {"n_measured": 21, "n_errors": 0, "elapsed": {"n": 21, "mean": 4.16, "stdev": 3.32, "cv_pct": 79.9, "min": 1.41, "max": 12.3}, "raw_items": {"n": 21, "mean": 3.14, "stdev": 2.82, "cv_pct": 89.6, "min": 0.0, "max": 8.0}, "items_post_dedup": {"n": 21, "mean": 3.14, "stdev": 2.82, "cv_pct": 89.6, "min": 0.0, "max": 8.0}, "per_backend_total": {"legacy_unattributed": 21, "naver_direct": 39, "tavily_or_cse": 6}, "per_backend_total_log": {"naver_direct": 210, "tavily": 105}, "per_query": {"벤포벨S 종근당 광고비 2024": {"n": 3, "elapsed": {"n": 3, "mean": 3.61, "stdev": 0.06, "cv_pct": 1.6, "min": 3.56, "max": 3.67}, "raw_items": {"n": 3, "mean": 8.0, "stdev": 0.0, "cv_pct": 0.0, "min": 8.0, "max": 8.0}}, "활성형 비타민 시장 규모 한국": {"n": 3, "elapsed": {"n": 3, "mean": 1.57, "stdev": 0.14, "cv_pct": 9.2, "min": 1.41, "max": 1.66}, "raw_items": {"n": 3, "mean": 0.0, "stdev": 0.0, "cv_pct": 0.0, "min": 0.0, "max": 0.0}}, "비타민 B군 임상시험 효능": {"n": 3, "elapsed": {"n": 3, "mean": 2.26, "stdev": 0.24, "cv_pct": 10.8, "min": 2.0, "max": 2.48}, "raw_items": {"n": 3, "mean": 4.0, "stdev": 0.0, "cv_pct": 0.0, "min": 4.0, "max": 4.0}}, "vitamin B benfotiamine clinical trial": {"n": 3, "elapsed": {"n": 3, "mean": 2.89, "stdev": 0.23, "cv_pct": 8.1, "min": 2.66, "max": 3.12}, "raw_items": {"n": 3, "mean": 0.0, "stdev": 0.0, "cv_pct": 0.0, "min": 0.0, "max": 0.0}}, "benfotiamine clinical trial": {"n": 3, "elapsed": {"n": 3, "mean": 2.64, "stdev": 0.08, "cv_pct": 3.1, "min": 2.58, "max": 2.73}, "raw_items": {"n": 3, "mean": 1.0, "stdev": 0.0, "cv_pct": 0.0, "min": 1.0, "max": 1.0}}, "vitamin B1 pharmacokinetics": {"n": 3, "elapsed": {"n": 3, "mean": 11.81, "stdev": 0.81, "cv_pct": 6.9, "min": 10.88, "max": 12.3}, "raw_items": {"n": 3, "mean": 4.0, "stdev": 0.0, "cv_pct": 0.0, "min": 4.0, "max": 4.0}}, "한국 광고 시장 규모 2026": {"n": 3, "elapsed": {"n": 3, "mean": 4.33, "stdev": 0.08, "cv_pct": 1.8, "min": 4.25, "max": 4.41}, "raw_items": {"n": 3, "mean": 5.0, "stdev": 0.0, "cv_pct": 0.0, "min": 5.0, "max": 5.0}}}}
+[saved] scripts\output\§14-9-W\phase1_openai_legacy_only_main_b_q1_q7_20260518_143053.json
