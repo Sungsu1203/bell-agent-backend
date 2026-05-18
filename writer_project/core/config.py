@@ -682,6 +682,14 @@ def reload_config_inplace() -> Config:
             # 우선순위 유지: 글로벌 → provider overlay → 토픽 프리셋
             _apply_provider_overlay(verbose=False)
             _apply_topic_preset(verbose=False)
+            # [§14-9-W Step C Gap 2 fix] 토픽 env override 가 settings_gatekeep
+            # `_normalized_allowed_domains` lru_cache 에 즉시 반영되도록 명시 무효화.
+            # web_search() request-time refresh (search.py:1368) 외 진입점도 보장.
+            try:
+                from settings_gatekeep import refresh_gatekeep_cache
+                refresh_gatekeep_cache()
+            except Exception:
+                pass
         new_cfg = _build_config()
         for f in fields(CFG):
             setattr(CFG, f.name, getattr(new_cfg, f.name))

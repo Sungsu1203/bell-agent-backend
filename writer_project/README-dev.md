@@ -586,9 +586,10 @@ python tools\diagnose_chunks_deep.py
     - GATEKEEP 통과해도 본문 수집 단계 실패 → 인덱스 적재 안 됨.
     - 다음 트랙: `tools/web_rag/ingest_net.py`의 fetch 재시도 로직 + SSL 검증 옵션.
 
-    11-4. **호스트 정규화 누락 — oldm.dailypharm.com**
+    11-4. **호스트 정규화 누락 — oldm.dailypharm.com** — 상태: `closed (2026-05-18 §14-9-W Step A Finding B 정합)`
     - 화이트리스트의 `dailypharm.com`은 `oldm.dailypharm.com` 등 subdomain prefix 호스트와 별개로 인식.
     - 다음 트랙: `tools/web_rag/search.py` GATEKEEP 단계에 subdomain stripping 또는 suffix 매칭.
+    - **§14-9-W Step A Finding B 박제 결과 fix 확인 (2026-05-18)** — `settings_gatekeep.py:363-377` `ALLOW_SUBDOMAINS=1` (정합 `.env:208`) + suffix loop 정합으로 이미 매칭 가능. `oldm.dailypharm.com` 의 매칭 흐름: parts = `["oldm", "dailypharm", "com"]` → i=0 cand=`dailypharm.com` → allow set 매칭 → True. 별도 stripping 코드 추가 불요. 본 entry **status: closed**.
 
     11-5. **화이트리스트 확장 효과 제한 (38→50)**
     - 증상: 의약 매체 9개 + 광고 매체 4개 추가했지만 web 청크 0→8로 미증.
