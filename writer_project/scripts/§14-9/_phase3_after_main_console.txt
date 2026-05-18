@@ -1,0 +1,79 @@
+[env] loaded D:\GPT_AGENT\writer_project\.env (override=False)
+[env] loaded D:\GPT_AGENT\writer_project\.env.vertex (override=True)
+
+[start] provider=vertexai topic=venfobel-vitamin warmup=2 n=3 timeout=240.0s inter_sleep=60.0s queries=4
+
+[query] 벤포벤S 종근당 광고비 2024
+  warmup 1/5: [Config] LLM provider overlay 로드: D:\GPT_AGENT\writer_project\.env.vertex
+[Config] 토픽 프리셋 로드: D:\GPT_AGENT\writer_project\topics\venfobel-vitamin.env
+elapsed=22.03s v_items=5 l_items=2 docs=6 (v_doc=0 l_doc=6) v_promote_full=0/0 (0%)
+  [sleep 60.0s]
+  warmup 2/5: elapsed=16.11s v_items=6 l_items=2 docs=6 (v_doc=0 l_doc=6) v_promote_full=0/0 (0%)
+  [sleep 60.0s]
+  measured 3/5: elapsed=27.34s v_items=6 l_items=2 docs=7 (v_doc=0 l_doc=7) v_promote_full=0/0 (0%)
+  [sleep 60.0s]
+  measured 4/5: elapsed=20.69s v_items=6 l_items=2 docs=6 (v_doc=1 l_doc=5) v_promote_full=0/1 (0%)
+  [sleep 60.0s]
+  measured 5/5: elapsed=16.25s v_items=6 l_items=2 docs=5 (v_doc=0 l_doc=5) v_promote_full=0/0 (0%)
+
+[query] 활성형 비타민 시장 규모 한국
+  [sleep 60.0s]
+  warmup 1/5: [SSL-BLACKLIST] www.nbkpharm.com → blocked for session
+elapsed=23.84s v_items=9 l_items=1 docs=6 (v_doc=1 l_doc=5) v_promote_full=1/1 (100%)
+  [sleep 60.0s]
+  warmup 2/5: elapsed=16.28s v_items=7 l_items=1 docs=5 (v_doc=0 l_doc=5) v_promote_full=0/0 (0%)
+  [sleep 60.0s]
+  measured 3/5: [SSL-BLACKLIST] www.nbkpharm.com → blocked for session
+elapsed=22.94s v_items=10 l_items=1 docs=7 (v_doc=2 l_doc=5) v_promote_full=0/2 (0%)
+  [sleep 60.0s]
+  measured 4/5: [SSL-BLACKLIST] www.nbkpharm.com → blocked for session
+elapsed=31.52s v_items=11 l_items=1 docs=9 (v_doc=1 l_doc=8) v_promote_full=0/1 (0%)
+  [sleep 60.0s]
+  measured 5/5: [SSL-BLACKLIST] www.nbkpharm.com → blocked for session
+[fetch_text] url=https://khff.or.kr/user/info/InfoBoardUserView.do?_menuNo=369&boardSeqno=10035&postsSeqno=116361 status=None error=('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+elapsed=29.09s v_items=10 l_items=0 docs=6 (v_doc=1 l_doc=5) v_promote_full=0/1 (0%)
+
+[query] 비타민 B군 임상시험 효능
+  [sleep 60.0s]
+  warmup 1/5: elapsed=27.97s v_items=9 l_items=5 docs=10 (v_doc=2 l_doc=8) v_promote_full=1/2 (50%)
+  [sleep 60.0s]
+  warmup 2/5: elapsed=54.89s v_items=21 l_items=5 docs=17 (v_doc=5 l_doc=12) v_promote_full=1/5 (20%)
+  [sleep 60.0s]
+  measured 3/5: [fetch_text] url=https://iaoth.com/ko/article/brain-health-and-b-vitamins-a-nutritional-shield-against-cognitive-decline status=403 error=403 Client Error: Forbidden for url: https://iaoth.com/ko/article/brain-health-and-b-vitamins-a-nutritional-shield-against-cognitive-decline
+[fetch_text] url=https://iaoth.com/ko/article/brain-health-and-b-vitamins-a-nutritional-shield-against-cognitive-decline status=403 error=403 Client Error: Forbidden for url: https://iaoth.com/ko/article/brain-health-and-b-vitamins-a-nutritional-shield-against-cognitive-decline
+elapsed=61.38s v_items=24 l_items=5 docs=21 (v_doc=4 l_doc=17) v_promote_full=1/4 (25%)
+  [sleep 60.0s]
+  measured 4/5: elapsed=37.19s v_items=19 l_items=5 docs=18 (v_doc=5 l_doc=13) v_promote_full=2/5 (40%)
+  [sleep 60.0s]
+  measured 5/5: elapsed=103.91s v_items=29 l_items=5 docs=20 (v_doc=4 l_doc=16) v_promote_full=3/4 (75%)
+
+[query] vitamin B benfotiamine clinical trial
+  [sleep 60.0s]
+  warmup 1/5: [fetch_text] url=https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHzZrPvMbwuYwRIO1BKvHFWh7TlrIJtSoUj7jVyPxw-Ou2SsTORBf05wH0jbqrDsZiLreqwrbSF0r7-qI_29h41k7nHAONCcSNX9t7b4i49iY-zFkpa status=None error=HTTPSConnectionPool(host='www.benfoteam.org', port=443): Max retries exceeded with url: / (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x000001BA124F54C0>, 'Connection to www.benfoteam.org timed out. (connect timeout=5.0)'))
+[fetch_text] url=https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHzZrPvMbwuYwRIO1BKvHFWh7TlrIJtSoUj7jVyPxw-Ou2SsTORBf05wH0jbqrDsZiLreqwrbSF0r7-qI_29h41k7nHAONCcSNX9t7b4i49iY-zFkpa status=None error=HTTPSConnectionPool(host='www.benfoteam.org', port=443): Max retries exceeded with url: / (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x000001BA11C5DAF0>, 'Connection to www.benfoteam.org timed out. (connect timeout=5.0)'))
+[fetch_text] url=https://drc.bmj.com/content/14/1/e005773 status=403 error=403 Client Error: Forbidden for url: https://drc.bmj.com/content/14/1/e005773
+[fetch_text] url=https://drc.bmj.com/content/14/1/e005773 status=403 error=403 Client Error: Forbidden for url: https://drc.bmj.com/content/14/1/e005773
+[fetch_text] url=https://alzforum.org/therapeutics/benfotiamine status=403 error=403 Client Error: Forbidden for url: https://alzforum.org/therapeutics/benfotiamine
+[fetch_text] url=https://alzforum.org/therapeutics/benfotiamine status=403 error=403 Client Error: Forbidden for url: https://alzforum.org/therapeutics/benfotiamine
+elapsed=56.70s v_items=13 l_items=0 docs=6 (v_doc=2 l_doc=4) v_promote_full=1/2 (50%)
+  [sleep 60.0s]
+  warmup 2/5: [fetch_text] url=https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEPzZCmmL6UMvU3kqv6PhjzLEWacbzo-I18qACMlwaCge-9A7db6C_6kGrhYniloakKiZzglFXAAE7pXtV9wrRWpHWu0uFEtiYNu1Pks3flHFClkYlG status=None error=HTTPSConnectionPool(host='www.benfoteam.org', port=443): Max retries exceeded with url: / (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x000001BA12119E20>, 'Connection to www.benfoteam.org timed out. (connect timeout=5.0)'))
+[fetch_text] url=https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEPzZCmmL6UMvU3kqv6PhjzLEWacbzo-I18qACMlwaCge-9A7db6C_6kGrhYniloakKiZzglFXAAE7pXtV9wrRWpHWu0uFEtiYNu1Pks3flHFClkYlG status=None error=HTTPSConnectionPool(host='www.benfoteam.org', port=443): Max retries exceeded with url: / (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x000001BA12118050>, 'Connection to www.benfoteam.org timed out. (connect timeout=5.0)'))
+elapsed=48.25s v_items=13 l_items=0 docs=4 (v_doc=2 l_doc=2) v_promote_full=2/2 (100%)
+  [sleep 60.0s]
+  measured 3/5: [fetch_text] url=https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQH2loigQ1NTFHHQp93feUZiDRXcL9sGpYyXNqXF92IKGiwM_evi6sNyGrv42mcUhy4WrRfcoVlOBlhU2hzr_3Kzxnyq5CEdpvAQ79Rsl8UTl6rVCq9P status=None error=HTTPSConnectionPool(host='www.benfoteam.org', port=443): Max retries exceeded with url: / (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x000001BA11410500>, 'Connection to www.benfoteam.org timed out. (connect timeout=5.0)'))
+[fetch_text] url=https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQH2loigQ1NTFHHQp93feUZiDRXcL9sGpYyXNqXF92IKGiwM_evi6sNyGrv42mcUhy4WrRfcoVlOBlhU2hzr_3Kzxnyq5CEdpvAQ79Rsl8UTl6rVCq9P status=None error=HTTPSConnectionPool(host='www.benfoteam.org', port=443): Max retries exceeded with url: / (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x000001BA11413B90>, 'Connection to www.benfoteam.org timed out. (connect timeout=5.0)'))
+[fetch_text] url=https://diabetesjournals.org/care/article/35/5/1095/38452/The-Effects-of-Long-Term-Oral-Benfotiamine status=403 error=403 Client Error: Forbidden for url: https://diabetesjournals.org/care/article/35/5/1095/38452/The-Effects-of-Long-Term-Oral-Benfotiamine
+[fetch_text] url=https://diabetesjournals.org/care/article/35/5/1095/38452/The-Effects-of-Long-Term-Oral-Benfotiamine status=403 error=403 Client Error: Forbidden for url: https://diabetesjournals.org/care/article/35/5/1095/38452/The-Effects-of-Long-Term-Oral-Benfotiamine
+elapsed=54.80s v_items=18 l_items=0 docs=7 (v_doc=4 l_doc=3) v_promote_full=3/4 (75%)
+  [sleep 60.0s]
+  measured 4/5: [fetch_text] url=https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGvn94rCnMstaERpxb-Sl5nK7A-qjXDg8zorD1rHPBFIS_xDPrM8kSHVhwLtzIkxSC5xkMnX98d5FZzB2Ti-4ZUVo2hBZv774vb9OKmiFgMO4FDDnlF status=None error=HTTPSConnectionPool(host='www.benfoteam.org', port=443): Max retries exceeded with url: / (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x000001BA114D5880>, 'Connection to www.benfoteam.org timed out. (connect timeout=5.0)'))
+[fetch_text] url=https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGvn94rCnMstaERpxb-Sl5nK7A-qjXDg8zorD1rHPBFIS_xDPrM8kSHVhwLtzIkxSC5xkMnX98d5FZzB2Ti-4ZUVo2hBZv774vb9OKmiFgMO4FDDnlF status=None error=HTTPSConnectionPool(host='www.benfoteam.org', port=443): Max retries exceeded with url: / (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x000001BA11D0AC30>, 'Connection to www.benfoteam.org timed out. (connect timeout=5.0)'))
+elapsed=46.38s v_items=13 l_items=0 docs=4 (v_doc=1 l_doc=3) v_promote_full=1/1 (100%)
+  [sleep 60.0s]
+  measured 5/5: [fetch_text] url=https://alzforum.org/therapeutics/benfotiamine status=403 error=403 Client Error: Forbidden for url: https://alzforum.org/therapeutics/benfotiamine
+[fetch_text] url=https://alzforum.org/therapeutics/benfotiamine status=403 error=403 Client Error: Forbidden for url: https://alzforum.org/therapeutics/benfotiamine
+elapsed=31.75s v_items=8 l_items=0 docs=3 (v_doc=1 l_doc=2) v_promote_full=1/1 (100%)
+
+[summary] {"n_measured": 12, "n_errors": 0, "elapsed": {"n": 12, "mean": 40.27, "stdev": 24.22, "cv_pct": 60.2, "min": 16.25, "max": 103.91}, "vertex_items_count": {"n": 12, "mean": 13.33, "stdev": 7.57, "cv_pct": 56.8, "min": 6.0, "max": 29.0}, "vertex_doc_count": {"n": 12, "mean": 2.0, "stdev": 1.76, "cv_pct": 87.9, "min": 0.0, "max": 5.0}, "vertex_promoted_full": {"n": 12, "mean": 0.92, "stdev": 1.16, "cv_pct": 127.0, "min": 0.0, "max": 3.0}, "vertex_promote_rate_full_overall_mean": 0.346, "per_query": {"벤포벤S 종근당 광고비 2024": {"n": 3, "elapsed": {"n": 3, "mean": 21.43, "stdev": 5.58, "cv_pct": 26.1, "min": 16.25, "max": 27.34}, "vertex_items_count": {"n": 3, "mean": 6.0, "stdev": 0.0, "cv_pct": 0.0, "min": 6.0, "max": 6.0}, "vertex_doc_count": {"n": 3, "mean": 0.33, "stdev": 0.58, "cv_pct": 173.2, "min": 0.0, "max": 1.0}, "vertex_promoted_full": {"n": 3, "mean": 0.0, "stdev": 0.0, "cv_pct": 0.0, "min": 0.0, "max": 0.0}, "vertex_promote_rate_full_mean": 0.0}, "활성형 비타민 시장 규모 한국": {"n": 3, "elapsed": {"n": 3, "mean": 27.85, "stdev": 4.42, "cv_pct": 15.9, "min": 22.94, "max": 31.52}, "vertex_items_count": {"n": 3, "mean": 10.33, "stdev": 0.58, "cv_pct": 5.6, "min": 10.0, "max": 11.0}, "vertex_doc_count": {"n": 3, "mean": 1.33, "stdev": 0.58, "cv_pct": 43.3, "min": 1.0, "max": 2.0}, "vertex_promoted_full": {"n": 3, "mean": 0.0, "stdev": 0.0, "cv_pct": 0.0, "min": 0.0, "max": 0.0}, "vertex_promote_rate_full_mean": 0.0}, "비타민 B군 임상시험 효능": {"n": 3, "elapsed": {"n": 3, "mean": 67.49, "stdev": 33.78, "cv_pct": 50.0, "min": 37.19, "max": 103.91}, "vertex_items_count": {"n": 3, "mean": 24.0, "stdev": 5.0, "cv_pct": 20.8, "min": 19.0, "max": 29.0}, "vertex_doc_count": {"n": 3, "mean": 4.33, "stdev": 0.58, "cv_pct": 13.3, "min": 4.0, "max": 5.0}, "vertex_promoted_full": {"n": 3, "mean": 2.0, "stdev": 1.0, "cv_pct": 50.0, "min": 1.0, "max": 3.0}, "vertex_promote_rate_full_mean": 0.467}, "vitamin B benfotiamine clinical trial": {"n": 3, "elapsed": {"n": 3, "mean": 44.31, "stdev": 11.66, "cv_pct": 26.3, "min": 31.75, "max": 54.8}, "vertex_items_count": {"n": 3, "mean": 13.0, "stdev": 5.0, "cv_pct": 38.5, "min": 8.0, "max": 18.0}, "vertex_doc_count": {"n": 3, "mean": 2.0, "stdev": 1.73, "cv_pct": 86.6, "min": 1.0, "max": 4.0}, "vertex_promoted_full": {"n": 3, "mean": 1.67, "stdev": 1.15, "cv_pct": 69.3, "min": 1.0, "max": 3.0}, "vertex_promote_rate_full_mean": 0.917}}}
+[saved] scripts\output\§14-9\phase3_fusion_obs_vertexai_phase3_after_main_20260518_160848.json
