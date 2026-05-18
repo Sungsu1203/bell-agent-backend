@@ -233,6 +233,30 @@ def _call_maybe_tool(obj: Any, *args: Any, **kwargs: Any) -> Any:
 # web.json / search results → Documents
 # ─────────────────────────────────────────────────────────────
 
+def _promote_item_metadata(item: Dict[str, Any]) -> Dict[str, Any]:
+    # §14-9 Phase 3 — vertex grounding 의 item["metadata"] (backend / alt_urls /
+    # chunk_domain) 을 Document.metadata 로 promote. Chroma 가 list/dict 를 거부
+    # 하므로 alt_urls 는 comma-joined str 로 flatten. 부재 키는 미포함.
+    extra: Dict[str, Any] = {}
+    meta = item.get("metadata")
+    if not isinstance(meta, dict):
+        return extra
+    bk = meta.get("backend")
+    if isinstance(bk, str) and bk.strip():
+        extra["backend"] = bk.strip()
+    cd = meta.get("chunk_domain")
+    if isinstance(cd, str) and cd.strip():
+        extra["chunk_domain"] = cd.strip()
+    au = meta.get("alt_urls")
+    if isinstance(au, (list, tuple)):
+        joined = ",".join(str(u).strip() for u in au if str(u).strip())
+        if joined:
+            extra["alt_urls"] = joined
+    elif isinstance(au, str) and au.strip():
+        extra["alt_urls"] = au.strip()
+    return extra
+
+
 def web_results_to_documents(results: Sequence[Dict[str, Any]]) -> List[Document]:
     """
     web.json 항목(또는 검색 결과 dict 리스트)을 LangChain Document 리스트로 변환.
@@ -274,7 +298,7 @@ def web_results_to_documents(results: Sequence[Dict[str, Any]]) -> List[Document
             if item_content:
                 docs.append(Document(
                     page_content=item_content,
-                    metadata={"source": "", "title": title or "(local)", "content_type": "text/plain"}
+                    metadata={"source": "", "title": title or "(local)", "content_type": "text/plain", **_promote_item_metadata(item)}
                 ))
             continue
 
@@ -349,6 +373,7 @@ def web_results_to_documents(results: Sequence[Dict[str, Any]]) -> List[Document
                         "source": url,
                         "title": title or (Path(file_path).name if file_path else "Local File"),
                         "content_type": ctype,
+                        **_promote_item_metadata(item),
                     },
                 ))
                 continue
@@ -370,7 +395,7 @@ def web_results_to_documents(results: Sequence[Dict[str, Any]]) -> List[Document
                 if text:
                     docs.append(Document(
                         page_content=text,
-                        metadata={"source": url, "title": title or "Web", "content_type": "text/html"},
+                        metadata={"source": url, "title": title or "Web", "content_type": "text/html", **_promote_item_metadata(item)},
                     ))
                     continue
 
@@ -397,6 +422,7 @@ def web_results_to_documents(results: Sequence[Dict[str, Any]]) -> List[Document
                                     "source": url,
                                     "title": title or "PDF",
                                     "content_type": "application/pdf",
+                                    **_promote_item_metadata(item),
                                 },
                             )
                         )
@@ -461,7 +487,7 @@ def web_results_to_documents(results: Sequence[Dict[str, Any]]) -> List[Document
             if html_text:
                 docs.append(Document(
                     page_content=str(html_text),
-                    metadata={"source": url, "title": title or "Web", "content_type": "text/html"},
+                    metadata={"source": url, "title": title or "Web", "content_type": "text/html", **_promote_item_metadata(item)},
                 ))
                 continue
 
@@ -469,7 +495,7 @@ def web_results_to_documents(results: Sequence[Dict[str, Any]]) -> List[Document
             if item_content:
                 docs.append(Document(
                     page_content=item_content,
-                    metadata={"source": url, "title": title or "Web", "content_type": "text/plain"},
+                    metadata={"source": url, "title": title or "Web", "content_type": "text/plain", **_promote_item_metadata(item)},
                 ))
         except Exception as e:
             logger.warning("web_results_to_documents item fail (%s): %s", url, e)

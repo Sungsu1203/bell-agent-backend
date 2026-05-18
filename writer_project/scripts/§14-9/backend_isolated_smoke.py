@@ -550,8 +550,10 @@ def main() -> int:
     # env overlay 명시 로드
     _load_provider_env(args.provider)
 
-    # TOPIC_SLUG 명시 (cred 의 일관 정합)
-    os.environ.setdefault("TOPIC_SLUG", args.topic)
+    # TOPIC_SLUG 명시 — args.topic 우선 override 정합 (§14-9-W Step C § 6-f 박제).
+    # .env:50 의 TOPIC_SLUG 가 _load_provider_env 의 override=False load 로
+    # 선점된 경우 setdefault 는 무효 → 본 cycle 부터는 명시 override.
+    os.environ["TOPIC_SLUG"] = args.topic
 
     # log capture 설치 (import 이전 — handler 가 logger 생성 후에도 attach 되도록)
     if args.log_capture:
