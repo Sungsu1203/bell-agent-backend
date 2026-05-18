@@ -288,3 +288,92 @@ timeline 정합 유지 (직전 commit `ca148bc` 시점 박제 보존), 정정 re
 - (P3-A) Phase 3 본 측정 즉시 진입 (시나리오 α + topics/<slug>.env override)
 - (P3-Q) chroma 결함 진단 트랙 (P-3 또는 (NEW)-C) 우선
 - (P3-S) 병행 (Phase 3 진입 + chroma 진단 별도 트랙)
+
+────────────────────────────────────────────────
+
+## §14-9 close (2026-05-18) — search backend × LLM provider audit + β layered gate + vertex metadata persistence
+
+§14-9 main mission close. audit (Step A/A1/A2) → chain test (Phase 1/2) → whitelist policy 별 cycle (§14-9-W A/B/C) → vertex metadata persistence (Phase 3) 순차 진행. 별도 sub-task (a) (`web_results_to_documents` 화이트리스트 확장, 본 file:110 박제) 정식 종결.
+
+### 미션 결과 요약
+
+| 영역 | 결과 | commit |
+|---|---|---|
+| Step A — search backend + LLM provider 활용 식별 | vertex_grounding 단일 통합 확정, serpapi dead, 5 backend × 3 provider matrix 박제 | `f858af5` |
+| Step A1 — credential exposure audit | 5 key prefix 0 hits in git history (.env.* gitignored from `0c59bff`), §12-11-7 precedent 비해당 | `f858af5` |
+| Step A2 — § 6-f 정정 + legacy fusion + 3-layer schema | 3 axis 분리 (raw vertex 3 keys / raw legacy 9 keys / wrapped 5+meta keys), § 6-f false alarm 정정 | `f858af5` |
+| Phase 1 — baseline smoke 2 combination | (i) vertexai×vertex_grounding 22.12s cv 29.6%, (ii) openai×legacy 2.16s cv 18.1%, drift -11.3% (Phase A 회귀 부재) | `4e78b63` |
+| Phase 2 — methodology + 2 combination + Q4 drop 진단 | (iii) vertexai×legacy 2.04s, (iv) anthropic×legacy 2.21s, legacy chain provider-independent 확정. Q4 EN 100% drop = `search.py:1827-1844` gatekeep | `3b2ebae` |
+| §14-9-W Step A — whitelist audit | gate mechanics + 4-source 결합 + refresh_gatekeep_cache 호출 사이트 4. §12-11-4 subdomain stripping **부재 아님** 확인 | `b42a26f` |
+| §14-9-W Step B — β layered + γ toggle 설계 | base 78 (KR 58 + EN 학술 11 + 광고 9) + ALLOWED_DOMAINS_EXTRA extend + GATE_KEEP_SOURCES opt-out | `b42a26f` |
+| §14-9-W Step C — 구현 + 측정 | `.env:213` 확장 + `core/config.py:684` refresh hook + `docs/topic_env_guide.md` 신규 + Q6 nature/ncbi + Q7 광고 base hit, γ off 시 supplement vendor noise 입증 | `7b407bd` / `4e450b4` |
+| Phase 3 — vertex metadata persistence | `tools/web_rag/ingest_docs.py:_promote_item_metadata` helper + 6 metadata dict literal 사이트 spread. **A side 0% → B side 100% (any_promote, 12 records)**. Q4 (benfotiamine EN): cornell.edu + alt_urls=PubMed 정상 보존 ★★★★★ | `0ca337f` / `4b8d642` |
+
+### sub-task 별 종결 status
+
+| sub-task (본 file:109-115 박제) | 상태 | 종결 commit |
+|---|---|---|
+| **(a) `web_results_to_documents` 화이트리스트 확장** — alt_urls / backend / chunk_domain | **closed (2026-05-18 Phase 3 정합)** | `0ca337f` (production) + `4b8d642` (측정) |
+| (b) redirect URL resolve 견고화 | 미진입 — Phase 3 측정에서 `vertexaisearch.cloud.google.com/grounding-api-redirect/...` 미해결 다수 관측 (Q4 console log 정합), 별 cycle 후보 |
+| (c) footnote label 정밀화 | 미진입 |
+| (d) `domain_bonus` 통합 (web search rerank) | 미진입 |
+| (e) gemini provider grounding 통합 | 미진입 |
+| (e-2) deprecated 라이브러리 마이그레이션 | 미진입 (§12-12-2 정합 영역) |
+
+### production code 변경 면적 (§14-9 전체)
+
+| file | 변경 |
+|---|---|
+| `tools/web_rag/ingest_docs.py` | `_promote_item_metadata` helper +23 lines + 6 metadata dict literal spread (각 +1 line) = **+29 -6** |
+| `core/config.py` | `reload_config_inplace` 의 refresh_gatekeep_cache hook **+5 lines** (try/except + import) |
+| `.env` | ALLOWED_DOMAINS 확장 58→78 (disk-only, `.gitignore:12` 정합 — commit 외) |
+| `docs/topic_env_guide.md` | 신규 (β/γ 운영 가이드 + Finding C risk 경고) |
+| `README-dev.md` | §12-11-4 closed 표기 update |
+| `scripts/§14-9/backend_isolated_smoke.py` | setdefault → 명시 override (W Step C § 6-f 정합) |
+| `scripts/§14-9/fusion_observability.py` | 신규 driver (Phase 3 측정) |
+
+### 박제 자산 위치
+
+- `scripts/output/§14-9/step_a_backend_provider_matrix.md`
+- `scripts/output/§14-9-A1/credential_exposure_audit.md`
+- `scripts/output/§14-9/step_a2_fusion_and_verify.md`
+- `scripts/output/§14-9/step_b_phase2_extended_smoke.md`
+- `scripts/output/§14-9-W/step_a_whitelist_diagnosis.md`
+- `scripts/output/§14-9-W/step_b_layered_gate_design.md`
+- `scripts/output/§14-9-W/step_c_layered_gate_implementation.md`
+- `scripts/output/§14-9/step_b_phase3_metadata_persistence.md`
+- raw JSON (.gitignored): `phase1_*.json` / `phase3_fusion_obs_*.json`
+- console reproducibility: `scripts/§14-9-W/_main_b_q1_q7_console.txt` / `scripts/§14-9/_phase3_after_main_console.txt`
+
+### catch 후보 박제 (README registry 무진입 — 별 cycle 형식화 영역)
+
+| catch # | 명 | 진입 트리거 |
+|---:|---|---|
+| catch 38 | content-language detection (langdetect) | 토픽 언어 env 도입 + lang-mismatch noise ≥ 10% |
+| catch 39 | content length 하한 (body text 컷) | `_filter_non_2xx` 후 stub-page 비율 ≥ 5% |
+| catch 40 | LLM-based content quality scorer | catch 38/39 후 잔여 noise ≥ 30% + cost ≤ $0.005/query |
+| catch 41 | readability heuristic (textstat) | catch 38/39 적용 후 readability score 분포 cut-off 식별 |
+| catch 42 | ad-hoc deny list 보강 (`FILTER_BAD_DOMAINS`) | noise 도메인 set ≥ 5건 (W Step C γ off 측정 + Phase 3 redirect 미해결 후보 set 정합 — ★ 최즉시 적용 가능) |
+| catch 43 | language-aware backend routing | 영어 토픽 priority 발생 또는 catch 38 정식 박제 후 |
+
+### 후속 트랙 후보 (사용자 결정 영역)
+
+1. catch 42 별 cycle — `FILTER_BAD_DOMAINS` 즉시 적용 (`purebulk` / `lifeextension` / `doublewoodsupplements` + `vertexaisearch.cloud.google.com/grounding-api-redirect/...` 후보 set)
+2. catch 38/39 별 cycle — content-quality filter layer 도입
+3. catch 43 별 cycle — language-aware backend routing
+4. sub-task (b)~(e) 잔여 cycle — redirect URL resolve / footnote label / domain_bonus / gemini provider grounding
+
+### close commit chain (참조)
+
+```
+4b8d642 §14-9 Step B Phase 3 — A/B 측정 (metadata 보존율 + Phase 3 박제)
+0ca337f §14-9 Step B Phase 3 — vertex metadata persistence + driver (whitelist 확장 + fusion_observability)
+4e450b4 §14-9-W Step C — base 확장 효과 측정 (A/B × 7 query, 경량 EXTRA / γ off verify)
+7b407bd §14-9-W Step C — β layered + γ toggle 구현 (config + 코드 patch)
+b42a26f §14-9-W Step A + B 박제 자산 (whitelist 진단 + β layered / γ toggle 설계)
+3b2ebae §14-9 Step B Phase 2 — methodology 보강 (log-capture) + ★★★★☆ 2 combination + Q4 drop 진단
+f858af5 §14-9 Step A + A1 + A2 박제 자산 (audit chain + 정정 reference 부록)
+4e78b63 §14-9 Step B Phase 1 — baseline smoke driver + measurement (vertexai vs openai legacy, drift -11.3%)
+```
+
+**status: closed (2026-05-18)** — §14-9 main mission 전체 종결. sub-task (a) 정식 close, (b)~(e) 미진입 별 cycle 후보 보존.
