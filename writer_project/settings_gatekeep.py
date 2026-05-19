@@ -92,10 +92,24 @@ def set_runtime_allowed_domains(domains: Iterable[str]) -> None:
         _RUNTIME_ALLOWED = set()
     # 주입 직후 캐시 무효화(즉시 반영)
     try:
-        _normalized_allowed_domains.cache_clear()  
+        _normalized_allowed_domains.cache_clear()
         _normalize_host.cache_clear()
         # 향후 _is_allowed 캐시를 도입하는 경우 여기도 같이 비워야 합니다.
-        # _is_allowed_cached.cache_clear()  # (도입 시 활성화)              
+        # _is_allowed_cached.cache_clear()  # (도입 시 활성화)
+    except Exception:
+        pass
+
+def clear_runtime_allowed_domains() -> None:
+    """런타임 주입된 허용 도메인 set 을 초기화 (토픽 전환 hook).
+
+    `set_runtime_allowed_domains` 가 박제한 snapshot 을 명시적으로 비워
+    다음 `get_allowed_domains()` 호출이 ENV/CFG 로부터 fresh 재계산하도록 한다.
+    부수 효과: `_normalized_allowed_domains` lru_cache 도 함께 clear (RUNTIME 변경은 lru_cache 정합성에도 영향).
+    """
+    global _RUNTIME_ALLOWED
+    _RUNTIME_ALLOWED = set()
+    try:
+        _normalized_allowed_domains.cache_clear()
     except Exception:
         pass
 
@@ -386,6 +400,7 @@ __all__ = [
     "refresh_gatekeep_cache",
     "get_allowed_domains",
     "set_runtime_allowed_domains",
+    "clear_runtime_allowed_domains",
     "gatekeep_enabled",
     "is_local_like",
     "is_allowed_url",

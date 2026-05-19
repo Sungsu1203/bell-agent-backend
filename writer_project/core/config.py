@@ -690,8 +690,9 @@ def reload_config_inplace() -> Config:
             # `_normalized_allowed_domains` lru_cache 에 즉시 반영되도록 명시 무효화.
             # web_search() request-time refresh (search.py:1368) 외 진입점도 보장.
             try:
-                from settings_gatekeep import refresh_gatekeep_cache
+                from settings_gatekeep import refresh_gatekeep_cache, clear_runtime_allowed_domains
                 refresh_gatekeep_cache()
+                clear_runtime_allowed_domains()
             except Exception:
                 pass
         new_cfg = _build_config()
