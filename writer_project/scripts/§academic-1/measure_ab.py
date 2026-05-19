@@ -105,17 +105,19 @@ def _probe_environment() -> dict:
     return info
 
 
-# ── SDK redirect-resolve disable (driver-side monkey patch) ────────────────────
+# ── SDK redirect-resolve disable (opt-in only · default=OFF) ───────────────────
+# §academic-1 C-3 후 default 변경: monkey-patch default OFF.
+# 사유: redirect resolve disable 시 vertex chunk uri 가 `vertexaisearch.cloud.google.com/...`
+# 원본 상태로 유지 → domain attribution 시 모든 vertex item 이 단일 도메인으로 집계되어
+# academic source ratio 측정이 무의미해짐 (C-3 metric 2 root cause A).
+# 정식 측정에서는 redirect resolve 활성 + per-call timeout 90s 가 적절 — 본 함수는
+# 의도적으로 fast smoke / dry-run 시점에만 호출하도록 flag (--disable-redirect) 로 옮김.
 def _disable_vertex_redirect_resolve() -> bool:
-    """tools/web_rag/vertex_search._resolve_vertex_redirect 를 identity 로 치환.
-
-    이유: 각 chunk 마다 requests.get(timeout=5) 발생 → N×5s 누적 wall time.
-    측정 환경에서는 chunk uri 의 redirect 미해석 raw URL 그대로 충분.
-    """
+    """tools/web_rag/vertex_search._resolve_vertex_redirect 를 identity 로 치환 (opt-in)."""
     try:
         import tools.web_rag.vertex_search as vs
         vs._resolve_vertex_redirect = lambda url, timeout=5.0: url  # type: ignore
-        _stage("monkey-patch: vertex_search._resolve_vertex_redirect → identity (N×5s 절감)")
+        _stage("monkey-patch: vertex_search._resolve_vertex_redirect → identity (opt-in · domain attribution loss 부작용)")
         return True
     except Exception as e:
         _stage(f"monkey-patch FAIL: {type(e).__name__}: {e}")
@@ -125,7 +127,10 @@ def _disable_vertex_redirect_resolve() -> bool:
 # ── 측정 standards ────────────────────────────────────────────────────────────
 WARMUP_RUNS = 2
 MEASURE_RUNS = 3
-PER_RUN_TIMEOUT_S = 240.0
+# §academic-1 C-3 후 default 변경: per-call timeout 240s → 90s.
+# 사유: vertex_web_search 실측 12.9s (smoke) ~ 42s (probe) 범위 · 240s 는 dead-band 과대.
+# 90s 가 SDK 정상 응답 시간의 ~2x margin · force-orphan timeout 발화 시 진단 가독성 향상.
+PER_RUN_TIMEOUT_S = 90.0
 INTER_RUN_SLEEP_S = 60.0
 
 
@@ -566,8 +571,12 @@ def main() -> int:
     parser.add_argument("--topic", default="", help="단일 토픽만 (key: business-venfobel/academic-en/academic-ko)")
     parser.add_argument("--warmup", type=int, default=WARMUP_RUNS)
     parser.add_argument("--measure", type=int, default=MEASURE_RUNS)
-    parser.add_argument("--timeout", type=float, default=PER_RUN_TIMEOUT_S)
+    parser.add_argument("--timeout", type=float, default=PER_RUN_TIMEOUT_S,
+                        help=f"per-call SDK timeout in seconds (default: {PER_RUN_TIMEOUT_S}s · §academic-1 C-3 후 240→90)")
     parser.add_argument("--sleep", type=float, default=INTER_RUN_SLEEP_S)
+    parser.add_argument("--disable-redirect", action="store_true",
+                        help="opt-in: vertex_search._resolve_vertex_redirect → identity. "
+                             "domain attribution loss 부작용 — fast smoke / dry-run 한정 권장")
     args = parser.parse_args()
 
     out_dir = PROJECT_ROOT / "scripts" / "output" / "§academic-1"
@@ -584,7 +593,7 @@ def main() -> int:
     logger.info("probe: %s", env_info)
     logger.info("=" * 60)
 
-    if not args.dry_run:
+    if args.disable_redirect:
         _disable_vertex_redirect_resolve()
 
     detect_fn, detect_src = _load_production_detect_query_lang()
