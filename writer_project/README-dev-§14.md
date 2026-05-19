@@ -393,4 +393,23 @@ f858af5 §14-9 Step A + A1 + A2 박제 자산 (audit chain + 정정 reference �
 
 ## §academic-1 close (2026-05-19) — 학술 모드 통합 옵션 B (catch 43 + MODE infra)
 
-`81894f3` C-1 (catch 43 hook + MODE/EXPECTED_LANG config + academic env templates) + `c927a70`/`b2c7c86` C-2 measurement driver (+ hotfix) + C-3 측정 (3 topics × 5 runs · vertex). 본 미션 (catch 43 routing 메커니즘 + business invariant) 5 metric 중 4 PASS, metric 2 REVIEW (root cause A/B 박제: driver redirect monkey-patch + gatekeep cache stale → catch 50 sub-cycle 후보). 박제: `scripts/output/§academic-1/step_{a,b}_*.md` + `step_c_impl_measurement.md`. **본 cycle 본 미션 달성, 부수 미션 (academic source ratio 정량) 미달성 — catch 50 신규 등록 후 cycle close (사용자 컨펌 영역).**
+`81894f3` C-1 (catch 43 hook + MODE/EXPECTED_LANG config + academic env templates) + `c927a70`/`b2c7c86` C-2 measurement driver (+ hotfix) + `853ed11` C-3 측정 (3 topics × 5 runs · vertex) + `2ac1689`/`79f6ba0` catch 49/50 follow-up + `d4d6431` driver default 변경 (timeout 240→90s + redirect monkey-patch opt-in).
+
+본 미션 (catch 43 routing 메커니즘 + business invariant) 5 metric 중 4 PASS, metric 2 REVIEW (root cause A/B 박제: driver redirect monkey-patch 부작용 + gatekeep cache stale → catch 50 sub-cycle 후보). 박제: `scripts/output/§academic-1/step_{a,b}_*.md` + `step_c_impl_measurement.md`.
+
+close commit chain (참조):
+```
+d4d6431 §academic-1 follow-up — measure_ab.py driver default 변경 (C-3 lesson 적용)
+79f6ba0 §academic-1 follow-up — README-dev catch 50 등록 (gatekeep cache invalidation 결함)
+2ac1689 §academic-1 follow-up — README-dev catch 49 등록 (driver SDK-level timeout + probe lesson)
+853ed11 §academic-1 Step C-3 — measurement + 결과 박제
+b2c7c86 §academic-1 Step C-2 hotfix — driver SDK-level timeout + provider lock + flush stage + probe 강화
+c927a70 §academic-1 Step C-2 — measurement driver
+d2e9db0 §academic-1 follow-up — README-dev catch 48 등록 (Step B budget 산정 미스 lesson)
+81894f3 §academic-1 Step C-1 — implementation (catch 43 + MODE infra + academic env templates)
+7dfc8c6 §academic-1 follow-up — README-dev catch index 44/45/46/47 등록
+989b0ef §academic-1 Step B — design (read-only)
+5349a9c §academic-1 Step A — entry audit (read-only)
+```
+
+**status: closed (2026-05-19)** — §academic-1 본 미션 (catch 43 + MODE infra + business invariant) 정식 종결. 부수 미션 (academic source ratio 정량) 미달성 → catch 50 sub-cycle 후보 보존. catch 44/45/46/47 별 cycle 후보 보존, lesson catch 48/49 정착.
