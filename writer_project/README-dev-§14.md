@@ -361,6 +361,7 @@ timeline 정합 유지 (직전 commit `ca148bc` 시점 박제 보존), 정정 re
 | catch 47 | mixed-lang routing 측정 별도 sub-cycle | §academic-1 본 cycle 후속 — mixed 분류 정확도 + vertex+naver 병렬 효과 정량 측정 |
 | catch 48 | (lesson) Step B budget 산정 시 신규 함수 본체 line count 누락 — 향후 design step 박제 작성 시 budget 산정 check-list 보강 | §academic-1 Step C-1 에서 +13 예산 vs 실제 +24 diff (185%) STOP 발화 사례. 향후 cycle 의 Step B design 박제 시 budget = (config 변경) + (in-place hook insert) + **(신규 함수 정의 본체 line)** + (substitution net) 산식 정착 필요 |
 | catch 49 | (lesson) 측정 driver SDK-level timeout 강제 부재 + probe 환경 일치 강제 lesson | §academic-1 C-3 첫 측정 시도 fail 사례 (header log 1회 후 사용자 kill). 향후 측정 driver = (A) SDK-level force-orphan timeout (daemon thread + join), (B) provider lock (`LLM_PROVIDER` 명시 + 글로벌 .env default 차단), (C) stdout flush stage marker, (D) probe (`sys.executable` venv 일치 + provider 일치) 강제 — 4 항목 default 패턴 정착 |
+| catch 50 | gatekeep `ALLOWED_DOMAINS_EXTRA` cache invalidation 결함 — 토픽 전환 시 EXTRA 가 `_normalized_allowed_domains` lru_cache 에 반영 안 됨 | §academic-1 C-3 measurement metric 2 root cause B 박제. academic-en (gatekeep n=108) → academic-ko (n=79, EXTRA 29 누락) drop 사례. `reload_config_inplace` 가 `refresh_gatekeep_cache()` 호출함에도 토픽 전환 사이 cache 무효화 누락 — sub-cycle 진입 필요 (academic 모드 multi-topic 운영의 source ratio 직접 영향) |
 
 ### 후속 트랙 후보 (사용자 결정 영역)
 
