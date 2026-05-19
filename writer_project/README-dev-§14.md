@@ -354,14 +354,22 @@ timeline 정합 유지 (직전 commit `ca148bc` 시점 박제 보존), 정정 re
 | catch 40 | LLM-based content quality scorer | catch 38/39 후 잔여 noise ≥ 30% + cost ≤ $0.005/query |
 | catch 41 | readability heuristic (textstat) | catch 38/39 적용 후 readability score 분포 cut-off 식별 |
 | catch 42 | ad-hoc deny list 보강 (`FILTER_BAD_DOMAINS`) | noise 도메인 set ≥ 5건 (W Step C γ off 측정 + Phase 3 redirect 미해결 후보 set 정합 — ★ 최즉시 적용 가능) |
-| catch 43 | language-aware backend routing | 영어 토픽 priority 발생 또는 catch 38 정식 박제 후 |
+| catch 43 | language-aware backend routing | 영어 토픽 priority 발생 또는 catch 38 정식 박제 후 — §academic-1 진입으로 trigger 발화 (Step C-1 구현) |
+| catch 44 | kr_soc bucket 4-domain identity audit (`koads.or.kr` / `kma.or.kr` / `kabs.or.kr` + `kosac.or.kr`) | §academic-1 cycle close 이후 — KR 학회 정체성 best-effort 확정 필요 (별 cycle) |
+| catch 45 | A1 fail 3건 재진입 (`journalofadvertising.org` / `earticle.net` / `kosac.or.kr`) — 특히 earticle.net SSL defer | Phase 학술-3 (KCI / RISS backend 직접 API 도입) 진입 시 재평가 |
+| catch 46 | academic prompt tone 분기 (writer prompt academic hint) | Phase 학술-4 진입 조건 — §academic-1 본 cycle 에서는 defer (minimal stub 또는 비도입) |
+| catch 47 | mixed-lang routing 측정 별도 sub-cycle | §academic-1 본 cycle 후속 — mixed 분류 정확도 + vertex+naver 병렬 효과 정량 측정 |
 
 ### 후속 트랙 후보 (사용자 결정 영역)
 
 1. catch 42 별 cycle — `FILTER_BAD_DOMAINS` 즉시 적용 (`purebulk` / `lifeextension` / `doublewoodsupplements` + `vertexaisearch.cloud.google.com/grounding-api-redirect/...` 후보 set)
 2. catch 38/39 별 cycle — content-quality filter layer 도입
-3. catch 43 별 cycle — language-aware backend routing
-4. sub-task (b)~(e) 잔여 cycle — redirect URL resolve / footnote label / domain_bonus / gemini provider grounding
+3. ~~catch 43 별 cycle — language-aware backend routing~~ → **§academic-1 Step C-1 진입 (2026-05-19)**
+4. catch 44 별 cycle — kr_soc bucket identity audit (§academic-1 cycle close 후)
+5. catch 45 별 cycle — A1 fail 3건 재진입 (Phase 학술-3 trigger)
+6. catch 46 별 cycle — academic prompt tone 분기 (Phase 학술-4 trigger)
+7. catch 47 별 cycle — mixed-lang routing 측정 sub-cycle
+8. sub-task (b)~(e) 잔여 cycle — redirect URL resolve / footnote label / domain_bonus / gemini provider grounding
 
 ### close commit chain (참조)
 
