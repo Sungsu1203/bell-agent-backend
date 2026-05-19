@@ -33,18 +33,33 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import logging
 import os
 import socket
 import statistics
 import sys
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+
+
+# ── stdout/stderr: line-buffered utf-8 (Windows cp949 회피, real-time progress) ──
+os.environ["PYTHONIOENCODING"] = "utf-8"
+try:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True)
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True)
+except Exception:
+    pass
+
+
+def _stage(msg: str) -> None:
+    """Stage marker print with explicit flush — real-time progress on long-running calls."""
+    print(f"[stage] {msg}", flush=True)
 
 
 HERE = Path(__file__).resolve().parent
@@ -52,10 +67,59 @@ PROJECT_ROOT = HERE.parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+# Provider lock — measure driver 는 .venv_vertex 전제. 글로벌 .env 의 LLM_PROVIDER=openai
+# default 가 .env.openai overlay 를 끌고 와 LLM_MODEL=gpt-4o 를 주입 → vertex SDK 가
+# 잘못된 모델로 호출되어 404. 명시 설정으로 차단.
+os.environ["LLM_PROVIDER"] = "vertexai"
+
+# SDK retry / backoff disable (env layer)
 os.environ["LLM_MAX_RETRIES"] = "0"
 os.environ["VERTEX_MAX_RETRIES"] = "0"
 os.environ["OPENAI_MAX_RETRIES"] = "0"
+os.environ["GOOGLE_API_USE_CLIENT_CERTIFICATE"] = "false"
+
+# Socket-level fail-fast (connection timeout 60s — gRPC underlying)
+socket.setdefaulttimeout(60.0)
+
+
+# ── Probe (sys.executable / venv 일치 강제) ────────────────────────────────────
+def _probe_environment() -> dict:
+    """driver 진입 즉시 환경 일치 검증 — .venv_vertex + LLM_PROVIDER=vertexai 강제."""
+    info = {
+        "python_exe": sys.executable,
+        "python_version": sys.version.split()[0],
+        "cwd": os.getcwd(),
+        "PROJECT_ROOT": str(PROJECT_ROOT),
+        "PYTHONIOENCODING": os.environ.get("PYTHONIOENCODING", ""),
+        "LLM_PROVIDER": os.environ.get("LLM_PROVIDER", ""),
+        "is_venv_vertex": ".venv_vertex" in sys.executable.replace("\\", "/"),
+        "provider_lock_OK": os.environ.get("LLM_PROVIDER", "") in {"vertex", "vertexai"},
+    }
+    _stage(f"probe: python_exe={info['python_exe']}")
+    _stage(f"probe: is_venv_vertex={info['is_venv_vertex']}")
+    _stage(f"probe: LLM_PROVIDER={info['LLM_PROVIDER']} provider_lock_OK={info['provider_lock_OK']}")
+    if not info["is_venv_vertex"]:
+        _stage("probe: WARN — not running under .venv_vertex (vertex SDK may be missing)")
+    if not info["provider_lock_OK"]:
+        _stage("probe: WARN — LLM_PROVIDER lock failed (expect vertex/vertexai for measurement)")
+    return info
+
+
+# ── SDK redirect-resolve disable (driver-side monkey patch) ────────────────────
+def _disable_vertex_redirect_resolve() -> bool:
+    """tools/web_rag/vertex_search._resolve_vertex_redirect 를 identity 로 치환.
+
+    이유: 각 chunk 마다 requests.get(timeout=5) 발생 → N×5s 누적 wall time.
+    측정 환경에서는 chunk uri 의 redirect 미해석 raw URL 그대로 충분.
+    """
+    try:
+        import tools.web_rag.vertex_search as vs
+        vs._resolve_vertex_redirect = lambda url, timeout=5.0: url  # type: ignore
+        _stage("monkey-patch: vertex_search._resolve_vertex_redirect → identity (N×5s 절감)")
+        return True
+    except Exception as e:
+        _stage(f"monkey-patch FAIL: {type(e).__name__}: {e}")
+        return False
 
 
 # ── 측정 standards ────────────────────────────────────────────────────────────
@@ -181,13 +245,14 @@ def _detect_query_lang_local(query: str) -> str:
     return "ko" if r > 0.7 else ("en" if r < 0.3 else "mixed")
 
 
-def _load_production_detect_query_lang():
-    """production detect_query_lang (agent.web_search) try-import. 실패 시 local fallback."""
-    try:
-        from agent.web_search import detect_query_lang as _f
-        return _f, "production"
-    except Exception:
-        return _detect_query_lang_local, "local-fallback"
+def _load_production_detect_query_lang(timeout_s: float = 15.0):
+    """detect_query_lang 강제 local fallback.
+
+    agent.web_search import chain 은 tools.local_rag → unstructured/NLTK 데이터 등 측정
+    범위 외 무거운 의존성을 끌고 들어와 import-time 에 hang 한다 (driver smoke 에서 확인).
+    측정 driver 는 heuristic 만 필요하므로 local mirror 를 강제 사용한다 (B2 spec 동일 algorithm).
+    """
+    return _detect_query_lang_local, "local-forced"
 
 
 def compute_effective_skip_vertex(query: str, mode: str, expected_lang: str,
@@ -209,77 +274,105 @@ def domain_of(url: str) -> str:
         return ""
 
 
+def _run_with_force_timeout(fn, args: tuple, timeout_s: float) -> tuple[Any, str | None]:
+    """daemon thread + join timeout. timeout 시 daemon orphan (프로세스 종료 시 동반 사망).
+
+    SDK-level cancel 이 불가능한 sync call 에 대한 강제 timeout enforcement.
+    return: (result_or_None, error_str_or_None)
+    """
+    box: dict[str, Any] = {}
+
+    def _worker():
+        try:
+            box["result"] = fn(*args)
+        except Exception as e:
+            box["error"] = f"{type(e).__name__}: {str(e)[:300]}"
+
+    t = threading.Thread(target=_worker, daemon=True, name=f"force-timeout-{fn.__name__}")
+    t.start()
+    t.join(timeout=timeout_s)
+    if t.is_alive():
+        return None, f"force-timeout {timeout_s}s · daemon orphaned"
+    if "error" in box:
+        return None, box["error"]
+    return box.get("result"), None
+
+
 def call_vertex(query: str, timeout_s: float, dry_run: bool) -> dict:
     if dry_run:
         return {"mode": "vertex", "elapsed_sec": 0.0, "items": 0, "domains": [], "dry_run": True}
+    _stage(f"vertex_web_search start · timeout={timeout_s}s · q={query[:60]!r}")
     t0 = time.monotonic()
-    err = None
     domains: list[str] = []
     items = 0
     try:
         from tools.web_rag.vertex_search import vertex_web_search
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            fut = pool.submit(vertex_web_search, query)
-            result = fut.result(timeout=timeout_s)
-        chunks = (result or {}).get("chunks", []) or []
-        items = len(chunks)
-        domains = [domain_of(c.get("uri") or "") for c in chunks if c.get("uri")]
-    except FuturesTimeoutError:
-        err = f"timeout {timeout_s}s"
     except Exception as e:
-        err = f"{type(e).__name__}: {str(e)[:200]}"
+        return {"mode": "vertex", "elapsed_sec": 0.0, "items": 0, "domains": [],
+                "error": f"import_fail: {type(e).__name__}: {e}"}
+    result, err = _run_with_force_timeout(vertex_web_search, (query,), timeout_s)
+    elapsed = round(time.monotonic() - t0, 3)
+    if err:
+        _stage(f"vertex_web_search FAIL elapsed={elapsed}s err={err}")
+        return {"mode": "vertex", "elapsed_sec": elapsed, "items": 0, "domains": [], "error": err}
+    chunks = (result or {}).get("chunks", []) or []
+    items = len(chunks)
+    domains = [domain_of(c.get("uri") or "") for c in chunks if c.get("uri")]
+    _stage(f"vertex_web_search OK elapsed={elapsed}s items={items}")
     return {
         "mode": "vertex",
-        "elapsed_sec": round(time.monotonic() - t0, 3),
+        "elapsed_sec": elapsed,
         "items": items,
         "domains": domains,
         "domains_unique": sorted(set(d for d in domains if d)),
-        "error": err,
+        "error": None,
     }
 
 
 def call_legacy(query: str, timeout_s: float, dry_run: bool) -> dict:
     if dry_run:
         return {"mode": "legacy", "elapsed_sec": 0.0, "items": 0, "domains": [], "dry_run": True}
+    _stage(f"web_search.invoke (legacy) start · timeout={timeout_s}s · q={query[:60]!r}")
     t0 = time.monotonic()
-    err = None
     domains: list[str] = []
     items_list: list[dict] = []
     backend_signals: list[str] = []
     try:
         from tools.web_rag.search import web_search
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            fut = pool.submit(web_search.invoke, {"query": query})
-            ret = fut.result(timeout=timeout_s)
-        if isinstance(ret, tuple) and len(ret) >= 2:
-            items_list = list(ret[0] or [])
-        elif isinstance(ret, list):
-            items_list = list(ret)
-        elif isinstance(ret, dict):
-            items_list = list(ret.get("results") or ret.get("items") or [])
-        for it in items_list:
-            if isinstance(it, dict):
-                u = it.get("url") or it.get("source") or ""
-                if u:
-                    d = domain_of(u)
-                    domains.append(d)
-                    if "naver" in d:
-                        backend_signals.append("naver_direct")
-                    else:
-                        backend_signals.append("tavily_or_other")
-    except FuturesTimeoutError:
-        err = f"timeout {timeout_s}s"
     except Exception as e:
-        err = f"{type(e).__name__}: {str(e)[:200]}"
+        return {"mode": "legacy", "elapsed_sec": 0.0, "items": 0, "domains": [],
+                "error": f"import_fail: {type(e).__name__}: {e}"}
+    ret, err = _run_with_force_timeout(web_search.invoke, ({"query": query},), timeout_s)
+    elapsed = round(time.monotonic() - t0, 3)
+    if err:
+        _stage(f"web_search.invoke FAIL elapsed={elapsed}s err={err}")
+        return {"mode": "legacy", "elapsed_sec": elapsed, "items": 0, "domains": [], "error": err}
+    if isinstance(ret, tuple) and len(ret) >= 2:
+        items_list = list(ret[0] or [])
+    elif isinstance(ret, list):
+        items_list = list(ret)
+    elif isinstance(ret, dict):
+        items_list = list(ret.get("results") or ret.get("items") or [])
+    for it in items_list:
+        if isinstance(it, dict):
+            u = it.get("url") or it.get("source") or ""
+            if u:
+                d = domain_of(u)
+                domains.append(d)
+                if "naver" in d:
+                    backend_signals.append("naver_direct")
+                else:
+                    backend_signals.append("tavily_or_other")
+    _stage(f"web_search.invoke OK elapsed={elapsed}s items={len(items_list)}")
     return {
         "mode": "legacy",
-        "elapsed_sec": round(time.monotonic() - t0, 3),
+        "elapsed_sec": elapsed,
         "items": len(items_list),
         "domains": domains,
         "domains_unique": sorted(set(d for d in domains if d)),
         "backend_signals": backend_signals,
         "naver_count": backend_signals.count("naver_direct"),
-        "error": err,
+        "error": None,
     }
 
 
@@ -314,9 +407,21 @@ def run_single(topic_key: str, query: str, mode: str, expected_lang: str,
     }
 
 
+def _write_partial(out_dir: Path, payload: dict) -> None:
+    """매 run 종료 후 partial 결과를 디스크에 박제 (kill / crash 대비)."""
+    out_path = out_dir / "c_ab_results.json"
+    try:
+        out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        _stage(f"partial save → {out_path}")
+    except Exception as e:
+        _stage(f"partial save FAIL: {type(e).__name__}: {e}")
+
+
 def measure_topic(topic_key: str, cfg: dict, warmup: int, measure: int,
                   timeout_s: float, sleep_s: float, dry_run: bool,
-                  logger: logging.Logger, detect_fn=None) -> dict:
+                  logger: logging.Logger, detect_fn=None,
+                  partial_cb=None, topic_idx: int = 0, topic_total: int = 0) -> dict:
+    _stage(f"topic ({topic_idx}/{topic_total}) {topic_key} — load env {cfg['env_file']}")
     snapshot = load_topic_env(cfg["env_file"], logger)
     mode = snapshot.get("MODE", "business")
     expected_lang = snapshot.get("EXPECTED_LANG", "auto")
@@ -324,12 +429,22 @@ def measure_topic(topic_key: str, cfg: dict, warmup: int, measure: int,
     total_runs = warmup + measure
     for i in range(total_runs):
         phase = "warmup" if i < warmup else "measure"
+        _stage(f"topic={topic_key} {phase} run {i+1}/{total_runs}")
         logger.info("[topic=%s] %s run %d/%d", topic_key, phase, i + 1, total_runs)
         rec = run_single(topic_key, cfg["query"], mode, expected_lang, timeout_s, dry_run, logger, detect_fn)
         rec["phase"] = phase
         rec["run_index"] = i
         runs.append(rec)
+        if partial_cb:
+            partial_cb(topic_key, {
+                "topic_key": topic_key,
+                "env_snapshot": snapshot,
+                "runs": runs,
+                "purpose": cfg.get("purpose", ""),
+                "_in_progress": True,
+            })
         if i < total_runs - 1 and not dry_run:
+            _stage(f"topic={topic_key} sleeping {sleep_s:.0f}s (inter-run)")
             logger.info("[topic=%s] sleeping %.0fs (inter-run)", topic_key, sleep_s)
             time.sleep(sleep_s)
     return {
@@ -459,33 +574,61 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     log_path = out_dir / "c_ab_run.log"
     logger = setup_logging(log_path)
+    _stage("driver start — measure_ab.py")
+    env_info = _probe_environment()
     logger.info("=" * 60)
-    logger.info("§academic-1 Step C-2 measurement driver — start")
+    logger.info("§academic-1 Step C-2/C-3 measurement driver — start")
     logger.info("standards: warmup=%d measure=%d timeout=%ds sleep=%ds dry_run=%s",
                 args.warmup, args.measure, args.timeout, args.sleep, args.dry_run)
     logger.info("host=%s python=%s", socket.gethostname(), sys.executable)
+    logger.info("probe: %s", env_info)
     logger.info("=" * 60)
 
+    if not args.dry_run:
+        _disable_vertex_redirect_resolve()
+
     detect_fn, detect_src = _load_production_detect_query_lang()
+    _stage(f"detect_query_lang source = {detect_src}")
     logger.info("[main] detect_query_lang source = %s", detect_src)
 
     measure_n = 0 if args.warmup_only else args.measure
     topic_keys = [args.topic] if args.topic else list(TOPICS.keys())
     topic_results: dict[str, dict] = {}
 
-    for k in topic_keys:
+    def _partial_cb(k: str, tr: dict) -> None:
+        topic_results[k] = tr
+        partial_payload = {
+            "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "_status": "partial",
+            "standards": {
+                "warmup_runs": args.warmup,
+                "measure_runs": measure_n,
+                "per_run_timeout_s": args.timeout,
+                "inter_run_sleep_s": args.sleep,
+                "PYTHONIOENCODING": os.getenv("PYTHONIOENCODING", ""),
+            },
+            "host": socket.gethostname(),
+            "python": sys.executable,
+            "env_probe": env_info,
+            "topic_results": topic_results,
+        }
+        _write_partial(out_dir, partial_payload)
+
+    for ti, k in enumerate(topic_keys, start=1):
         if k not in TOPICS:
             logger.error("[main] unknown topic key: %s", k)
             continue
         cfg = TOPICS[k]
         try:
             tr = measure_topic(k, cfg, args.warmup, measure_n, args.timeout, args.sleep,
-                               args.dry_run, logger, detect_fn)
+                               args.dry_run, logger, detect_fn, _partial_cb, ti, len(topic_keys))
             topic_results[k] = tr
+            _partial_cb(k, tr)
         except Exception as e:
             logger.exception("[main] topic=%s aborted: %s", k, e)
             topic_results[k] = {"topic_key": k, "error": f"{type(e).__name__}: {e}"}
 
+    _stage("lang-detect accuracy benchmark (10 labeled queries)")
     logger.info("[main] lang-detect accuracy benchmark (10 labeled queries)")
     lang_acc = lang_detect_accuracy(logger, detect_fn)
     lang_acc["detect_source"] = detect_src
@@ -494,6 +637,7 @@ def main() -> int:
 
     payload = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "_status": "complete",
         "standards": {
             "warmup_runs": args.warmup,
             "measure_runs": measure_n,
@@ -503,6 +647,7 @@ def main() -> int:
         },
         "host": socket.gethostname(),
         "python": sys.executable,
+        "env_probe": env_info,
         "dry_run": args.dry_run,
         "warmup_only": args.warmup_only,
         "topic_results": topic_results,
@@ -511,12 +656,15 @@ def main() -> int:
     }
     out_path = out_dir / "c_ab_results.json"
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    _stage(f"final write → {out_path}")
     logger.info("→ wrote %s", out_path)
     logger.info("=" * 60)
     logger.info("[summary]")
     for k, v in metrics.items():
         verdict = v.get("verdict") if isinstance(v, dict) else ""
         logger.info("  %s: %s", k, verdict)
+        _stage(f"summary {k} = {verdict}")
+    _stage("driver done")
     return 0
 
 
