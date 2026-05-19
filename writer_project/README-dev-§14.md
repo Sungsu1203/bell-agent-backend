@@ -361,7 +361,10 @@ timeline 정합 유지 (직전 commit `ca148bc` 시점 박제 보존), 정정 re
 | catch 47 | mixed-lang routing 측정 별도 sub-cycle | §academic-1 본 cycle 후속 — mixed 분류 정확도 + vertex+naver 병렬 효과 정량 측정 |
 | catch 48 | (lesson) Step B budget 산정 시 신규 함수 본체 line count 누락 — 향후 design step 박제 작성 시 budget 산정 check-list 보강 | §academic-1 Step C-1 에서 +13 예산 vs 실제 +24 diff (185%) STOP 발화 사례. 향후 cycle 의 Step B design 박제 시 budget = (config 변경) + (in-place hook insert) + **(신규 함수 정의 본체 line)** + (substitution net) 산식 정착 필요 |
 | catch 49 | (lesson) 측정 driver SDK-level timeout 강제 부재 + probe 환경 일치 강제 lesson | §academic-1 C-3 첫 측정 시도 fail 사례 (header log 1회 후 사용자 kill). 향후 측정 driver = (A) SDK-level force-orphan timeout (daemon thread + join), (B) provider lock (`LLM_PROVIDER` 명시 + 글로벌 .env default 차단), (C) stdout flush stage marker, (D) probe (`sys.executable` venv 일치 + provider 일치) 강제 — 4 항목 default 패턴 정착 |
-| catch 50 | gatekeep `_RUNTIME_ALLOWED` upstream 무효화 누락 — 토픽 전환 시 `ALLOWED_DOMAINS_EXTRA` 가 allowed set 에 반영 안 됨 (allowed domain 의 2-layer cache 구조 중 상위 layer 결함) | §academic-1 C-3 measurement metric 2 root cause B 박제. academic-en (gatekeep n=108) → academic-ko (n=79, EXTRA 29 누락) drop 사례. **2-layer 구조**: (i) 하위 `_normalized_allowed_domains` lru_cache (settings_gatekeep.py:187, maxsize=1) — `reload_config_inplace` 의 `refresh_gatekeep_cache()` hook (core/config.py:692-696, §14-9-W Step C Gap 2 fix) 으로 정상 무효화. (ii) 상위 `_RUNTIME_ALLOWED` module global (settings_gatekeep.py:19) — `get_allowed_domains()` 가 L140-141 short-circuit 으로 ENV 우회 priority 1 사용. `set_runtime_allowed_domains` (tools/web_rag/search.py:1417) 가 web_search 진입 시 snapshot 박제. `refresh_gatekeep_cache()` 가 이 global 에 도달 안 함 → 직전 토픽 snapshot 이 새 토픽 web_search 진입 시점에 잔존 → L1413 `get_allowed_domains()` 가 stale 반환 → 새 토픽 EXTRA 무시. sub-cycle (§academic-2) 진입 필요. §academic-2 Step A entry audit 박제: `scripts/output/§academic-2/step_a_entry_audit.md` (A1·A2·A3 read-only). 권장 fix 후보 = clear_runtime_allowed_domains() 신규 + reload_config_inplace hook (+7 line, agent-driven runtime override semantic 보존). |
+| catch 50 | gatekeep `_RUNTIME_ALLOWED` upstream 무효화 누락 — 토픽 전환 시 `ALLOWED_DOMAINS_EXTRA` 가 allowed set 에 반영 안 됨 (allowed domain 의 2-layer cache 구조 중 상위 layer 결함) | **close (2026-05-19) §academic-2**. §academic-1 C-3 measurement metric 2 root cause B 박제 (academic-en n=108 → academic-ko n=79, EXTRA 29 누락 drop). **2-layer 구조**: (i) 하위 `_normalized_allowed_domains` lru_cache (settings_gatekeep.py:187) — `refresh_gatekeep_cache()` hook (core/config.py:692-696, §14-9-W Step C Gap 2 fix) 으로 정상 무효화. (ii) 상위 `_RUNTIME_ALLOWED` module global (settings_gatekeep.py:19) — `get_allowed_domains()` short-circuit priority 1, `set_runtime_allowed_domains` (tools/web_rag/search.py:1417) 가 web_search 진입 시 snapshot 박제, `refresh_gatekeep_cache()` 범위 밖 → 직전 토픽 snapshot 잔존. **fix**: `clear_runtime_allowed_domains()` 신설 + `reload_config_inplace` hook (commit `3598568`, +16 line · 107% of budget +15 catch 48 lesson 미세 재현). **정량 증거**: academic-ko `[GATEKEEP] n` 79 → 108 (+29 EXTRA 회복) + `academic_source_ratio` 0.0 → 0.6667 (commit `90acb87` 측정 결과 박제). 박제 chain: `scripts/output/§academic-2/{step_a_entry_audit,step_b_design,step_c_impl_measurement}.md`. 부수 미션 (academic-en ratio) PARTIAL → catch 51/52/53 sub-cycle 후보 분리. |
+| catch 51 | (LOW) vertex grounding 학술 도메인 reach 정량 — 영문 ad-tech query bias | §academic-2 부수 미션 PARTIAL root cause 분리 박제. academic-en query ("consumer behavior in influencer marketing") 의 vertex grounding 결과가 industry / preprint platform / trade publication (forbes, mdpi, medium, researchgate 등) 으로 편향, 학술지 도메인 (springer / wiley / tandfonline 등 EXTRA 29 set) reach 0. 외부 의존 (vertex 검색 엔진 자체 편향) — 우리 측 제어 면적 작음. 본 진입 trigger 조건 = vertex grounding API 정책 변경 시 또는 학술 mode 전용 query template 도입 시 |
+| catch 52 | (MID 최우선) `ACADEMIC_DOMAINS_29` set 보강 — 글로벌 학술 플랫폼 mdpi/researchgate/semanticscholar/academic.naver 등 후보 검토 | §academic-2 부수 미션 PARTIAL root cause 분리 박제. §academic-2 측정 raw (academic-en all_uniq) 에서 `mdpi.com` (5 runs 모두), `researchgate.net` (3 runs), `pdfs.semanticscholar.org` (1 run), `academic.naver.com` (5 runs 모두) 등이 vertex 결과 분포에 있으나 ACADEMIC_DOMAINS_29 set 미포함 → ratio 0.0. set 보강 시 academic-en ratio 회복 가능. 코드 변경 거의 0 (env / driver set 정의 만), 효과 명확 — **최우선 sub-cycle 후보**. 본 진입 trigger 조건 = §academic-2 close 직후 |
+| catch 53 | (LOW-MID) `ALLOW_SUBDOMAINS` academic 모드 전용 분기 검토 — semanticscholar subdomain 등 | §academic-2 부수 미션 PARTIAL 의 부수 발화. settings_gatekeep.py:363 `_flag("ALLOW_SUBDOMAINS", False)` default OFF → `pdfs.semanticscholar.org` 등 subdomain 이 base domain (semanticscholar.org, EXTRA 안) 매칭 안 됨. academic 모드 전용 ON 검토 — 단, business 모드 invariant 정합성 검증 필요 (catch 43 routing 과 직교성 사전 확인). 본 진입 trigger 조건 = catch 52 결과 보고 후 진입 결정 |
 
 ### 후속 트랙 후보 (사용자 결정 영역)
 
@@ -413,3 +416,24 @@ d2e9db0 §academic-1 follow-up — README-dev catch 48 등록 (Step B budget 산
 ```
 
 **status: closed (2026-05-19)** — §academic-1 본 미션 (catch 43 + MODE infra + business invariant) 정식 종결. 부수 미션 (academic source ratio 정량) 미달성 → catch 50 sub-cycle 후보 보존. catch 44/45/46/47 별 cycle 후보 보존, lesson catch 48/49 정착.
+
+---
+
+## §academic-2 close (2026-05-19) — catch 50 fix (gatekeep `_RUNTIME_ALLOWED` upstream 무효화 해소)
+
+`85579d2` Step A follow-up (catch 50 가설 재작성: lru_cache 협의 → `_RUNTIME_ALLOWED` upstream 광의) + `a62c6d6` Step A entry audit (A1·A2·A3 read-only) + `33f0cf0` Step B design (read-only, 후보 2 채택: `clear_runtime_allowed_domains` 신규 + `reload_config_inplace` hook) + `4b75bc5` Step B follow-up (B8 4개 사용자 결정 박제 + STOP-3/STOP-4 추가) + `3598568` Step C-1 fix 본체 (settings_gatekeep.py + core/config.py, +16 line) + `90acb87` Step C-2 측정 결과 박제 (catch 50 fix 정량 증거).
+
+본 미션 (catch 50 — gatekeep `_RUNTIME_ALLOWED` upstream 무효화 해소) **PASS**. 정량 증거: academic-ko `[GATEKEEP] n` 79 → 108 (+29 EXTRA 회복, 5/5 runs 일관) + `academic_source_ratio` 0.0 → 0.6667 (dbpia + kiss.kstudy hit). 회귀 0 — business invariant Jaccard 1.0 strict (B8 #3 정합) + 4 metric PASS 회귀 0. 부수 미션 (academic source ratio mean ≥ 0.6) **PARTIAL** — mean 0.3333 (academic-ko 0.6667 PASS + academic-en 0.0 잔존, catch 50 외부 root cause). 박제: `scripts/output/§academic-2/step_{a_entry_audit,b_design,c_impl_measurement}.md`.
+
+close commit chain (참조):
+```
+(이 commit) §academic-2 close — README §academic-2 close section + catch 50 close 표기 + catch 51/52/53 등록
+90acb87 §academic-2 Step C-2 — 측정 결과 박제 (catch 50 fix 정량 증거)
+3598568 §academic-2 Step C-1 — catch 50 fix 본체 (clear_runtime_allowed_domains 신설 + reload hook + __all__)
+4b75bc5 §academic-2 Step B follow-up — design doc 사용자 결정 박제 (B8 4개 결정 + STOP-3/STOP-4 추가)
+33f0cf0 §academic-2 Step B — design (read-only)
+a62c6d6 §academic-2 Step A — entry audit (read-only)
+85579d2 §academic-2 Step A follow-up — README-dev catch 50 가설 재작성 (_RUNTIME_ALLOWED upstream 무효화 누락)
+```
+
+**status: closed (2026-05-19)** — §academic-2 본 미션 (catch 50 fix: `_RUNTIME_ALLOWED` upstream 무효화 해소) 정식 종결. 부수 미션 (academic source ratio mean ≥ 0.6) PARTIAL — academic-ko 단독 PASS / academic-en 잔존 (catch 50 외부, scope creep 경고 박제 정합으로 본 cycle 안 시도 금지). sub-cycle 후보 등록: catch 52 (MID 최우선 — `ACADEMIC_DOMAINS_29` set 보강) · catch 53 (LOW-MID — `ALLOW_SUBDOMAINS` academic 분기) · catch 51 (LOW — vertex grounding bias 정량). lesson: design B5 budget 산식에 PEP 8 separator blank line 항목 포함 권장 (catch 48 lesson 미세 재현 107%, 별 sub-catch 박제 불필요).
