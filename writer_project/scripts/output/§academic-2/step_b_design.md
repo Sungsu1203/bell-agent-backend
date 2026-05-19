@@ -6,6 +6,7 @@
 > - 부수 미션: §academic-1 metric 2 (academic source ratio mean 0.0 REVIEW) 정량 회복 — fix 후 measurement 로 검증
 > - 채택 후보: Step A A3 후보 **2** (clear_runtime_allowed_domains 신규 + reload_config_inplace hook)
 > - 본 박제: read-only design. agent/ core/ 코드 수정 금지 (Step C 의 사용자 컨펌 후 영역)
+> - **사용자 결정 박제 (2026-05-19 follow-up)**: docstring 6-line 명시 / **§academic-1 `scripts/§academic-1/measure_ab.py` 재사용** (신규 driver 작성 0) / business invariant Jaccard mean 1.0 strict / commit 분리 = fix 본체 단일 commit + 측정 결과 별도 + close 별도 — 상세는 B8
 
 ---
 
@@ -177,10 +178,13 @@ except Exception:
 ## B7 — Step C 측정 plan (검증 spec)
 
 ### 측정 환경 standards (catch 49 lesson 정합, §academic-1 C-3 driver 재사용)
+
+> **driver 재사용 결정 박제 (B8 사용자 결정 #2 정합)**: §academic-1 의 `scripts/§academic-1/measure_ab.py` 를 본 cycle Step C-2 측정에 **그대로 재사용**. 본 cycle 신규 driver 작성 = **0**. 신규 측정 driver 의 catch 49 lesson 재구현 / probe 재정착 / standards 재산정 일체 회피.
+
 - `.venv_vertex` + `LLM_PROVIDER=vertexai`
 - max_retries=0 / warmup=2 / measure=3 (per topic) / per-run-timeout 90s (d4d6431 commit 정합) / inter-run-sleep 60s
 - PYTHONIOENCODING=utf-8
-- driver: `scripts/§academic-1/measure_ab.py` (기존 driver — 본 cycle 신규 driver 작성 0)
+- driver: `scripts/§academic-1/measure_ab.py` (위 driver 재사용 결정 박제 정합)
 
 ### 측정 지표 (5 metric 재현)
 | # | 지표 | 검증 기준 (catch 50 fix 후) |
@@ -203,16 +207,19 @@ except Exception:
 
 ---
 
-## B8 — Step C 진입 조건 (사용자 컨펌 영역)
+## B8 — Step C 진입 조건 (사용자 결정 박제 — 2026-05-19)
 
-본 Step B design 박제 commit 후 다음 사용자 결정 필요:
+본 Step B design 박제 commit (`33f0cf0`) 후 사용자 결정 완료:
 
-1. **docstring 정책 결정** (B5 사용자 결정 #1): 6-line 명시 vs 1-line 압축 (−5 line)
-2. **Step C 측정 driver 재사용 vs 신규**: 기존 `scripts/§academic-1/measure_ab.py` 재사용 (권장) vs `scripts/§academic-2/measure_verification.py` 신규 작성
-3. **business invariant 회귀 검증 strict 정도**: Jaccard mean 1.0 strict vs ≥0.7 임계
-4. **fix 적용 commit 분리 정책**: (a) settings_gatekeep.py + core/config.py 단일 commit vs (b) 함수 신설 / hook 도입 / `__all__` 등록 분리
+1. **docstring 정책** (B5 사용자 결정 #1): **6-line 명시** 채택 (총 +15 line). 사유: 코드 인라인 의도 명확화 우선 (catch 50 chain reader / 향후 cycle 작업자 의도 파악).
+2. **Step C 측정 driver**: **기존 `scripts/§academic-1/measure_ab.py` 재사용** 채택. 신규 driver 작성 0. 박제 정합: 본 design B7 "driver 재사용 결정 박제" 1줄 명시 추가 (본 follow-up commit).
+3. **business invariant 회귀 검증**: **Jaccard mean 1.0 strict** 채택. 사유: 부작용 즉시 감지 우선 — 임계 ≥0.7 완화 시 회귀 감지 지연 risk.
+4. **fix 적용 commit 분리**:
+   - **fix 본체** = 단일 commit (B2 함수 + B3 hook + `__all__` 묶음 — `settings_gatekeep.py` + `core/config.py` 동시)
+   - **측정 결과** = 별도 commit (`scripts/output/§academic-2/step_c_*.md`)
+   - **close** = 별도 commit (README §academic-2 track close 표기)
 
-자율 Step C 진입 금지. 본 Step B design 박제 commit 후 사용자 컨펌 대기 (STOP-1).
+본 결정 박제 정합 — Step C 진입 OK (사용자 컨펌 OK).
 
 ---
 
@@ -228,8 +235,27 @@ except Exception:
 
 ---
 
-## STOP — Step C 자율 진입 금지
+## STOP — Step C 진행 중 자율 진행 한계 (2026-05-19 사용자 추가 명시)
 
-본 Step B 박제 commit 후 다음 STOP-1 발화:
-- B8 의 4개 사용자 결정 (docstring 정책 / driver 재사용 / 회귀 임계 / commit 분리) 컨펌 대기
-- 컨펌 후 Step C-1 implementation 진입 (settings_gatekeep.py + core/config.py 수정 — 사용자 컨펌 영역)
+### STOP-1 (해소됨 — 2026-05-19)
+- B8 의 4개 사용자 결정 (docstring / driver 재사용 / 회귀 임계 / commit 분리) 컨펌 완료
+- Step C-1 진입 OK (단, 사용자 측 `git push origin main` 별도 처리 후)
+
+### STOP-2 (해소됨 — Step A audit 단계)
+- catch 50 가설 재작성 사용자 컨펌 완료 (commit `85579d2`)
+
+### STOP-3 (활성 — Step C-1 fix 구현 완료 후)
+- `settings_gatekeep.py` (B2 함수 + B4 `__all__`) + `core/config.py` (B3 hook) 수정 후 `git diff` + budget 산정 자체 검산 (catch 48 산식 정합 = net +15) 보고
+- diff 사용자 컨펌 전까지 fix 본체 commit 금지
+- 자율 측정 driver 실행 금지 (STOP-3 통과 후 진입)
+
+### STOP-4 (활성 — Step C-2 측정 실행 완료 후)
+- §academic-1 driver (`scripts/§academic-1/measure_ab.py`) 실행 → 5 metric + `[GATEKEEP] n` 보조 지표 결과 raw 박제 후 사용자 컨펌
+- 본 미션 (metric 2 academic source ratio ≥ 0.6) + business invariant (Jaccard mean 1.0 strict) 둘 다 충족 검증
+- 결과 컨펌 전까지 측정 결과 박제 doc commit 금지
+- **자율 close 진행 금지** — STOP-4 통과 후 close commit 진입 (README §academic-2 track close 표기)
+
+### close 진입 조건 (STOP-4 통과 후)
+- step_c_impl_measurement.md 박제 완료
+- 5 metric 결과 정합 + 부수 미션 (academic source ratio 회복) 정량 박제
+- 사용자 close 컨펌 후 별도 commit ("§academic-2 close — README §academic-2 track 정식 close 표기")
