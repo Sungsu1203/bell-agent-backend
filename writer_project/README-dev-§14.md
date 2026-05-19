@@ -386,3 +386,9 @@ f858af5 §14-9 Step A + A1 + A2 박제 자산 (audit chain + 정정 reference �
 ```
 
 **status: closed (2026-05-18)** — §14-9 main mission 전체 종결. sub-task (a) 정식 close, (b)~(e) 미진입 별 cycle 후보 보존.
+
+---
+
+## §academic-1 close (2026-05-19) — 학술 모드 통합 옵션 B (catch 43 + MODE infra)
+
+`81894f3` C-1 (catch 43 hook + MODE/EXPECTED_LANG config + academic env templates) + `c927a70`/`b2c7c86` C-2 measurement driver (+ hotfix) + C-3 측정 (3 topics × 5 runs · vertex). 본 미션 (catch 43 routing 메커니즘 + business invariant) 5 metric 중 4 PASS, metric 2 REVIEW (root cause A/B 박제: driver redirect monkey-patch + gatekeep cache stale → catch 50 sub-cycle 후보). 박제: `scripts/output/§academic-1/step_{a,b}_*.md` + `step_c_impl_measurement.md`. **본 cycle 본 미션 달성, 부수 미션 (academic source ratio 정량) 미달성 — catch 50 신규 등록 후 cycle close (사용자 컨펌 영역).**
