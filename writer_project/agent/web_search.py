@@ -108,6 +108,16 @@ def _cfg_int(name: str, default: int = 0) -> int:
     except Exception:
         return default
 
+
+def detect_query_lang(query: str) -> str:
+    """§academic-1 catch 43 — Korean-ratio heuristic; returns 'en' / 'ko' / 'mixed'."""
+    s = "".join(c for c in (query or "") if c.isalpha() or '가' <= c <= '힣')
+    if not s:
+        return "en"
+    r = sum(1 for c in s if '가' <= c <= '힣') / len(s)
+    # TODO(catch 43 escalation): heuristic 정확도 < 0.7 시 langdetect 도입 — Phase 학술-2
+    return "ko" if r > 0.7 else ("en" if r < 0.3 else "mixed")
+
 # ─────────────────────────────────────────────────────────────
 # P2 품질 유틸/상수: 연식 필터, 권위/잡음 가중 정렬
 #  - YEAR_FLOOR: URL에서 추출된 연도가 이 값 미만이면 제외(미추출은 통과)
@@ -734,6 +744,15 @@ def web_search_agent(state: State):
         if not q:
             return False
 
+        # §academic-1 catch 43 — language-aware backend routing (MODE=academic only)
+        if _get_cfg_attr("MODE", "business") == "academic":
+            _lang_override = _get_cfg_attr("EXPECTED_LANG", "auto")
+            _q_lang = _lang_override if _lang_override in ("en", "ko", "mixed") else detect_query_lang(q)
+            effective_skip_vertex = (_q_lang == "ko")
+            logger.info("[catch43] lang=%s skip_vertex=%s q=%r", _q_lang, effective_skip_vertex, q[:60])
+        else:
+            effective_skip_vertex = _cfg_bool("SKIP_VERTEX_SEARCH", False)
+
         norm_q = _normalize_query(q)
         if norm_q != (q or ""):
             logger.debug("[web_search][normalized] %s  <-  %s", norm_q, q)
@@ -761,7 +780,7 @@ def web_search_agent(state: State):
                 # -----------------------------------------
                 # 1-1. Vertex 우선 시도 (attempt==0에서 한 번만)
                 # -----------------------------------------
-                if attempt == 0 and query and not _cfg_bool("SKIP_VERTEX_SEARCH", False):
+                if attempt == 0 and query and not effective_skip_vertex:
                     try:
                         vertex_result = vertex_web_search(query)
                         v_chunks = vertex_result.get("chunks") or []

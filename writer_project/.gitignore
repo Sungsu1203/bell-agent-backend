@@ -75,6 +75,8 @@ env_text.txt
 # ── Topic env files (NDA / client assets, since 2026-05-13) ──
 topics/*.env
 !topics/_template.env.example
+# §academic-1: academic 모드 토픽은 학술 lit-review (NDA 아님) — 추적 허용
+!topics/academic-*.env
 
 # ── §14-2 dump outputs ───────────────────────────────────
 # Raw 측정 결과 (json/log/ndjson) 차단. nested 경로 포함.

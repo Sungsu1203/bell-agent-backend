@@ -239,6 +239,8 @@ class Config:
     ITERATION_COUNT: int
 
     # RAG/검색 (네임스페이스/머지/탑K 등)
+    MODE: str                            # §academic-1: business (default) / academic
+    EXPECTED_LANG: str                   # §academic-1: auto | en | ko | mixed (catch 43)
     SEARCH_POLICY: str
     SEARCH_MIN_OK: int
     SEARCH_TOPN: int
@@ -470,6 +472,8 @@ def _build_config() -> Config:
         ITERATION_COUNT=_env_int("ITERATION_COUNT", 1, min_=1, max_=50),
 
         # RAG/검색
+        MODE=_env_str("MODE", "business"),
+        EXPECTED_LANG=_env_str("EXPECTED_LANG", "auto"),
         SEARCH_POLICY=_env_str("SEARCH_POLICY", "best_of_chain"),
         SEARCH_MIN_OK=_env_int("SEARCH_MIN_OK", 1, min_=1, max_=5),
         SEARCH_TOPN=_env_int("SEARCH_TOPN", 10, min_=1, max_=50),
