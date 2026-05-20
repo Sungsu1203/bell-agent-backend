@@ -350,13 +350,71 @@ ALLOWED_DOMAINS_EXTRA=academic.naver.com,academic.oup.com,acr-journal.com,ama.or
   · 잔존 ratio 임계 미달 root cause = catch 51 (vertex grounding bias) + catch 53 (subdomain 매칭) 분리
   · §academic-3 cycle 종결 verdict = PARTIAL (catch 52 set 보강 PASS · 부수 academic-en ratio PARTIAL 잔존)
 
-### STOP-1 — Step B design 사용자 컨펌 대기
+### STOP-1 (resolved 2026-05-20) — Step B design 컨펌 대기 (이력 보존)
 
-본 design draft commit 전 사용자 결정 영역:
+본 design draft commit 전 사용자 결정 영역 (resolved, 아래 "사용자 결정 박제 (확정)" 섹션 참조):
 
 1. **D1 카테고리 주석 9 헤더 형태**: 정합 vs 단순 alpha 순 (no 헤더) 선택
 2. **D1 priority 주석 (HIGH/MID) 코드 본문 포함 여부**: 본 design 미포함 정책 vs 코드 본문 inline 박제
 3. **D3 PASS 임계 0.6 유지 vs 조정**: academic-en ratio 예상 0.31 → 임계 0.6 미달 위험. 임계 유지 (PARTIAL 수용) vs 임계 조정 (`[GATEKEEP] n` 회복만 PASS 조건) 결정
 4. **D5 Step B follow-up commit 필요 여부**: B1~B5 결정 박제는 본 design .md 에 이미 포함 — follow-up commit 생략 vs §academic-2 패턴 정합 (4b75bc5 follow-up) 위해 추가
 
-자율 Step C-1 진입 금지 (STOP-1). 본 draft commit 후 사용자 컨펌 대기.
+자율 Step C-1 진입 금지 (STOP-1). 본 draft commit 후 사용자 컨펌 대기 → **resolved 2026-05-20**.
+
+---
+
+### 사용자 결정 박제 (확정, 2026-05-20)
+
+> Step B design draft commit `8d6d2e4` 직후 사용자 컨펌 영역 4개 모두 결정. Step C-1 진입 자격 충족 (단, PARTIAL Risk 박제 정합 정착).
+
+| # | 결정 영역 | 확정 | 사유·정합 근거 |
+|---:|---|---|---|
+| ① | D1 카테고리 주석 | **9 헤더 채택** (B1 옵션 A 정합) | Korean / Global society / Publisher / Preprint / Archive / Search / Ad-Mkt journal / Academic SNS / Industry research 의 9 카테고리 헤더. alpha 순 미채택 — B1 옵션 A 의도 정합 + 미래 보강 cycle (catch 51/53 등) 비용 절감 (카테고리 분류 안정, 추가 entry 의 소속 명확) |
+| ② | D1 priority (HIGH/MID) 주석 | **미포함** (현 design 정책 유지) | priority 는 §academic-3 audit 시점 분류 (실측 hit 우선순위) — 시간 지나면 의미 흐려짐. 추적성은 design .md (D1 표) + audit .md (A3 표) + `git blame` 으로 충분. 코드 본문은 카테고리 (안정) 만 노출 |
+| ③ | D3 PASS 임계 | **0.6 유지 + PARTIAL 수용** | 평가 기준 일관성 유지 (§academic-2 패턴 정합). 임계 조정 (`[GATEKEEP] n` 회복만 PASS) 미채택 — set 보강 자체는 `[GATEKEEP] n` 108 → 115 로 정합 박제, 그러나 academic-en ratio 임계 0.6 미달은 catch 52 외부 root cause (catch 51/53) 영역 — verdict 분리로 책임 영역 박제 |
+| ④ | D5 Step B follow-up commit | **진행** | §academic-2 `4b75bc5` (B8 follow-up) 패턴 정합. B1~B5 결정 + Risk 박제 + PARTIAL verdict 의미 명시는 design 본문 외 후속 영역 (이력 보존 + STOP-2 정합) |
+
+---
+
+### Risk 박제 — PARTIAL verdict 의미 분리 (STOP-4 정합)
+
+> §academic-2 측정 raw 분포 기반 사전 추정. catch 52 책임 영역 vs catch 51/53 책임 영역 명확히 분리하여 scope creep 경고 박제 정합.
+
+#### 사전 추정 — academic-en ratio ≈ 0.31
+
+- §academic-2 c_verification.json `academic-en` measure 3 runs `all_uniq` 평균 ~13 도메인 / run
+- HIGH 4 (mdpi / researchgate / academic.naver / acr-journal) 실측 hit 평균 4 도메인 / run
+- 예상 ratio = 4 / 13 ≈ **0.308** ← 임계 0.6 미달
+- MID 3 (sciencedirect / journalofadvertising / aom) 실측 hit 0 — academic-en query 분포에 자연 진입 여부 불확정 (측정 후 확정)
+
+#### catch 52 책임 영역 (본 cycle 본 미션 PASS 조건)
+
+| 정량 증거 | 임계 | 의미 |
+|---|---|---|
+| `[GATEKEEP] n` business 79 / academic-ko 115 / academic-en 115 | business=79 (회귀 0) · academic n=115 (=78 base + 36 EXTRA + 1 norm) | ★ catch 52 set 보강 정합 직접 증거 — EXTRA 36 반영 |
+| academic-ko ratio | ≥ 0.6667 (유지) | 회귀 0 검증 |
+| business invariant Jaccard | = 1.0 strict | 회귀 0 검증 |
+| `academic_domains_hit` 의 HIGH 4 entry 회수 | hit ≥ 1 / 5 runs | catch 52 set 등재 후 ratio 분자 진입 정합 |
+
+→ 위 4 정량 증거 충족 시 **catch 52 본 미션 PASS** — set 보강 정합 박제. ratio 임계 0.6 미달은 별 cycle 영역.
+
+#### 잔존 영역 (catch 52 외부 — 별 cycle 후보)
+
+| catch | 책임 영역 | 1줄 description |
+|---|---|---|
+| **catch 51** | vertex grounding 학술 도메인 reach 정량 (영문 ad-tech bias) | academic-en query ("consumer behavior in influencer marketing") 의 vertex grounding 결과 분포가 industry / preprint / trade publication (forbes / medium / mintel 등) 으로 편향 — 학술지 도메인 reach 자체 가 0 또는 낮음. **외부 의존 (vertex 검색 엔진 정책) — 우리 제어 면적 작음** |
+| **catch 53** | `ALLOW_SUBDOMAINS` academic 모드 전용 분기 검토 | `pdfs.semanticscholar.org` 등 subdomain 이 base domain (`semanticscholar.org`) 매칭 안 됨. `settings_gatekeep.py:363` `ALLOW_SUBDOMAINS=False` default → academic 모드 전용 ON 검토 (business 모드 invariant 정합성 사전 검증 필요) |
+
+#### PARTIAL verdict 처리 정책
+
+- **본 미션 (catch 52)**: PASS — `[GATEKEEP] n` 회복 + academic-ko 회귀 0 + business invariant 회귀 0 정합
+- **부수 미션 (academic-en ratio ≥ 0.6)**: PARTIAL (예상 ≈ 0.31, 임계 미달) — scope creep 경고 박제 정합으로 본 cycle 안 시도 금지
+- **§academic-3 close 표기**: 본 미션 PASS + 부수 미션 PARTIAL + catch 51/53 sub-cycle 후보 등록 (§academic-2 close 패턴 정합)
+- **임계 미달 시 임계 재조정 금지**: 평가 기준 일관성 유지 (결정 ③ 정합)
+
+#### Step C 측정 후 분기 결정 영역
+
+- academic-en ratio 측정 결과 ≥ 0.6 → 부수 미션 PASS (예상 외 결과, MID 3 자연 진입 가정)
+- ratio 0.3 < x < 0.6 → 부수 미션 PARTIAL (예상 정합) · catch 51/53 cycle 진입 결정 사용자 영역
+- ratio < 0.3 → 부수 미션 FAIL (예상 미달) · catch 52 set 보강 외 외부 root cause 강함 → catch 51 우선 진입 권고
+- 단, **catch 52 본 미션 PASS 판정은 ratio 결과와 독립** (정량 증거 4개 충족이 본 미션 PASS 조건)
