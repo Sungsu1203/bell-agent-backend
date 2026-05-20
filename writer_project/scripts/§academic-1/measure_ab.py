@@ -134,15 +134,41 @@ PER_RUN_TIMEOUT_S = 90.0
 INTER_RUN_SLEEP_S = 60.0
 
 
-# ── B1 final 29 academic domains (§academic-1 Step B 박제 정합) ───────────────
-ACADEMIC_DOMAINS_29 = {
-    "academic.oup.com", "ama.org", "arxiv.org", "dbpia.co.kr", "doaj.org",
-    "emerald.com", "journals.sagepub.com", "jstor.org", "kadpr.or.kr",
-    "kci.go.kr", "kiss.kstudy.com", "link.springer.com", "mmaglobal.com",
-    "msi.org", "onlinelibrary.wiley.com", "openalex.org", "papers.ssrn.com",
-    "plos.org", "pmc.ncbi.nlm.nih.gov", "pubsonline.informs.org", "riss.kr",
-    "sagepub.com", "science.org", "semanticscholar.org", "springer.com",
-    "ssrn.com", "tandfonline.com", "warc.com", "wiley.com",
+# ── academic domains (§academic-1 B1 final 29 + §academic-3 B 추가 7 = 36) ────
+ACADEMIC_DOMAINS = {
+    # Korean academic society / aggregator / search engine
+    "dbpia.co.kr", "kadpr.or.kr", "kci.go.kr", "kiss.kstudy.com", "riss.kr",
+    "academic.naver.com",          # §academic-3 (academic search, naver_direct hit)
+
+    # Global academic society (advertising / marketing)
+    "ama.org", "mmaglobal.com", "msi.org", "pubsonline.informs.org",
+    "aom.org",                     # §academic-3 (Academy of Management root)
+
+    # Global publisher (peer-review)
+    "academic.oup.com", "emerald.com", "journals.sagepub.com",
+    "link.springer.com", "onlinelibrary.wiley.com", "plos.org",
+    "sagepub.com", "science.org", "springer.com", "tandfonline.com", "wiley.com",
+    "mdpi.com",                    # §academic-3 (OA publisher, marketing journals)
+    "sciencedirect.com",           # §academic-3 (Elsevier root, JBR / JoR cover)
+
+    # Global preprint repository
+    "arxiv.org", "papers.ssrn.com", "ssrn.com",
+
+    # Global academic archive
+    "jstor.org", "pmc.ncbi.nlm.nih.gov",
+
+    # Global academic search engine / scholarly metadata
+    "doaj.org", "openalex.org", "semanticscholar.org",
+
+    # Global advertising / marketing journal (peer-review, Sungsu 분야 정합)
+    "acr-journal.com",             # §academic-3 (Assoc. for Consumer Research)
+    "journalofadvertising.org",    # §academic-3 (Journal of Advertising; catch 45 별 cycle)
+
+    # Global academic SNS (peer-review working paper hosting)
+    "researchgate.net",            # §academic-3 (working paper self-archive)
+
+    # Global industry research repository (advertising-specific)
+    "warc.com",
 }
 
 
@@ -394,7 +420,7 @@ def run_single(topic_key: str, query: str, mode: str, expected_lang: str,
     legacy_rec = call_legacy(query, timeout_s, dry_run)
     all_domains = list(vertex_rec.get("domains", [])) + list(legacy_rec.get("domains", []))
     all_domains_set = sorted(set(d for d in all_domains if d))
-    academic_domains = sorted(set(all_domains_set) & ACADEMIC_DOMAINS_29)
+    academic_domains = sorted(set(all_domains_set) & ACADEMIC_DOMAINS)
     academic_ratio = (len(academic_domains) / len(all_domains_set)) if all_domains_set else 0.0
     return {
         "topic_key": topic_key,
