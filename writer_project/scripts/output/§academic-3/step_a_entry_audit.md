@@ -262,13 +262,35 @@
 - raw 자산 재사용: `writer_project/scripts/output/§academic-2/c_verification.json` (.gitignored)
 - 신규 driver 작성: **없음** (audit driver 미사용)
 
-### STOP-1 — Step A audit 결과 사용자 컨펌 대기
+### STOP-1 (resolved 2026-05-20) — Step A audit 결과 컨펌 대기 (이력 보존)
 
-본 draft commit 전 사용자 결정 필요:
+본 draft commit 전 사용자 결정 영역 (resolved, 아래 "사용자 결정 박제 (확정)" 섹션 참조):
 
 1. **권장 보수적 안 (7 entries) 수용 여부**: mdpi / researchgate / academic.naver / acr-journal / sciencedirect / journalofadvertising / aom.org — 전수 수용 vs 일부 제외
 2. **researchgate.net 학술 SNS 인정 여부**: Q1 엄격 정책 (peer-review only) 경계선 — 인정 시 학술 SNS 카테고리 신설, 제외 시 보수적 안 6 entries 로 축소
 3. **catch 45 (`journalofadvertising.org`) 재검 진입 여부**: 본 cycle 안 동시 처리 vs 별 cycle 분리. SSL/접속 이슈 (§academic-1 Step A 박제) 가 ALLOWED_DOMAINS_EXTRA 등재 후에도 retrievable 여부 측정 필요
 4. **set 재명명 (29 → 36) 정합 여부**: Step B design 영역 — 측정 driver `ACADEMIC_DOMAINS_29` literal + README-dev 박제 + 토픽 env comment 모두 일관 update 정책
 
-자율 Step B 진입 금지 (STOP-1). 본 draft commit 후 사용자 컨펌 대기.
+자율 Step B 진입 금지 (STOP-1). 본 draft commit 후 사용자 컨펌 대기 → **resolved 2026-05-20**.
+
+---
+
+### 사용자 결정 박제 (확정, 2026-05-20)
+
+> Step A audit draft commit `10541d2` 직후 사용자 컨펌 영역 4개 모두 결정. Step B 진입 자격 충족.
+
+| # | 결정 영역 | 확정 | 사유·정합 근거 |
+|---:|---|---|---|
+| ① | 보수적 안 7 entries 수용 범위 | **전수 수용** (HIGH 4 + MID 3) | HIGH: `mdpi.com` · `researchgate.net` · `academic.naver.com` · `acr-journal.com` (실측 hit + Q1 정합). MID: `sciencedirect.com` · `journalofadvertising.org` · `aom.org` (광고/마케팅 핵심 publisher cover) — Q2 보수적 (10개 이내) 정합 |
+| ② | `researchgate.net` 학술 SNS 인정 | **인정** | Q1 엄격 정책 (peer-review only) 정합 — peer-review 논문 공유 플랫폼으로 분류. 광고/마케팅 분야 working paper 관행 정합 (학자 self-archive 관행 보편). 학술 SNS 카테고리 신설 (catch 52 fix scope 안) |
+| ③ | catch 45 (`journalofadvertising.org`) 재검 진입 | **분리** (본 cycle 은 catch 52 만) | scope creep 방지 (catch 45 = SSL/접속 이슈 별 root cause, ALLOWED_DOMAINS_EXTRA 등재로 자동 해소 안 됨). catch 45 별 cycle 후보로 보존, 본 cycle 의 `journalofadvertising.org` 추가는 set 등재만 수행 (retrievable 검증은 catch 45 cycle scope) |
+| ④ | set 재명명 (`ACADEMIC_DOMAINS_29` → `_36` 또는 숫자 제거) | **Step B design 영역 이월** | Step B 의 substitution net 산정 + driver `measure_ab.py:138-146` literal + 참조 site (`measure_ab.py:397`) + README-dev 박제 + 토픽 env comment 일관 update 정책 결정 영역. catch 48 컨벤션 (budget 산식 신규 def 항목) 정합 |
+
+### Step B 진입 자격
+
+- catch 52 root cause + 보강 후보 7 entries 확정 → Step B (design) 진입 자격 충족
+- Step B design 박제 영역:
+  - set 재명명 정책 (결정 ④ 영역)
+  - substitution 면적 정밀 산정 (catch 48 budget 컨벤션)
+  - 측정 driver vs config-side inject 동기화 정책 (4 file 일관 update)
+  - business invariant + academic-ko 회귀 0 검증 strategy (catch 52 fix 후 §academic-2 PASS 정합 유지)
