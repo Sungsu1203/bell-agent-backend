@@ -1,0 +1,606 @@
+# §academic-4 Step B design (read-only)
+
+> **박제 chain reference**
+> - 직전 step: §academic-4 Step A close (commit `4574a33` · branch `main` · 2026-05-21)
+> - 본 design 대상: catch 51 fix S1 (Option 5 학술 전용 backend 단독 추가) 의 module + routing + 도메인 추출 + env/driver design spec
+> - root cause: catch 51 redefine — "EN academic mode 학술 전용 backend 부재, vertex 단독 의존 (ad-tech bias 는 증상)"
+> - design 범위: B1 (module 설계) · B2 (routing 통합 패턴) · B3 (도메인 추출 + catch 59 정적 매핑 table) · B4 (env + 측정 driver 확장) — **read-only, pseudocode/spec only**
+> - 환경: PowerShell · BOOK-DPUCVR08TC · HEAD = `4574a33` · 2026-05-21
+
+---
+
+## 0. Decision layer 분리 + 사용자 컨펌 4 sub-decisions (Issue 4 반영)
+
+### Decision layer 분리
+
+| Layer | 의제 | 본 Step B 처분 |
+|---|---|---|
+| **high-level (pre-brainstorm 4개)** | #1 fix 접근 / #2 외부 의존 한계 / #3 PASS 임계 0.6 / #4 scope | **#1**: Step A audit A3 5 후보 비교 → S1 (Option 5 단독) 권고로 확정 진입 — 본 design 진입 자체가 처분 / **#2~#4**: Step A audit summary 박제로 해소 (외부 의존 LOW, 임계 0.6 충족 안정 마진 ~0.676, scope 본 cycle catch 51 만) |
+| **low-level (audit summary 4개, 본 Step B 의제)** | (1) ss/oa key 정책 / (2) 도메인 추출 path / (3) catch 59 채택 / (4) routing 통합 패턴 | 사용자 컨펌 권고 안 박제: **1A / 우선순위 / 3A / 4A** (아래 sub-decisions 표) |
+
+### 사용자 컨펌 4 sub-decisions 박제
+
+| # | 영역 | 결정 | 박제 사유 |
+|---:|---|---|---|
+| 1 | ss/oa key 정책 | **1A — SS key 미사용 (anonymous shared pool + UA + mailto + backoff) + OA key 발급 필수 (`api_key=` 파라미터 + mailto polite pool)** | SS 는 Step A pilot 에서 UA 헤더 + 2s backoff 로 anonymous 호출 검증 (200 OK, 1.36s). OA 는 2026-02-13~ key 정책 변경 (사용자 별도 발급 30초). mailto = `sungsu.oh1203@gmail.com` |
+| 2 | 도메인 추출 path 우선순위 | **4-step early-return**: (1) `primary_location.landing_page_url` (OA, 전체 cover) → (2) `openAccessPdf.url` (SS, OA 한정) → (3) **DOI prefix → publisher 매핑 (catch 59)** → (4) `venue` / `source.display_name` 매칭 (ACADEMIC_DOMAINS 36 set 정합) | A2-c pilot 검증: OA entry 0/1 모두 `landing_page_url` robust (sciencedirect.com 직접) · SS entry 1 의 DOI `10.3390/*` → mdpi.com (catch 59 매핑) hit |
+| 3 | catch 59 채택 | **3A — 정적 prefix → publisher 매핑 table 내장** (광고/마케팅 핵심 + 인접 STEM 35 entries cover, 신규 prefix 발견 시 logging fallback) | Crossref REST / OA works/{doi} 동적 조회 미채택 사유: 추가 latency (REST 호출 1회 × N papers) + OA credit 소비 (10 credit × N) + Step C 측정 fan-out 안정성 우선 |
+| 4 | routing 통합 패턴 | **4A — fan-out 병렬** (vertex + ss + oa 동시 호출, `concurrent.futures.ThreadPoolExecutor` 권고, 에러 isolation + 전체 timeout ~30s) | A2-c latency 실측: vertex 18.157s bottleneck, ss 1.36s, oa 1.82s → fan-out overhead 사실상 0. asyncio 도입은 web_search.py 의 sync 패턴 깨므로 ThreadPoolExecutor 우선 |
+
+### 사용자 컨펌 Step C 측정 처분
+
+- academic-en single query 유지 (§academic-3 baseline 1:1 정합 우선)
+- catch 58 multi-query 확장은 §academic-5 이전 (본 cycle scope creep 회피, STOP-B-4 정합)
+
+---
+
+## 1. Step A 잔여 반영 (Issue 3 baseline 명세 + Issue 5 STOP gate 정의)
+
+### Issue 3 — pilot 정량 강도 표현 완화
+
+**baseline 명세**:
+
+> Step A pilot 의 ratio 추정 **~0.676** 은 (a) 1차 정량 (각 backend 첫 2 entries 의 venue/DOI 명시 검증) + (b) 정성 추정 (나머지 8 entries 분야 적합도 가정, OpenAlex MAG 후계자 + Semantic Scholar Academic Graph 학술 venue ranker 정합) 의 혼합. **Step C 측정 시 vertex+legacy+ss+oa 합집합 기준 (`measure_ab.py:420-438` 산식 정합) 으로 정량 검증 영역**. Step B design 의 정량 근거는 baseline 명세 한도 안에서만 유효.
+
+### Issue 5 — STOP gate 정의 process lesson
+
+**STOP-8 retry/fallback call 정의 정합**:
+
+> STOP gate 의 호출 횟수는 **successful call 기준** (fail call 은 fallback 1회 허용, prompt 명시 영역). Step A pilot 의 SS curl 429 fail → urllib UA+backoff fallback 200 OK 는 STOP-8 (각 backend 1 successful call) 정합. catch 57 inline 박제에 이 process lesson 보강.
+
+---
+
+## 2. B1 — module 설계 (semantic_scholar.py + openalex.py)
+
+### B1-1 신규 module 파일 + 함수 signature
+
+**파일 위치**: `writer_project/tools/web_rag/semantic_scholar.py` · `writer_project/tools/web_rag/openalex.py`
+
+**Pattern 답습**: `tools/web_rag/vertex_search.py:88-194 vertex_web_search(query)` (함수 1 + 헬퍼 1~2 + try/except import guard)
+
+#### `semantic_scholar_search(query: str) -> Dict[str, Any]`
+
+```
+# pseudocode (Step C 영역, 실제 코드 작성 X)
+
+def semantic_scholar_search(query: str) -> Dict[str, Any]:
+    """
+    Semantic Scholar Graph API v1 paper/search 호출.
+    반환 형식: vertex_web_search() 정합 (chunks/supports/items 통합 chain compatibility).
+    """
+    t0 = time.monotonic()
+    mailto = os.getenv("SEMANTIC_SCHOLAR_MAILTO", "sungsu.oh1203@gmail.com")
+    fields = "title,venue,year,journal,externalIds,openAccessPdf,authors"
+    url = (f"https://api.semanticscholar.org/graph/v1/paper/search"
+           f"?query={urlencode(query)}&limit=10&fields={fields}")
+    headers = {
+        "User-Agent": f"writer_project/§academic-4 (mailto:{mailto})",
+        "Accept": "application/json",
+    }
+    # 1회 backoff 2s on 429 (Step A pilot 검증된 패턴)
+    for attempt in range(2):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                body = json.loads(resp.read())
+            break
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt == 0:
+                time.sleep(2.0)
+                continue
+            return _empty_result("semantic_scholar", error=str(e), elapsed=time.monotonic()-t0)
+        except Exception as e:
+            return _empty_result("semantic_scholar", error=str(e), elapsed=time.monotonic()-t0)
+
+    data = body.get("data") or []
+    chunks, supports, domains = [], [], []
+    for i, paper in enumerate(data):
+        d = extract_domain_from_paper(paper, backend="semantic_scholar")  # B3 layer
+        if not d:
+            continue
+        chunks.append({"uri": _paper_to_url(paper), "title": paper.get("title") or "", "domain": d})
+        supports.append({"chunk_indices": [i], "text": paper.get("title") or "",
+                         "start_index": 0, "end_index": 0})
+        domains.append(d)
+
+    return {
+        "mode": "semantic_scholar",
+        "elapsed_sec": round(time.monotonic() - t0, 3),
+        "items": len(data),
+        "domains": domains,
+        "domains_unique": sorted(set(d for d in domains if d)),
+        "chunks": chunks,
+        "supports": supports,
+        "web_search_queries": [query],
+        "error": None,
+    }
+```
+
+#### `openalex_search(query: str) -> Dict[str, Any]`
+
+```
+# pseudocode
+
+def openalex_search(query: str) -> Dict[str, Any]:
+    """
+    OpenAlex /works search 호출 (mailto polite pool + api_key 필수).
+    """
+    t0 = time.monotonic()
+    mailto = os.getenv("OPENALEX_MAILTO", "sungsu.oh1203@gmail.com")
+    api_key = os.getenv("OPENALEX_API_KEY", "")
+    if not api_key:
+        return _empty_result("openalex", error="OPENALEX_API_KEY 미설정",
+                             elapsed=time.monotonic()-t0)
+    url = (f"https://api.openalex.org/works"
+           f"?search={urlencode(query)}&per-page=10"
+           f"&mailto={mailto}&api_key={api_key}")
+    # mailto/api_key 는 query param 형태 (header 도 가능, 정책 변경 시 분기)
+    headers = {"Accept": "application/json"}
+    for attempt in range(2):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                body = json.loads(resp.read())
+            break
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt == 0:
+                time.sleep(2.0); continue
+            return _empty_result("openalex", error=str(e), elapsed=time.monotonic()-t0)
+        except Exception as e:
+            return _empty_result("openalex", error=str(e), elapsed=time.monotonic()-t0)
+
+    results = body.get("results") or []
+    chunks, supports, domains = [], [], []
+    for i, work in enumerate(results):
+        d = extract_domain_from_paper(work, backend="openalex")  # B3 layer
+        if not d:
+            continue
+        url_extract = (work.get("primary_location") or {}).get("landing_page_url") or work.get("doi") or ""
+        chunks.append({"uri": url_extract, "title": work.get("title") or "", "domain": d})
+        supports.append({"chunk_indices": [i], "text": work.get("title") or "",
+                         "start_index": 0, "end_index": 0})
+        domains.append(d)
+
+    return {
+        "mode": "openalex",
+        "elapsed_sec": round(time.monotonic() - t0, 3),
+        "items": len(results),
+        "domains": domains,
+        "domains_unique": sorted(set(d for d in domains if d)),
+        "chunks": chunks,
+        "supports": supports,
+        "web_search_queries": [query],
+        "error": None,
+    }
+```
+
+### B1-2 헬퍼 + 에러 처리
+
+| 헬퍼 | 위치 | 역할 |
+|---|---|---|
+| `_empty_result(mode, error, elapsed)` | `semantic_scholar.py` / `openalex.py` 양쪽 module-private | 호출 실패 시 vertex 정합 빈 dict 반환 (`items=0, domains=[], error=str`) — 에러 isolation 의 backend 측 endpoint |
+| `extract_domain_from_paper(paper_dict, backend)` | **shared helper, 신규 `tools/web_rag/_scholarly_domain.py` 또는 inline** | B3 의 4-step early-return logic (Sub-decision 2) |
+| `_paper_to_url(paper)` | `semantic_scholar.py` private | SS paper dict → 대표 URL (`openAccessPdf.url` > `url` > `f"https://doi.org/{DOI}"`) |
+
+### B1-3 라이브러리 선택 사유 (catch 57 lesson 반영)
+
+| 후보 | 채택 여부 | 사유 |
+|---|:---:|---|
+| `urllib.request` (표준 라이브러리) | **채택** | Step A pilot 의 SS fallback 검증 (User-Agent 헤더 명시 200 OK). 외부 의존 0, venv 호환성 최고 |
+| `requests` | 보조 | 이미 `vertex_search.py` 에서 `_resolve_vertex_redirect` 용도로 import 됨. 본 module 도입 시 양립 가능하지만 의존 일원화 측면에서 urllib 우선 |
+| `httpx` | 미채택 | async 지원이 있으나 sync 호출 패턴에서 urllib 대비 이점 없음, 추가 의존 |
+
+### B1-4 변경 면적 추정 (catch 48 컨벤션)
+
+| 파일 | logical line | cosmetic | 비고 |
+|---|---:|---:|---|
+| `tools/web_rag/semantic_scholar.py` (신규) | ~+90~110 | +8 (separator + module docstring) | 함수 1 + 헬퍼 2 (`_empty_result`, `_paper_to_url`) |
+| `tools/web_rag/openalex.py` (신규) | ~+90~110 | +8 | 함수 1 + 헬퍼 1 (`_empty_result` shared 또는 module-local) |
+| `tools/web_rag/_scholarly_domain.py` (신규, B3 영역) | ~+80~120 | +6 | `extract_domain_from_paper` + catch 59 매핑 table |
+| **B1 net logical** | **~+260~340** | +22 | catch 48 산식 정합, Step C-1 budget 산정 영역 |
+
+---
+
+## 3. B2 — routing 통합 패턴 (catch 43 자연 확장)
+
+### B2-1 새 routing 매트릭스
+
+| MODE | q_lang | vertex | semantic_scholar | openalex | legacy (Tavily+Naver) |
+|---|---|:---:|:---:|:---:|:---:|
+| business | (any) | skip | skip | skip | **활성** |
+| academic | ko | skip (catch 43) | skip | skip | **활성** (naver_direct) |
+| academic | en | **활성** | **활성 (신규)** | **활성 (신규)** | **활성** |
+| academic | mixed | **활성** | **활성 (신규)** | **활성 (신규)** | **활성** |
+
+### B2-2 분기 코드 patch 안 (`agent/web_search.py:747-755` 확장)
+
+```
+# 현재 (catch 43, §academic-1 완료)
+if _get_cfg_attr("MODE", "business") == "academic":
+    _q_lang = ...detect_query_lang...
+    effective_skip_vertex = (_q_lang == "ko")
+else:
+    effective_skip_vertex = _cfg_bool("SKIP_VERTEX_SEARCH", False)
+
+# 신규 (catch 51 fix, S1 — Option 5 자연 확장)
+if _get_cfg_attr("MODE", "business") == "academic":
+    _q_lang = ...detect_query_lang...
+    effective_skip_vertex     = (_q_lang == "ko")
+    effective_use_scholarly   = (_q_lang != "ko")     # ★ ss + oa 활성 분기
+else:
+    effective_skip_vertex     = _cfg_bool("SKIP_VERTEX_SEARCH", False)
+    effective_use_scholarly   = False
+```
+
+### B2-3 fan-out 병렬 패턴 (`agent/web_search.py:780~870` 확장)
+
+```
+# pseudocode (B1 신규 함수 의존)
+import concurrent.futures as cf
+
+def _backend_call(name, fn, query):
+    """1 backend 호출. 실패 시 빈 dict 반환 (에러 isolation)."""
+    try:
+        return name, fn(query)
+    except Exception as e:
+        logger.warning(f"[web_search] {name} failed: {e}")
+        return name, {"items": 0, "domains": [], "chunks": [], "supports": [], "error": str(e)}
+
+def _fan_out_academic_en(query):
+    backends = [("vertex", vertex_web_search)]
+    if effective_use_scholarly:
+        backends.extend([
+            ("semantic_scholar", semantic_scholar_search),
+            ("openalex", openalex_search),
+        ])
+    results = {}
+    with cf.ThreadPoolExecutor(max_workers=3) as ex:
+        futs = {ex.submit(_backend_call, n, fn, query): n for n, fn in backends}
+        for fut in cf.as_completed(futs, timeout=30):  # 전체 30s timeout
+            name, res = fut.result()
+            results[name] = res
+    return results
+```
+
+### B2-4 dedup logic (vertex + ss + oa + legacy unique 합집합)
+
+- 도메인 단위 dedup: `all_domains_unique = sorted(set(vertex.domains | ss.domains | oa.domains | legacy.domains))`
+- URL 단위 dedup: 기존 `_norm_url` (`agent/web_search.py:574-596`) 답습 (host normalize + path normalize + `__v_{n}_{n}` suffix 제거)
+- chunks 통합: vertex chunks (Web grounding) + ss chunks (paper entries) + oa chunks (work entries) 합성 list (rep_idx 인덱싱 정합 유지)
+
+### B2-5 에러 isolation + timeout 정책
+
+| 항목 | 정책 | 근거 |
+|---|---|---|
+| backend 1개 실패 시 | 빈 dict 반환, 나머지 backend 진행 | A2-c pilot 정합: SS 429 fail 후에도 OA success — 에러 isolation 의 실측 |
+| 전체 timeout | **30s** (vertex 18s bottleneck + 12s margin) | A2-c latency 실측: vertex 18.157s max + ss 1.36s + oa 1.82s · 50% margin |
+| backend 별 timeout | vertex 25s (기존) / ss 10s / oa 10s | ss/oa 1.5~2s 실측의 ~5x margin |
+| 429 backoff | 2s × 1회 fallback (catch 57 lesson) | Step A pilot 검증 |
+
+### B2-6 변경 면적 추정
+
+| 파일 | logical line | cosmetic | 비고 |
+|---|---:|---:|---|
+| `agent/web_search.py:747-755` 분기 확장 | ~+5 | +1 | `effective_use_scholarly` 변수 추가 |
+| `agent/web_search.py:780~870` fan-out 통합 | ~+50~70 | +5 | `_fan_out_academic_en` + ThreadPoolExecutor block + 통합 layer |
+| import 추가 | +2 | – | `from tools.web_rag.semantic_scholar import semantic_scholar_search` 등 |
+| **B2 net logical** | **~+55~75** | +6 | – |
+
+---
+
+## 4. B3 — 도메인 추출 path + catch 59 정적 매핑 table
+
+### B3-1 `extract_domain_from_paper(paper, backend)` 4-step early-return
+
+```
+# pseudocode (shared helper, 신규 tools/web_rag/_scholarly_domain.py)
+
+def extract_domain_from_paper(paper: Dict[str, Any], backend: str) -> str | None:
+    """
+    학술 paper dict 에서 도메인 추출 (4-step 우선순위, early-return).
+    backend: "semantic_scholar" or "openalex" — schema 분기.
+    """
+    # (1) primary_location.landing_page_url — OpenAlex 전체 cover
+    if backend == "openalex":
+        pl = paper.get("primary_location") or {}
+        url = pl.get("landing_page_url") or pl.get("pdf_url") or ""
+        d = _domain_of(url)
+        if d:
+            return d
+
+    # (2) openAccessPdf.url — Semantic Scholar OA 한정
+    if backend == "semantic_scholar":
+        oa_pdf = (paper.get("openAccessPdf") or {}).get("url") or ""
+        d = _domain_of(oa_pdf)
+        if d:
+            return d
+
+    # (3) DOI prefix → publisher 매핑 (catch 59 정적 table)
+    doi = ""
+    if backend == "openalex":
+        doi = (paper.get("doi") or "").replace("https://doi.org/", "")
+    elif backend == "semantic_scholar":
+        doi = ((paper.get("externalIds") or {}).get("DOI") or "")
+    if doi:
+        d = doi_prefix_to_domain(doi)  # catch 59 table lookup
+        if d:
+            return d
+
+    # (4) venue / source.display_name 매칭 (ACADEMIC_DOMAINS 36 set 정합)
+    if backend == "openalex":
+        src_name = ((paper.get("primary_location") or {}).get("source") or {}).get("display_name") or ""
+    else:
+        src_name = paper.get("venue") or (paper.get("journal") or {}).get("name") or ""
+    d = venue_name_to_domain(src_name)  # venue → known 36 set 매핑
+    if d:
+        return d
+
+    # 미매핑 paper: logging fallback (Step C 측정에서 unknown prefix 수집 cycle)
+    if doi:
+        logger.info(f"[catch59] unknown DOI prefix: {doi[:30]} (backend={backend})")
+    return None
+```
+
+### B3-2 catch 59 정적 매핑 table (35 entries — 광고/마케팅 핵심 + 인접 STEM)
+
+```
+# tools/web_rag/_scholarly_domain.py module-level constant
+
+DOI_PREFIX_TO_DOMAIN: Dict[str, str] = {
+    # ── 광고/마케팅 핵심 publisher ────────────────────────────────────────
+    "10.1016/":   "sciencedirect.com",          # Elsevier (JBR, IJRM, JR 등)
+    "10.1086/":   "journals.uchicago.edu",      # Univ. of Chicago Press (JCR)
+    "10.1080/":   "tandfonline.com",            # Taylor & Francis (Journal of Advertising 일부)
+    "10.1207/":   "tandfonline.com",            # T&F older format
+    "10.1509/":   "journals.sagepub.com",       # SAGE (Journal of Marketing 일부)
+    "10.1108/":   "emerald.com",                # Emerald (Journal of Product & Brand Mgmt 등)
+    "10.1287/":   "pubsonline.informs.org",     # INFORMS (Marketing Science)
+    "10.5465/":   "journals.aom.org",           # Academy of Management (AMJ/AMR)
+    "10.4135/":   "sk.sagepub.com",             # SAGE Knowledge (handbook/encyclopedia)
+    # ── 광범위 OA / 학술지 publisher ──────────────────────────────────────
+    "10.3390/":   "mdpi.com",                   # MDPI (catch 52 36 set 정합)
+    "10.1111/":   "onlinelibrary.wiley.com",    # Wiley (광범위)
+    "10.1002/":   "onlinelibrary.wiley.com",    # Wiley (광범위 alt prefix)
+    "10.1007/":   "link.springer.com",          # Springer
+    "10.1057/":   "palgrave.com",               # Palgrave / Macmillan (Springer 산하)
+    "10.1093/":   "academic.oup.com",           # Oxford University Press
+    "10.1037/":   "psycnet.apa.org",            # APA (Journal of Marketing Research 인접)
+    "10.4324/":   "taylorfrancis.com",          # T&F Books
+    # ── 사회과학 / 경제 / 통계 ────────────────────────────────────────────
+    "10.1257/":   "aeaweb.org",                 # American Economic Association
+    "10.1162/":   "direct.mit.edu",             # MIT Press
+    "10.1561/":   "nowpublishers.com",          # Foundations & Trends
+    "10.1146/":   "annualreviews.org",          # Annual Reviews
+    "10.1525/":   "online.ucpress.edu",         # UC Press
+    # ── STEM / IT (마케팅 인접 — UX/HCI/AI) ──────────────────────────────
+    "10.1145/":   "dl.acm.org",                 # ACM
+    "10.1109/":   "ieeexplore.ieee.org",        # IEEE
+    "10.1126/":   "science.org",                # Science (catch 52 36 set 정합)
+    "10.1038/":   "nature.com",                 # Nature publishing
+    "10.1073/":   "pnas.org",                   # PNAS
+    "10.1136/":   "bmj.com",                    # BMJ
+    "10.1186/":   "biomedcentral.com",          # BMC (BioMed Central)
+    "10.1371/":   "plos.org",                   # PLOS (catch 52 36 set 정합)
+    # ── Preprint / Repository ─────────────────────────────────────────────
+    "10.48550/":  "arxiv.org",                  # arXiv (catch 52 36 set 정합)
+    "10.2139/":   "ssrn.com",                   # SSRN working papers (catch 52 36 set 정합)
+    "10.31234/":  "osf.io",                     # PsyArXiv
+    "10.31219/":  "osf.io",                     # OSF Preprints
+    "10.31235/":  "osf.io",                     # SocArXiv
+}
+
+def doi_prefix_to_domain(doi: str) -> str | None:
+    """DOI prefix lookup (longest-prefix-first)."""
+    for prefix, domain in sorted(DOI_PREFIX_TO_DOMAIN.items(),
+                                  key=lambda kv: -len(kv[0])):
+        if doi.startswith(prefix):
+            return domain
+    return None
+```
+
+**총 35 entries** (광고/마케팅 핵심 9 + 광범위 publisher 8 + 사회과학/경제 5 + STEM 7 + preprint 5 + miscellaneous 1 = 35). 30~50 entries 목표 정합.
+
+### B3-3 pilot raw 검증 정합
+
+| backend | first entry DOI | catch 59 매핑 결과 | 도메인 추출 path 활성화 |
+|---|---|---|---|
+| Semantic Scholar #0 | `10.63075/jcs.v3i1.132` | **unknown prefix** | path (4) `venue` 매칭 실패 → logging fallback (Step C 보강 cycle 대상) |
+| Semantic Scholar #1 | `10.3390/jtaer20020111` | **mdpi.com** ✓ (catch 52 36 set hit) | path (3) DOI prefix 매핑 |
+| OpenAlex #0 | `10.1016/j.jbusres.2016.04.181` | **sciencedirect.com** ✓ (catch 52 36 set hit) | path (1) `landing_page_url` direct (DOI redirect 동등) |
+| OpenAlex #1 | `10.1016/j.ijresmar.2015.06.004` | **sciencedirect.com** ✓ (catch 52 36 set hit) | path (1) `landing_page_url` direct |
+
+→ pilot raw 4 entries 중 3 entries (75%) catch 52 ACADEMIC_DOMAINS 36 set 자동 hit · 1 entry (SS #0, unknown prefix) catch 59 logging fallback 대상.
+
+### B3-4 변경 면적 추정
+
+| 파일 | logical line | cosmetic | 비고 |
+|---|---:|---:|---|
+| `tools/web_rag/_scholarly_domain.py` (신규) | ~+80~120 | +6 | `extract_domain_from_paper` + table + `doi_prefix_to_domain` + `venue_name_to_domain` |
+| **B3 net logical** | **~+80~120** | +6 | B1-4 신규 module 면적과 합치 |
+
+---
+
+## 5. B4 — env + 측정 driver 확장
+
+### B4-1 신규 env file 2개
+
+#### `.env.openalex` (신규)
+
+```
+# OpenAlex API key (2026-02-13~ 필수) — 사용자 별도 발급 (30초)
+OPENALEX_API_KEY=<placeholder>
+OPENALEX_MAILTO=sungsu.oh1203@gmail.com
+```
+
+#### `.env.semanticscholar` (신규, 선택)
+
+```
+# Semantic Scholar — 1A 정합: key 미사용, mailto + UA 만
+SEMANTIC_SCHOLAR_MAILTO=sungsu.oh1203@gmail.com
+# SEMANTIC_SCHOLAR_API_KEY=<placeholder>     # 추후 발급 시 활성 (본 cycle 미사용)
+```
+
+#### env 로딩 정합
+
+- 기존 `.env.vertex` / `.env.openai` / `.env.anthropic` 패턴 답습 (provider 별 별 파일).
+- `.env.openalex` / `.env.semanticscholar` 는 **provider-agnostic backend layer** 이므로 LLM_PROVIDER 토글과 직교 — 모든 venv 에서 동시 로딩 가능.
+- `core/config.py` 의 env 로딩 chain 에 본 2 file 추가 (Step C 영역, design 영역에서는 spec 만).
+
+### B4-2 measure_ab.py 확장 spec
+
+기존 (`scripts/§academic-1/measure_ab.py:410-438 run_single()`):
+
+```
+vertex_rec = call_vertex(...)
+legacy_rec = call_legacy(...)
+all_domains = vertex.domains + legacy.domains
+all_domains_set = sorted(set(all_domains))
+academic_domains = sorted(set(all_domains_set) & ACADEMIC_DOMAINS)
+academic_ratio = len(academic_domains) / len(all_domains_set)
+```
+
+신규 spec:
+
+```
+vertex_rec = call_vertex(query, timeout_s, dry_run) if not eff_skip else {...skip stub...}
+legacy_rec = call_legacy(query, timeout_s, dry_run)
+# ★ 신규: ss + oa 활성 분기 (catch 43 자연 확장 정합)
+ss_rec = (call_semantic_scholar(query, timeout_s, dry_run)
+          if mode == "academic" and q_lang != "ko" else {...skip stub...})
+oa_rec = (call_openalex(query, timeout_s, dry_run)
+          if mode == "academic" and q_lang != "ko" else {...skip stub...})
+
+all_domains = (list(vertex_rec.get("domains", []))
+             + list(legacy_rec.get("domains", []))
+             + list(ss_rec.get("domains", []))
+             + list(oa_rec.get("domains", [])))
+all_domains_set = sorted(set(d for d in all_domains if d))
+academic_domains = sorted(set(all_domains_set) & ACADEMIC_DOMAINS)
+academic_ratio = (len(academic_domains) / len(all_domains_set)) if all_domains_set else 0.0
+
+return {
+    ...기존 키 유지...,
+    "vertex": vertex_rec,
+    "legacy": legacy_rec,
+    "semantic_scholar": ss_rec,   # ★ 신규
+    "openalex": oa_rec,           # ★ 신규
+    "all_domains_unique": all_domains_set,
+    "academic_domains_hit": academic_domains,
+    "academic_source_ratio": round(academic_ratio, 4),
+    "ts_utc": ...,
+}
+```
+
+### B4-3 per-backend latency / domains 보존 (Step C `c_verification.json` 정합)
+
+| backend | elapsed_sec | items | domains | domains_unique | error |
+|---|:---:|:---:|:---:|:---:|:---:|
+| vertex | O (`call_vertex`) | O | O | O | O |
+| legacy | O (`call_legacy`) | O | O | O | O |
+| **semantic_scholar** | O (신규 `call_semantic_scholar`) | O | O | O | O |
+| **openalex** | O (신규 `call_openalex`) | O | O | O | O |
+
+→ Step C `c_verification.json` schema 확장. §academic-3 baseline (`vertex` / `legacy` 2개) + 신규 (`semantic_scholar` / `openalex` 2개) 4-backend 동시 박제 — academic-en single query 5 runs 의 분포 변화 정량 비교 정합 (catch 58 처분 정합: single query 유지).
+
+### B4-4 catch 58 처분 (single query 유지)
+
+- 본 cycle measure_ab.py 변경 X 영역 (catch 58 multi-query 확장은 §academic-5 이전).
+- 단, run_single() 내 ss/oa 호출 분기 추가 (mode="academic" AND q_lang!="ko") 는 **driver 단순 확장** 영역으로 catch 58 처분과 직교.
+
+### B4-5 변경 면적 추정
+
+| 파일 | logical line | cosmetic | 비고 |
+|---|---:|---:|---|
+| `.env.openalex` (신규) | +2 | +1 | placeholder + mailto |
+| `.env.semanticscholar` (신규) | +1 | +1 | mailto only (key 추후) |
+| `scripts/§academic-1/measure_ab.py` 확장 | ~+30~40 | +3 | `call_semantic_scholar` + `call_openalex` 함수 (`call_vertex`/`call_legacy` 패턴 답습) + `run_single` 분기 |
+| `core/config.py` env loading chain | ~+4~6 | – | `.env.openalex` / `.env.semanticscholar` 추가 |
+| **B4 net logical** | **~+37~49** | +5 | – |
+
+---
+
+## 6. catch 60 후보 박제 (Step B 진행 중 발견)
+
+> 본 design 진행 중 점검한 4 영역 (60-a / 60-b / 60-c / 60-d) 의 처분.
+
+### 60-a — STOP gate 정밀도 (Issue 5 처분 분기 가능)
+
+- **처분**: 본 design 의 Section 1 (Issue 5) 정의 — "STOP gate 호출 횟수 = successful call 기준" — 으로 해소. 별도 catch 박제 불필요. **본 cycle 안 처분 완료**.
+
+### 60-b — Multi-backend dedup 정합성 (prefix 변형 / subdomain edge case)
+
+- **발화 영역**: `sciencedirect.com` vs `www.sciencedirect.com` vs `linkinghub.elsevier.com` (DOI redirect 변형) — pilot raw OA `landing_page_url = https://doi.org/10.1016/j.jbusres.2016.04.181` 의 실제 redirect chain 검증 필요.
+- **처분 안**: B3 `_domain_of` 헬퍼에서 host normalize (`www.` / `m.` 제거) + redirect resolve (vertex `_resolve_vertex_redirect` 패턴 답습) 적용 시 해소 가능. **catch 60 후보 박제** (Step C 측정 시 unknown publisher 패턴과 함께 모니터링).
+
+### 60-c — API response schema versioning 대응 layer
+
+- **발화 영역**: OpenAlex `host_venue` (deprecated, 2025) → `primary_location.source.display_name` (신규). Semantic Scholar Graph API v1 도 향후 v2 변경 가능성.
+- **처분 안**: `extract_domain_from_paper` 의 4-step early-return 자체가 schema 변경에 robust (필드 1개 사라져도 다음 path fallback). 단 `primary_location` 자체가 사라지면 affect → 명시적 schema version 체크는 본 cycle 미도입. **catch 60 후보 박제** (Step C 측정 후 재평가).
+
+### 60-d — OA credit 소비 monitor (free tier $1/day)
+
+- **발화 영역**: OpenAlex free tier $1/day = 100k req/day. `?search=` list call = 10 credit. measure_ab.py 5 runs × 1 query (single, catch 58 유지) × 1 backend = 50 credit per 측정. **임계 100k 의 0.05% 영역**, free tier 충분.
+- **처분 안**: 본 cycle 안에서 monitoring driver 도입 불필요 (사용량 임계 영역 거의 무한대). 단 Step C 측정 시 OA response 의 `meta.cost_usd` 필드 log 박제 권고. **catch 60 후보 박제** (Step C 측정 driver 의 부수 출력 영역).
+
+### catch 60 등록 결정
+
+- **60-a 처분 완료** (본 design 안 해소)
+- **60-b / 60-c / 60-d 후보 박제** (Step C 측정 후 재평가, 본 cycle 의 catch 60 entry 등록은 사용자 컨펌 시점에 결정)
+
+---
+
+## 7. Design summary + Step C 진입 조건
+
+### 변경 면적 총합 (catch 48 컨벤션)
+
+| Step B 영역 | logical line | cosmetic | 파일 |
+|---|---:|---:|---:|
+| B1 module 설계 (semantic_scholar.py + openalex.py) | ~+180~220 | +16 | 2 |
+| B3 도메인 추출 + catch 59 table (`_scholarly_domain.py`) | ~+80~120 | +6 | 1 |
+| B2 routing 통합 patch (`agent/web_search.py`) | ~+55~75 | +6 | 1 |
+| B4 env + driver 확장 (`measure_ab.py` + `.env.*` + `core/config.py`) | ~+37~49 | +5 | 4 |
+| **Step C-1 net logical 합** | **~+352~464** | +33 | **8 file 변경 (3 신규 + 5 기존)** |
+
+§academic-3 의 +31 line (set 보강) 과 비교: 본 cycle 은 신규 module 2 + helper module 1 영역으로 면적 차수 다름 (~12x). Step C-1 commit chain 분할 가능성 검토 영역 (single commit vs B1/B2/B3/B4 분할).
+
+### Step C 진입 조건
+
+- ✅ design spec 완성 (B1~B4 4 영역)
+- ✅ 사용자 컨펌 4 sub-decisions 박제 (1A / 우선순위 / 3A / 4A)
+- ✅ Issue 3 baseline 명세 + Issue 5 STOP gate 정의 보강
+- ✅ catch 59 정적 매핑 table 35 entries 박제
+- ✅ catch 60 후보 4 영역 점검 (60-a 처분 / 60-b/c/d 후보 보존)
+- ✅ pilot raw 4 entries 도메인 추출 path 검증 (3/4 hit + 1 logging fallback)
+- 사용자 컨펌 영역 (Step C-1 진입 전):
+  - OpenAlex API key 발급 + `.env.openalex` 의 placeholder 실제 값 주입 (30초)
+  - Step C-1 commit 분할 정책 (single vs B1/B2/B3/B4 분할)
+  - Step C-2 측정 spec (single query 유지, 5 runs × 3 topic 답습)
+
+### Risk 박제 (PARTIAL 가능성 사전 정량)
+
+§academic-3 Step B follow-up 의 "Risk 박제" 패턴 답습 (예상 0.31 ↔ 실측 0.3165 정합 사례):
+
+- **본 cycle 예상 academic-en ratio**: pilot baseline ~0.676 (vertex.domains_unique 만 기준) × 측정 시 vertex+legacy+ss+oa 합집합 dilution 효과 → **실측 예상 0.55~0.75** (임계 0.6 충족 안정 마진, PARTIAL 가능성 ~20%)
+- **PARTIAL 발생 시 root cause 분리 영역**:
+  · ss/oa 도메인 unique 가 dedup 후 7~10 entries (vertex 5 dilution 효과)
+  · catch 59 unknown DOI prefix logging fallback 비율 (pilot 25% 실측 → Step C 측정 시 보강 cycle)
+  · OA credit fail / SS 429 fail 시 dilution
+- **PARTIAL 대응 권고**: catch 60-b/c (dedup 정합성 + schema version) 우선 점검, 그래도 미달 시 catch 58 (multi-query) §academic-5 이전 가속화
+
+### catch 표기 inline reference
+
+- **catch 51** (EN academic mode 학술 전용 backend 부재, Option 5 S1 권고) — 본 cycle 대상
+- **catch 52** (ACADEMIC_DOMAINS_29 set 보강, §academic-3 완료) — 본 cycle 의존 (36 set 매칭 + catch 59 정합 검증)
+- **catch 43** (language-aware backend routing, §academic-1 완료) — 본 cycle 자연 확장
+- **catch 57** (audit cycle 외부 환경 사전 점검 lesson) — Issue 5 STOP gate 정의 보강
+- **catch 58** (academic-en 측정 토픽 단일성, §academic-5 이전) — 본 cycle 측정 driver 변경 X
+- **catch 59** (DOI publisher 매핑, 3A 정적 table 채택) — 본 design B3 박제 (35 entries)
+- **catch 60 후보** (60-b dedup 정합성 / 60-c schema versioning / 60-d OA credit monitor) — Step C 측정 후 재평가
+
+### scope creep 가드 (STOP-B-3 정합)
+
+- catch 45 (Journal of Advertising 영역) · catch 53 (semanticscholar.org subdomain 매칭) — 본 cycle 미진입 정합.
+
+---
+
+*draft 완성 — 사용자 컨펌 대기 (STOP-B-1 정합, commit 금지)*
