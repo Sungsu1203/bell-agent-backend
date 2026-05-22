@@ -22,7 +22,7 @@
 
 | # | 영역 | 결정 | 박제 사유 |
 |---:|---|---|---|
-| 1 | ss/oa key 정책 | **1A — SS key 미사용 (anonymous shared pool + UA + mailto + backoff) + OA key 발급 필수 (`api_key=` 파라미터 + mailto polite pool)** | SS 는 Step A pilot 에서 UA 헤더 + 2s backoff 로 anonymous 호출 검증 (200 OK, 1.36s). OA 는 2026-02-13~ key 정책 변경 (사용자 별도 발급 30초). mailto = `sungsu.oh1203@gmail.com` |
+| 1 | ss/oa key 정책 | **1A' (1A 후속, anonymous pool reality check 후)** — SS: `SEMANTIC_SCHOLAR_SKIP=1` default (CloudFront ICN57-P3 throttle 로 anonymous pool 사실상 unusable, mailto+UA+Retry-After backoff 도 fail) → key 발급 후 `SEMANTIC_SCHOLAR_API_KEY` + `x-api-key` 헤더 자동 활성 박제 (catch 61 후보) / OA: key 발급 필수 (`api_key=` 파라미터 + mailto polite pool) 유지 | A2-c pilot 200 OK (1.36s) 는 일시적 상태였으며 commit 1 smoke 에서 3 attempts 모두 429 재현. SS anonymous shared pool production 부적합 reality check (catch 57 보강). mailto 통일 = `sungsu.oh@bellcomm.co.kr` (회사 메일, SS key request form 정합) |
 | 2 | 도메인 추출 path 우선순위 | **4-step early-return**: (1) `primary_location.landing_page_url` (OA, 전체 cover) → (2) `openAccessPdf.url` (SS, OA 한정) → (3) **DOI prefix → publisher 매핑 (catch 59)** → (4) `venue` / `source.display_name` 매칭 (ACADEMIC_DOMAINS 36 set 정합) | A2-c pilot 검증: OA entry 0/1 모두 `landing_page_url` robust (sciencedirect.com 직접) · SS entry 1 의 DOI `10.3390/*` → mdpi.com (catch 59 매핑) hit |
 | 3 | catch 59 채택 | **3A — 정적 prefix → publisher 매핑 table 내장** (광고/마케팅 핵심 + 인접 STEM 35 entries cover, 신규 prefix 발견 시 logging fallback) | Crossref REST / OA works/{doi} 동적 조회 미채택 사유: 추가 latency (REST 호출 1회 × N papers) + OA credit 소비 (10 credit × N) + Step C 측정 fan-out 안정성 우선 |
 | 4 | routing 통합 패턴 | **4A — fan-out 병렬** (vertex + ss + oa 동시 호출, `concurrent.futures.ThreadPoolExecutor` 권고, 에러 isolation + 전체 timeout ~30s) | A2-c latency 실측: vertex 18.157s bottleneck, ss 1.36s, oa 1.82s → fan-out overhead 사실상 0. asyncio 도입은 web_search.py 의 sync 패턴 깨므로 ThreadPoolExecutor 우선 |
@@ -69,7 +69,7 @@ def semantic_scholar_search(query: str) -> Dict[str, Any]:
     반환 형식: vertex_web_search() 정합 (chunks/supports/items 통합 chain compatibility).
     """
     t0 = time.monotonic()
-    mailto = os.getenv("SEMANTIC_SCHOLAR_MAILTO", "sungsu.oh1203@gmail.com")
+    mailto = os.getenv("SEMANTIC_SCHOLAR_MAILTO", "sungsu.oh@bellcomm.co.kr")
     fields = "title,venue,year,journal,externalIds,openAccessPdf,authors"
     url = (f"https://api.semanticscholar.org/graph/v1/paper/search"
            f"?query={urlencode(query)}&limit=10&fields={fields}")
@@ -126,7 +126,7 @@ def openalex_search(query: str) -> Dict[str, Any]:
     OpenAlex /works search 호출 (mailto polite pool + api_key 필수).
     """
     t0 = time.monotonic()
-    mailto = os.getenv("OPENALEX_MAILTO", "sungsu.oh1203@gmail.com")
+    mailto = os.getenv("OPENALEX_MAILTO", "sungsu.oh@bellcomm.co.kr")
     api_key = os.getenv("OPENALEX_API_KEY", "")
     if not api_key:
         return _empty_result("openalex", error="OPENALEX_API_KEY 미설정",
@@ -341,18 +341,21 @@ def extract_domain_from_paper(paper: Dict[str, Any], backend: str) -> str | None
     return None
 ```
 
-### B3-2 catch 59 정적 매핑 table (35 entries — 광고/마케팅 핵심 + 인접 STEM)
+### B3-2 catch 59 정적 매핑 table (37 entries — 광고/마케팅 핵심 + 인접 STEM)
+
+> **§academic-4 Step C-1 commit 1 보강 (2026-05-21)**: 사용자 측 OA smoke 의 catch 59 logging fallback 에서 발견된 unknown prefix 2건 추가 — `10.1177/` (SAGE Publications 메인 prefix, CRITICAL 누락 — JoM 등 cover) + `10.21511/` (Business Perspectives, minor 소형 OA). 35 → **37 entries**.
 
 ```
 # tools/web_rag/_scholarly_domain.py module-level constant
 
 DOI_PREFIX_TO_DOMAIN: Dict[str, str] = {
-    # ── 광고/마케팅 핵심 publisher ────────────────────────────────────────
+    # ── 광고/마케팅 핵심 publisher (10) ───────────────────────────────────
     "10.1016/":   "sciencedirect.com",          # Elsevier (JBR, IJRM, JR 등)
     "10.1086/":   "journals.uchicago.edu",      # Univ. of Chicago Press (JCR)
     "10.1080/":   "tandfonline.com",            # Taylor & Francis (Journal of Advertising 일부)
     "10.1207/":   "tandfonline.com",            # T&F older format
     "10.1509/":   "journals.sagepub.com",       # SAGE (Journal of Marketing 일부)
+    "10.1177/":   "journals.sagepub.com",       # SAGE 메인 prefix (JoM 등, CRITICAL — Step C-1 commit 1 추가)
     "10.1108/":   "emerald.com",                # Emerald (Journal of Product & Brand Mgmt 등)
     "10.1287/":   "pubsonline.informs.org",     # INFORMS (Marketing Science)
     "10.5465/":   "journals.aom.org",           # Academy of Management (AMJ/AMR)
@@ -387,6 +390,8 @@ DOI_PREFIX_TO_DOMAIN: Dict[str, str] = {
     "10.31234/":  "osf.io",                     # PsyArXiv
     "10.31219/":  "osf.io",                     # OSF Preprints
     "10.31235/":  "osf.io",                     # SocArXiv
+    # ── Misc (1) ──────────────────────────────────────────────────────────
+    "10.21511/":  "businessperspectives.org",   # Business Perspectives (소형 OA, Step C-1 commit 1 추가)
 }
 
 def doi_prefix_to_domain(doi: str) -> str | None:
@@ -398,7 +403,7 @@ def doi_prefix_to_domain(doi: str) -> str | None:
     return None
 ```
 
-**총 35 entries** (광고/마케팅 핵심 9 + 광범위 publisher 8 + 사회과학/경제 5 + STEM 7 + preprint 5 + miscellaneous 1 = 35). 30~50 entries 목표 정합.
+**총 37 entries** (광고/마케팅 핵심 **10** + 광범위 publisher 8 + 사회과학/경제 5 + STEM 7 + preprint 5 + **misc 1** = 37). 30~50 entries 목표 정합. Step C-1 commit 1 시점 사용자 측 OA smoke 의 logging fallback 발견 2 entries (`10.1177/` SAGE 메인 + `10.21511/` Business Perspectives) 보강.
 
 ### B3-3 pilot raw 검증 정합
 
@@ -429,15 +434,20 @@ def doi_prefix_to_domain(doi: str) -> str | None:
 ```
 # OpenAlex API key (2026-02-13~ 필수) — 사용자 별도 발급 (30초)
 OPENALEX_API_KEY=<placeholder>
-OPENALEX_MAILTO=sungsu.oh1203@gmail.com
+OPENALEX_MAILTO=sungsu.oh@bellcomm.co.kr
 ```
 
-#### `.env.semanticscholar` (신규, 선택)
+#### `.env.semanticscholar` (신규, 1A' 정합)
 
 ```
-# Semantic Scholar — 1A 정합: key 미사용, mailto + UA 만
-SEMANTIC_SCHOLAR_MAILTO=sungsu.oh1203@gmail.com
-# SEMANTIC_SCHOLAR_API_KEY=<placeholder>     # 추후 발급 시 활성 (본 cycle 미사용)
+# Semantic Scholar — 1A' 정합: anonymous pool reality check 후 SKIP default
+SEMANTIC_SCHOLAR_MAILTO=sungsu.oh@bellcomm.co.kr
+SEMANTIC_SCHOLAR_SKIP=1
+# key 발급 후 활성 절차 (catch 61 후보):
+#   1) SEMANTIC_SCHOLAR_API_KEY=<발급값>  추가
+#   2) SEMANTIC_SCHOLAR_SKIP=0           변경
+# → semantic_scholar.py 의 x-api-key 헤더 자동 활성 (코드 변경 불필요)
+# SEMANTIC_SCHOLAR_API_KEY=<placeholder>
 ```
 
 #### env 로딩 정합
@@ -580,22 +590,26 @@ return {
 
 §academic-3 Step B follow-up 의 "Risk 박제" 패턴 답습 (예상 0.31 ↔ 실측 0.3165 정합 사례):
 
-- **본 cycle 예상 academic-en ratio**: pilot baseline ~0.676 (vertex.domains_unique 만 기준) × 측정 시 vertex+legacy+ss+oa 합집합 dilution 효과 → **실측 예상 0.55~0.75** (임계 0.6 충족 안정 마진, PARTIAL 가능성 ~20%)
+- **본 cycle 예상 academic-en ratio (1A' 후속 update + commit 1 smoke 정량 근거 반영)**:
+  · SS skip 단계 (default, key 발급 대기 중): vertex+legacy+oa 합집합 → **실측 예상 0.55~0.92** (PARTIAL 가능성 ~20~25%, commit 1 OA smoke 5/5 학술 도메인 hit 정량 근거 — `businessperspectives.org` / `journals.sagepub.com` / `mdpi.com` / `sciencedirect.com` / `tandfonline.com` 전부 ACADEMIC_DOMAINS 정합, catch 59 37 entries 보강 효과 검증)
+  · SS 합류 단계 (key 발급 + `SEMANTIC_SCHOLAR_SKIP=0` 후): vertex+legacy+ss+oa 합집합 → **실측 예상 0.60~0.95** (PARTIAL 가능성 ~10~15%, OA 5/5 정합 + SS 학술 venue 추가 입력 시 분자 우세, 1A 원안 mapping 상한 영역)
 - **PARTIAL 발생 시 root cause 분리 영역**:
+  · SS skip 단계 dilution (학술 venue 7~10 entries 손실 → academic_set 축소, OA 단독으로는 보완 마진 좁음)
   · ss/oa 도메인 unique 가 dedup 후 7~10 entries (vertex 5 dilution 효과)
-  · catch 59 unknown DOI prefix logging fallback 비율 (pilot 25% 실측 → Step C 측정 시 보강 cycle)
+  · catch 59 unknown DOI prefix logging fallback 비율 (commit 1 smoke 시점 0% — 직전 fallback 3건 `10.1177/` ×2 + `10.21511/` 모두 본 cycle hit 으로 전환, 37 entries 정합 effectiveness 검증)
   · OA credit fail / SS 429 fail 시 dilution
-- **PARTIAL 대응 권고**: catch 60-b/c (dedup 정합성 + schema version) 우선 점검, 그래도 미달 시 catch 58 (multi-query) §academic-5 이전 가속화
+- **PARTIAL 대응 권고**: (1) SS key 발급 가속화 → 1A' 활성 단계 진입, (2) catch 60-b/c (dedup 정합성 + schema version) 점검, (3) 미달 시 catch 58 (multi-query) §academic-5 이전 가속화
 
 ### catch 표기 inline reference
 
 - **catch 51** (EN academic mode 학술 전용 backend 부재, Option 5 S1 권고) — 본 cycle 대상
 - **catch 52** (ACADEMIC_DOMAINS_29 set 보강, §academic-3 완료) — 본 cycle 의존 (36 set 매칭 + catch 59 정합 검증)
 - **catch 43** (language-aware backend routing, §academic-1 완료) — 본 cycle 자연 확장
-- **catch 57** (audit cycle 외부 환경 사전 점검 lesson) — Issue 5 STOP gate 정의 보강
+- **catch 57** (audit cycle 외부 환경 사전 점검 lesson + anonymous pool reality check + mailto consistency) — Issue 5 STOP gate 정의 보강 + commit 1 smoke 3 attempts 429 재현 → SS anonymous shared pool production 부적합 박제
 - **catch 58** (academic-en 측정 토픽 단일성, §academic-5 이전) — 본 cycle 측정 driver 변경 X
-- **catch 59** (DOI publisher 매핑, 3A 정적 table 채택) — 본 design B3 박제 (35 entries)
+- **catch 59** (DOI publisher 매핑, 3A 정적 table 채택) — 본 design B3 박제 (37 entries, 10.1177/ SAGE 메인 + 10.21511/ 보강 정합)
 - **catch 60 후보** (60-b dedup 정합성 / 60-c schema versioning / 60-d OA credit monitor) — Step C 측정 후 재평가
+- **catch 61 후보** (SS authenticated pool 활성 layer, `SEMANTIC_SCHOLAR_API_KEY` + `x-api-key` 헤더 박제) — SS key 발급 응답 회신 시 진입, 본 cycle Sub-decision 1A' default skip 단계의 후속
 
 ### scope creep 가드 (STOP-B-3 정합)
 
