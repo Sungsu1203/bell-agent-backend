@@ -85,6 +85,8 @@ scripts/output/**/*.json
 scripts/output/**/*.log
 scripts/output/**/*.ndjson
 scripts/output/**/*.console.log
+# §academic-4 Phase 4 cycle close — c_ab_results.json 영역 박제 negation (raw 측정 결과 박제 정합, reproducibility 영역)
+!scripts/output/**/c_ab_results.json
 # §14-3 G4-2: patch 산출물 ignore (재생성 가능 — git format-patch -1 <hash>)
 scripts/output/**/*.patch
 

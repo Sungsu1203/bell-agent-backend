@@ -740,3 +740,82 @@ driver 정합 패턴 (commit 2 update, **catch 64 lesson 정합**):
 ---
 
 *Step C-1 close 정합 — Step C-2 측정 영역 (Phase 3) 진입 대기*
+
+---
+
+## 10. Step C-2 측정 결과 + cycle close verdict (Phase 4, 2026-05-22)
+
+### 10-1 측정 환경 영역
+
+| 영역 | 값 |
+|---|---|
+| topics | 3 (business-venfobel / academic-en / academic-ko) |
+| runs / topic | 5 (warmup 2 + measure 3) |
+| 총 runs | 15 |
+| inter_run_sleep | 60s |
+| per_run_timeout | 90s |
+| dotenv chain | 정합 ($env:* 직접 주입 불필요, Phase 1 amend 영역 정합) |
+| driver | `writer_project/scripts/§academic-1/measure_ab.py` |
+| 결과 file | `scripts/output/§academic-1/c_ab_results.json` (final write, 58KB) |
+| raw log | `scripts/output/§academic-1/c_ab_run.log` (.gitignore 영역, untracked) |
+
+### 10-2 5 indicators 결과 영역
+
+| # | indicator | verdict | 정량 |
+|---:|---|---|---|
+| 1 | business_invariant | **PASS** | stability_jaccard 1.0, business mode bypass True 정합 |
+| 2 | academic_source_ratio | **REVIEW** | mean 0.3915 / min 0.26 / max 0.5 / threshold 0.6 미달 |
+| 3 | lang_detect_accuracy | **PASS** | 10/10 = 1.0 |
+| 4 | en_to_vertex_active_rate | **PASS** | 3/3 = 1.0 |
+| 5 | ko_to_naver_active_rate | **PASS** | skip 1.0 + naver 1.0 |
+
+### 10-3 topic 별 정량 박제
+
+#### academic-en (5 runs, scholarly=True)
+- 4-backend 활성 (vertex + legacy + SS + OA) 정합
+- `academic_hit_count` 평균 **8.0** (range 7~9, baseline 5 대비 **+3**)
+- `academic_source_ratio` 평균 **0.28** (range 0.26~0.32, 직전 1 run 0.24 대비 +0.04)
+- `academic_ratio_per_backend` 평균:
+  · vertex: **0.17** (range 0.15~0.29, 비학술 marketing blog dilution 본질 영역)
+  · legacy: **1.0** (naver 학술 hit 정합)
+  · semantic_scholar: **0.44** (multidisciplinary 분포)
+  · openalex: **0.80** (영미권 주류 publisher 분포)
+
+#### academic-ko (5 runs, scholarly=False)
+- vertex skip + SS/OA 미호출 (catch 43 routing 정합 — q_lang=ko 시 ss/oa 자연 skip)
+- legacy 6 items 중 2 학술 = `academic_source_ratio` **0.5 stable**
+- `academic_hit_count` 2 stable
+
+#### business-venfobel (5 runs, scholarly=False)
+- vertex skip + legacy 만 (catch 43 정합, business mode bypass)
+- stability_jaccard **1.0** (완벽 안정, invariant 영역 정합)
+- business mode 영역 학술 평가 X (indicator 1 정합)
+
+### 10-4 cycle close verdict
+
+**verdict: PARTIAL** (architecture 정합 + 부분 입증)
+
+#### PASS 영역 (4 indicators + 5 catch 영역)
+- ✓ catch 51 fix S1 4-backend architecture 정합 작동 (hit +3, baseline 5 → 평균 8.0)
+- ✓ catch 64 dotenv chain 정합 작동 (env 주입 불필요 ergonomics ↑)
+- ✓ catch 66 dilution finding 정량 검증 (per-backend ratio 영역 vertex 0.17 / SS 0.44 / OA 0.80 함정 박제)
+- ✓ catch 67 set 보강 effectiveness 부분 입증 (set +4 entries → hit +2 영역)
+- ✓ catch 59 매핑 보강 effectiveness 부분 입증 (logging fallback 0% 도달 영역)
+- ✓ 4 indicators PASS (1 business invariant / 3 lang detect / 4 en-vertex / 5 ko-naver)
+
+#### REVIEW 영역 (1 indicator)
+- ⚠ indicator 2 ratio 임계 미달 (mean 0.3915 < 0.60 threshold)
+- root cause: **vertex 비학술 dilution** (per-backend ratio 0.15~0.29, forbes / medium / marketing blog 비중 ↑ 본질 영역)
+- 본 cycle scope 영역 (catch 51 fix architecture) 안 처분 불가 — §academic-5 vertex academic mode 정합 보강 영역 이전 정합
+
+### 10-5 §academic-5 이전 영역 명시
+
+- vertex per-backend ratio 0.15~0.29 → ~0.50+ 목표 영역 (HIGH)
+- 산식 layer 변경 (catch 66 영역, `all_uniq` 정의 영역 — vertex 비학술 blog filter layer 검토 영역) (MID)
+- ACADEMIC_DOMAINS set 자동 확장 algorithm (catch 67 future 영역, `.edu` / `.ac.*` 패턴 + 학술 keyword 자동 인식) (LOW)
+- catch 58 multi-query 확장 (single query 영역 진입 후) (LOW)
+- 박제 영역: `writer_project/scripts/output/§academic-5/entry_sketch.md`
+
+---
+
+*§academic-4 cycle close 정합 — verdict PARTIAL · §academic-5 영역 이전 (vertex academic mode 정합 보강 영역 중심)*

@@ -1,0 +1,1921 @@
+{
+  "generated_at_utc": "2026-05-22T08:39:54.428079+00:00",
+  "_status": "complete",
+  "standards": {
+    "warmup_runs": 2,
+    "measure_runs": 3,
+    "per_run_timeout_s": 90.0,
+    "inter_run_sleep_s": 60.0,
+    "PYTHONIOENCODING": "utf-8"
+  },
+  "host": "BOOK-DPUCVR08TC",
+  "python": "D:\\gpt_agent\\.venv_vertex\\Scripts\\python.exe",
+  "env_probe": {
+    "python_exe": "D:\\gpt_agent\\.venv_vertex\\Scripts\\python.exe",
+    "python_version": "3.12.10",
+    "cwd": "D:\\gpt_agent",
+    "PROJECT_ROOT": "D:\\GPT_AGENT\\writer_project",
+    "PYTHONIOENCODING": "utf-8",
+    "LLM_PROVIDER": "vertexai",
+    "is_venv_vertex": true,
+    "provider_lock_OK": true
+  },
+  "dry_run": false,
+  "warmup_only": false,
+  "topic_results": {
+    "business-venfobel": {
+      "topic_key": "business-venfobel",
+      "env_snapshot": {
+        "MODE": "business",
+        "EXPECTED_LANG": "auto",
+        "SKIP_VERTEX_SEARCH": "1",
+        "ALLOWED_DOMAINS_EXTRA_count": 0
+      },
+      "runs": [
+        {
+          "topic_key": "business-venfobel",
+          "mode": "business",
+          "expected_lang": "auto",
+          "q_lang_detected": "n/a",
+          "effective_skip_vertex": true,
+          "scholarly_active": false,
+          "query": "벤포벨S 종근당 광고비 2024",
+          "vertex": {
+            "mode": "vertex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "legacy": {
+            "mode": "legacy",
+            "elapsed_sec": 11.328,
+            "items": 10,
+            "domains": [
+              "asiatoday.co.kr",
+              "dailypharm.com",
+              "blog.naver.com",
+              "hankyung.com",
+              "medifonews.com",
+              "blog.naver.com",
+              "blog.naver.com",
+              "blog.naver.com",
+              "blog.naver.com",
+              "blog.naver.com"
+            ],
+            "domains_unique": [
+              "asiatoday.co.kr",
+              "blog.naver.com",
+              "dailypharm.com",
+              "hankyung.com",
+              "medifonews.com"
+            ],
+            "backend_signals": [
+              "tavily_or_other",
+              "tavily_or_other",
+              "naver_direct",
+              "tavily_or_other",
+              "tavily_or_other",
+              "naver_direct",
+              "naver_direct",
+              "naver_direct",
+              "naver_direct",
+              "naver_direct"
+            ],
+            "naver_count": 6,
+            "error": null
+          },
+          "semantic_scholar": {
+            "mode": "semantic_scholar",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "openalex": {
+            "mode": "openalex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "all_domains_unique": [
+            "asiatoday.co.kr",
+            "blog.naver.com",
+            "dailypharm.com",
+            "hankyung.com",
+            "medifonews.com"
+          ],
+          "academic_domains_hit": [],
+          "academic_source_ratio": 0.0,
+          "academic_hit_count": 0,
+          "academic_ratio_per_backend": {
+            "vertex": 0.0,
+            "legacy": 0.0,
+            "semantic_scholar": 0.0,
+            "openalex": 0.0
+          },
+          "ts_utc": "2026-05-22T08:21:58.147830+00:00",
+          "phase": "warmup",
+          "run_index": 0
+        },
+        {
+          "topic_key": "business-venfobel",
+          "mode": "business",
+          "expected_lang": "auto",
+          "q_lang_detected": "n/a",
+          "effective_skip_vertex": true,
+          "scholarly_active": false,
+          "query": "벤포벨S 종근당 광고비 2024",
+          "vertex": {
+            "mode": "vertex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "legacy": {
+            "mode": "legacy",
+            "elapsed_sec": 8.954,
+            "items": 10,
+            "domains": [
+              "asiatoday.co.kr",
+              "dailypharm.com",
+              "blog.naver.com",
+              "hankyung.com",
+              "medifonews.com",
+              "blog.naver.com",
+              "blog.naver.com",
+              "blog.naver.com",
+              "blog.naver.com",
+              "blog.naver.com"
+            ],
+            "domains_unique": [
+              "asiatoday.co.kr",
+              "blog.naver.com",
+              "dailypharm.com",
+              "hankyung.com",
+              "medifonews.com"
+            ],
+            "backend_signals": [
+              "tavily_or_other",
+              "tavily_or_other",
+              "naver_direct",
+              "tavily_or_other",
+              "tavily_or_other",
+              "naver_direct",
+              "naver_direct",
+              "naver_direct",
+              "naver_direct",
+              "naver_direct"
+            ],
+            "naver_count": 6,
+            "error": null
+          },
+          "semantic_scholar": {
+            "mode": "semantic_scholar",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "openalex": {
+            "mode": "openalex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "all_domains_unique": [
+            "asiatoday.co.kr",
+            "blog.naver.com",
+            "dailypharm.com",
+            "hankyung.com",
+            "medifonews.com"
+          ],
+          "academic_domains_hit": [],
+          "academic_source_ratio": 0.0,
+          "academic_hit_count": 0,
+          "academic_ratio_per_backend": {
+            "vertex": 0.0,
+            "legacy": 0.0,
+            "semantic_scholar": 0.0,
+            "openalex": 0.0
+          },
+          "ts_utc": "2026-05-22T08:23:07.100562+00:00",
+          "phase": "warmup",
+          "run_index": 1
+        },
+        {
+          "topic_key": "business-venfobel",
+          "mode": "business",
+          "expected_lang": "auto",
+          "q_lang_detected": "n/a",
+          "effective_skip_vertex": true,
+          "scholarly_active": false,
+          "query": "벤포벨S 종근당 광고비 2024",
+          "vertex": {
+            "mode": "vertex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "legacy": {
+            "mode": "legacy",
+            "elapsed_sec": 7.328,
+            "items": 10,
+            "domains": [
+              "asiatoday.co.kr",
+              "dailypharm.com",
+              "blog.naver.com",
+              "hankyung.com",
+              "medifonews.com",
+              "blog.naver.com",
+              "blog.naver.com",
+              "blog.naver.com",
+              "blog.naver.com",
+              "blog.naver.com"
+            ],
+            "domains_unique": [
+              "asiatoday.co.kr",
+              "blog.naver.com",
+              "dailypharm.com",
+              "hankyung.com",
+              "medifonews.com"
+            ],
+            "backend_signals": [
+              "tavily_or_other",
+              "tavily_or_other",
+              "naver_direct",
+              "tavily_or_other",
+              "tavily_or_other",
+              "naver_direct",
+              "naver_direct",
+              "naver_direct",
+              "naver_direct",
+              "naver_direct"
+            ],
+            "naver_count": 6,
+            "error": null
+          },
+          "semantic_scholar": {
+            "mode": "semantic_scholar",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "openalex": {
+            "mode": "openalex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "all_domains_unique": [
+            "asiatoday.co.kr",
+            "blog.naver.com",
+            "dailypharm.com",
+            "hankyung.com",
+            "medifonews.com"
+          ],
+          "academic_domains_hit": [],
+          "academic_source_ratio": 0.0,
+          "academic_hit_count": 0,
+          "academic_ratio_per_backend": {
+            "vertex": 0.0,
+            "legacy": 0.0,
+            "semantic_scholar": 0.0,
+            "openalex": 0.0
+          },
+          "ts_utc": "2026-05-22T08:24:14.431805+00:00",
+          "phase": "measure",
+          "run_index": 2
+        },
+        {
+          "topic_key": "business-venfobel",
+          "mode": "business",
+          "expected_lang": "auto",
+          "q_lang_detected": "n/a",
+          "effective_skip_vertex": true,
+          "scholarly_active": false,
+          "query": "벤포벨S 종근당 광고비 2024",
+          "vertex": {
+            "mode": "vertex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "legacy": {
+            "mode": "legacy",
+            "elapsed_sec": 7.843,
+            "items": 10,
+            "domains": [
+              "asiatoday.co.kr",
+              "dailypharm.com",
+              "blog.naver.com",
+              "hankyung.com",
+              "medifonews.com",
+              "blog.naver.com",
+              "blog.naver.com",
+              "blog.naver.com",
+              "blog.naver.com",
+              "blog.naver.com"
+            ],
+            "domains_unique": [
+              "asiatoday.co.kr",
+              "blog.naver.com",
+              "dailypharm.com",
+              "hankyung.com",
+              "medifonews.com"
+            ],
+            "backend_signals": [
+              "tavily_or_other",
+              "tavily_or_other",
+              "naver_direct",
+              "tavily_or_other",
+              "tavily_or_other",
+              "naver_direct",
+              "naver_direct",
+              "naver_direct",
+              "naver_direct",
+              "naver_direct"
+            ],
+            "naver_count": 6,
+            "error": null
+          },
+          "semantic_scholar": {
+            "mode": "semantic_scholar",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "openalex": {
+            "mode": "openalex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "all_domains_unique": [
+            "asiatoday.co.kr",
+            "blog.naver.com",
+            "dailypharm.com",
+            "hankyung.com",
+            "medifonews.com"
+          ],
+          "academic_domains_hit": [],
+          "academic_source_ratio": 0.0,
+          "academic_hit_count": 0,
+          "academic_ratio_per_backend": {
+            "vertex": 0.0,
+            "legacy": 0.0,
+            "semantic_scholar": 0.0,
+            "openalex": 0.0
+          },
+          "ts_utc": "2026-05-22T08:25:22.279983+00:00",
+          "phase": "measure",
+          "run_index": 3
+        },
+        {
+          "topic_key": "business-venfobel",
+          "mode": "business",
+          "expected_lang": "auto",
+          "q_lang_detected": "n/a",
+          "effective_skip_vertex": true,
+          "scholarly_active": false,
+          "query": "벤포벨S 종근당 광고비 2024",
+          "vertex": {
+            "mode": "vertex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "legacy": {
+            "mode": "legacy",
+            "elapsed_sec": 6.938,
+            "items": 10,
+            "domains": [
+              "asiatoday.co.kr",
+              "dailypharm.com",
+              "blog.naver.com",
+              "hankyung.com",
+              "medifonews.com",
+              "blog.naver.com",
+              "blog.naver.com",
+              "blog.naver.com",
+              "blog.naver.com",
+              "blog.naver.com"
+            ],
+            "domains_unique": [
+              "asiatoday.co.kr",
+              "blog.naver.com",
+              "dailypharm.com",
+              "hankyung.com",
+              "medifonews.com"
+            ],
+            "backend_signals": [
+              "tavily_or_other",
+              "tavily_or_other",
+              "naver_direct",
+              "tavily_or_other",
+              "tavily_or_other",
+              "naver_direct",
+              "naver_direct",
+              "naver_direct",
+              "naver_direct",
+              "naver_direct"
+            ],
+            "naver_count": 6,
+            "error": null
+          },
+          "semantic_scholar": {
+            "mode": "semantic_scholar",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "openalex": {
+            "mode": "openalex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "all_domains_unique": [
+            "asiatoday.co.kr",
+            "blog.naver.com",
+            "dailypharm.com",
+            "hankyung.com",
+            "medifonews.com"
+          ],
+          "academic_domains_hit": [],
+          "academic_source_ratio": 0.0,
+          "academic_hit_count": 0,
+          "academic_ratio_per_backend": {
+            "vertex": 0.0,
+            "legacy": 0.0,
+            "semantic_scholar": 0.0,
+            "openalex": 0.0
+          },
+          "ts_utc": "2026-05-22T08:26:29.233702+00:00",
+          "phase": "measure",
+          "run_index": 4
+        }
+      ],
+      "purpose": "invariant"
+    },
+    "academic-en": {
+      "topic_key": "academic-en",
+      "env_snapshot": {
+        "MODE": "academic",
+        "EXPECTED_LANG": "auto",
+        "SKIP_VERTEX_SEARCH": "false",
+        "ALLOWED_DOMAINS_EXTRA_count": 36
+      },
+      "runs": [
+        {
+          "topic_key": "academic-en",
+          "mode": "academic",
+          "expected_lang": "auto",
+          "q_lang_detected": "en",
+          "effective_skip_vertex": false,
+          "scholarly_active": true,
+          "query": "consumer behavior in influencer marketing",
+          "vertex": {
+            "mode": "vertex",
+            "elapsed_sec": 46.782,
+            "items": 14,
+            "domains": [
+              "mdpi.com",
+              "allindiamediasolutions.com",
+              "intelliplans.com",
+              "forbes.com",
+              "medium.com",
+              "yoloco.io",
+              "skchildrenfoundation.org",
+              "socialpubli.com",
+              "zionandzion.com",
+              "digital.hec.ca",
+              "agilitypr.com",
+              "journal.seisense.com",
+              "clootrack.com",
+              "gameinfluencer.com"
+            ],
+            "domains_unique": [
+              "agilitypr.com",
+              "allindiamediasolutions.com",
+              "clootrack.com",
+              "digital.hec.ca",
+              "forbes.com",
+              "gameinfluencer.com",
+              "intelliplans.com",
+              "journal.seisense.com",
+              "mdpi.com",
+              "medium.com",
+              "skchildrenfoundation.org",
+              "socialpubli.com",
+              "yoloco.io",
+              "zionandzion.com"
+            ],
+            "error": null
+          },
+          "legacy": {
+            "mode": "legacy",
+            "elapsed_sec": 4.406,
+            "items": 1,
+            "domains": [
+              "academic.naver.com"
+            ],
+            "domains_unique": [
+              "academic.naver.com"
+            ],
+            "backend_signals": [
+              "naver_direct"
+            ],
+            "naver_count": 1,
+            "error": null
+          },
+          "semantic_scholar": {
+            "mode": "semantic_scholar",
+            "elapsed_sec": 1.812,
+            "items": 10,
+            "domains": [
+              "currentsignjournal.org",
+              "mdpi.com",
+              "tandfonline.com",
+              "ijfmr.com",
+              "ssrn.com",
+              "economics.pubmedia.id",
+              "ssrn.com",
+              "ijsrem.com",
+              "ejournal.aibpm.com",
+              "journals.sagepub.com"
+            ],
+            "domains_unique": [
+              "currentsignjournal.org",
+              "economics.pubmedia.id",
+              "ejournal.aibpm.com",
+              "ijfmr.com",
+              "ijsrem.com",
+              "journals.sagepub.com",
+              "mdpi.com",
+              "ssrn.com",
+              "tandfonline.com"
+            ],
+            "ss_skip": false,
+            "error": null
+          },
+          "openalex": {
+            "mode": "openalex",
+            "elapsed_sec": 2.25,
+            "items": 10,
+            "domains": [
+              "sciencedirect.com",
+              "sciencedirect.com",
+              "journals.sagepub.com",
+              "sciencedirect.com",
+              "businessperspectives.org",
+              "journals.sagepub.com",
+              "mdpi.com",
+              "tandfonline.com",
+              "mdpi.com",
+              "sciencedirect.com"
+            ],
+            "domains_unique": [
+              "businessperspectives.org",
+              "journals.sagepub.com",
+              "mdpi.com",
+              "sciencedirect.com",
+              "tandfonline.com"
+            ],
+            "oa_cost_usd": 0.001,
+            "error": null
+          },
+          "all_domains_unique": [
+            "academic.naver.com",
+            "agilitypr.com",
+            "allindiamediasolutions.com",
+            "businessperspectives.org",
+            "clootrack.com",
+            "currentsignjournal.org",
+            "digital.hec.ca",
+            "economics.pubmedia.id",
+            "ejournal.aibpm.com",
+            "forbes.com",
+            "gameinfluencer.com",
+            "ijfmr.com",
+            "ijsrem.com",
+            "intelliplans.com",
+            "journal.seisense.com",
+            "journals.sagepub.com",
+            "mdpi.com",
+            "medium.com",
+            "sciencedirect.com",
+            "skchildrenfoundation.org",
+            "socialpubli.com",
+            "ssrn.com",
+            "tandfonline.com",
+            "yoloco.io",
+            "zionandzion.com"
+          ],
+          "academic_domains_hit": [
+            "academic.naver.com",
+            "digital.hec.ca",
+            "journal.seisense.com",
+            "journals.sagepub.com",
+            "mdpi.com",
+            "sciencedirect.com",
+            "ssrn.com",
+            "tandfonline.com"
+          ],
+          "academic_source_ratio": 0.32,
+          "academic_hit_count": 8,
+          "academic_ratio_per_backend": {
+            "vertex": 0.2143,
+            "legacy": 1.0,
+            "semantic_scholar": 0.4444,
+            "openalex": 0.8
+          },
+          "ts_utc": "2026-05-22T08:27:24.521388+00:00",
+          "phase": "warmup",
+          "run_index": 0
+        },
+        {
+          "topic_key": "academic-en",
+          "mode": "academic",
+          "expected_lang": "auto",
+          "q_lang_detected": "en",
+          "effective_skip_vertex": false,
+          "scholarly_active": true,
+          "query": "consumer behavior in influencer marketing",
+          "vertex": {
+            "mode": "vertex",
+            "elapsed_sec": 24.047,
+            "items": 7,
+            "domains": [
+              "mdpi.com",
+              "medium.com",
+              "intelliplans.com",
+              "forbes.com",
+              "mintel.com",
+              "allindiamediasolutions.com",
+              "researchgate.net"
+            ],
+            "domains_unique": [
+              "allindiamediasolutions.com",
+              "forbes.com",
+              "intelliplans.com",
+              "mdpi.com",
+              "medium.com",
+              "mintel.com",
+              "researchgate.net"
+            ],
+            "error": null
+          },
+          "legacy": {
+            "mode": "legacy",
+            "elapsed_sec": 2.75,
+            "items": 1,
+            "domains": [
+              "academic.naver.com"
+            ],
+            "domains_unique": [
+              "academic.naver.com"
+            ],
+            "backend_signals": [
+              "naver_direct"
+            ],
+            "naver_count": 1,
+            "error": null
+          },
+          "semantic_scholar": {
+            "mode": "semantic_scholar",
+            "elapsed_sec": 2.344,
+            "items": 10,
+            "domains": [
+              "currentsignjournal.org",
+              "mdpi.com",
+              "tandfonline.com",
+              "ijfmr.com",
+              "ssrn.com",
+              "economics.pubmedia.id",
+              "ssrn.com",
+              "ijsrem.com",
+              "ejournal.aibpm.com",
+              "journals.sagepub.com"
+            ],
+            "domains_unique": [
+              "currentsignjournal.org",
+              "economics.pubmedia.id",
+              "ejournal.aibpm.com",
+              "ijfmr.com",
+              "ijsrem.com",
+              "journals.sagepub.com",
+              "mdpi.com",
+              "ssrn.com",
+              "tandfonline.com"
+            ],
+            "ss_skip": false,
+            "error": null
+          },
+          "openalex": {
+            "mode": "openalex",
+            "elapsed_sec": 2.016,
+            "items": 10,
+            "domains": [
+              "sciencedirect.com",
+              "sciencedirect.com",
+              "journals.sagepub.com",
+              "sciencedirect.com",
+              "businessperspectives.org",
+              "journals.sagepub.com",
+              "mdpi.com",
+              "tandfonline.com",
+              "mdpi.com",
+              "sciencedirect.com"
+            ],
+            "domains_unique": [
+              "businessperspectives.org",
+              "journals.sagepub.com",
+              "mdpi.com",
+              "sciencedirect.com",
+              "tandfonline.com"
+            ],
+            "oa_cost_usd": 0.001,
+            "error": null
+          },
+          "all_domains_unique": [
+            "academic.naver.com",
+            "allindiamediasolutions.com",
+            "businessperspectives.org",
+            "currentsignjournal.org",
+            "economics.pubmedia.id",
+            "ejournal.aibpm.com",
+            "forbes.com",
+            "ijfmr.com",
+            "ijsrem.com",
+            "intelliplans.com",
+            "journals.sagepub.com",
+            "mdpi.com",
+            "medium.com",
+            "mintel.com",
+            "researchgate.net",
+            "sciencedirect.com",
+            "ssrn.com",
+            "tandfonline.com"
+          ],
+          "academic_domains_hit": [
+            "academic.naver.com",
+            "journals.sagepub.com",
+            "mdpi.com",
+            "researchgate.net",
+            "sciencedirect.com",
+            "ssrn.com",
+            "tandfonline.com"
+          ],
+          "academic_source_ratio": 0.3889,
+          "academic_hit_count": 7,
+          "academic_ratio_per_backend": {
+            "vertex": 0.2857,
+            "legacy": 1.0,
+            "semantic_scholar": 0.4444,
+            "openalex": 0.8
+          },
+          "ts_utc": "2026-05-22T08:28:55.682546+00:00",
+          "phase": "warmup",
+          "run_index": 1
+        },
+        {
+          "topic_key": "academic-en",
+          "mode": "academic",
+          "expected_lang": "auto",
+          "q_lang_detected": "en",
+          "effective_skip_vertex": false,
+          "scholarly_active": true,
+          "query": "consumer behavior in influencer marketing",
+          "vertex": {
+            "mode": "vertex",
+            "elapsed_sec": 82.688,
+            "items": 22,
+            "domains": [
+              "mdpi.com",
+              "medium.com",
+              "intelliplans.com",
+              "hypefy.ai",
+              "allindiamediasolutions.com",
+              "docs.rwu.edu",
+              "forbes.com",
+              "forbes.com",
+              "brimartech.com",
+              "samples.essaypro.com",
+              "naos-be.zcu.cz",
+              "thecirqle.com",
+              "vertexaisearch.cloud.google.com",
+              "sproutsocial.com",
+              "business.rice.edu",
+              "journal.seisense.com",
+              "elementhuman.com",
+              "shortvids.co",
+              "scholarhub.ui.ac.id",
+              "mdpi.com",
+              "ijnrd.org",
+              "mintel.com"
+            ],
+            "domains_unique": [
+              "allindiamediasolutions.com",
+              "brimartech.com",
+              "business.rice.edu",
+              "docs.rwu.edu",
+              "elementhuman.com",
+              "forbes.com",
+              "hypefy.ai",
+              "ijnrd.org",
+              "intelliplans.com",
+              "journal.seisense.com",
+              "mdpi.com",
+              "medium.com",
+              "mintel.com",
+              "naos-be.zcu.cz",
+              "samples.essaypro.com",
+              "scholarhub.ui.ac.id",
+              "shortvids.co",
+              "sproutsocial.com",
+              "thecirqle.com",
+              "vertexaisearch.cloud.google.com"
+            ],
+            "error": null
+          },
+          "legacy": {
+            "mode": "legacy",
+            "elapsed_sec": 2.515,
+            "items": 1,
+            "domains": [
+              "academic.naver.com"
+            ],
+            "domains_unique": [
+              "academic.naver.com"
+            ],
+            "backend_signals": [
+              "naver_direct"
+            ],
+            "naver_count": 1,
+            "error": null
+          },
+          "semantic_scholar": {
+            "mode": "semantic_scholar",
+            "elapsed_sec": 2.11,
+            "items": 10,
+            "domains": [
+              "currentsignjournal.org",
+              "mdpi.com",
+              "tandfonline.com",
+              "ijfmr.com",
+              "ssrn.com",
+              "economics.pubmedia.id",
+              "ssrn.com",
+              "ijsrem.com",
+              "ejournal.aibpm.com",
+              "journals.sagepub.com"
+            ],
+            "domains_unique": [
+              "currentsignjournal.org",
+              "economics.pubmedia.id",
+              "ejournal.aibpm.com",
+              "ijfmr.com",
+              "ijsrem.com",
+              "journals.sagepub.com",
+              "mdpi.com",
+              "ssrn.com",
+              "tandfonline.com"
+            ],
+            "ss_skip": false,
+            "error": null
+          },
+          "openalex": {
+            "mode": "openalex",
+            "elapsed_sec": 1.765,
+            "items": 10,
+            "domains": [
+              "sciencedirect.com",
+              "sciencedirect.com",
+              "journals.sagepub.com",
+              "sciencedirect.com",
+              "businessperspectives.org",
+              "journals.sagepub.com",
+              "mdpi.com",
+              "tandfonline.com",
+              "mdpi.com",
+              "sciencedirect.com"
+            ],
+            "domains_unique": [
+              "businessperspectives.org",
+              "journals.sagepub.com",
+              "mdpi.com",
+              "sciencedirect.com",
+              "tandfonline.com"
+            ],
+            "oa_cost_usd": 0.001,
+            "error": null
+          },
+          "all_domains_unique": [
+            "academic.naver.com",
+            "allindiamediasolutions.com",
+            "brimartech.com",
+            "business.rice.edu",
+            "businessperspectives.org",
+            "currentsignjournal.org",
+            "docs.rwu.edu",
+            "economics.pubmedia.id",
+            "ejournal.aibpm.com",
+            "elementhuman.com",
+            "forbes.com",
+            "hypefy.ai",
+            "ijfmr.com",
+            "ijnrd.org",
+            "ijsrem.com",
+            "intelliplans.com",
+            "journal.seisense.com",
+            "journals.sagepub.com",
+            "mdpi.com",
+            "medium.com",
+            "mintel.com",
+            "naos-be.zcu.cz",
+            "samples.essaypro.com",
+            "scholarhub.ui.ac.id",
+            "sciencedirect.com",
+            "shortvids.co",
+            "sproutsocial.com",
+            "ssrn.com",
+            "tandfonline.com",
+            "thecirqle.com",
+            "vertexaisearch.cloud.google.com"
+          ],
+          "academic_domains_hit": [
+            "academic.naver.com",
+            "docs.rwu.edu",
+            "journal.seisense.com",
+            "journals.sagepub.com",
+            "mdpi.com",
+            "sciencedirect.com",
+            "ssrn.com",
+            "tandfonline.com"
+          ],
+          "academic_source_ratio": 0.2581,
+          "academic_hit_count": 8,
+          "academic_ratio_per_backend": {
+            "vertex": 0.15,
+            "legacy": 1.0,
+            "semantic_scholar": 0.4444,
+            "openalex": 0.8
+          },
+          "ts_utc": "2026-05-22T08:31:24.770387+00:00",
+          "phase": "measure",
+          "run_index": 2
+        },
+        {
+          "topic_key": "academic-en",
+          "mode": "academic",
+          "expected_lang": "auto",
+          "q_lang_detected": "en",
+          "effective_skip_vertex": false,
+          "scholarly_active": true,
+          "query": "consumer behavior in influencer marketing",
+          "vertex": {
+            "mode": "vertex",
+            "elapsed_sec": 61.141,
+            "items": 26,
+            "domains": [
+              "mdpi.com",
+              "intelliplans.com",
+              "orkbeyondborder.com",
+              "allindiamediasolutions.com",
+              "forbes.com",
+              "medium.com",
+              "slicktext.com",
+              "goatagency.com",
+              "beyondfifteen.com",
+              "amraandelma.com",
+              "mintel.com",
+              "bbbprograms.org",
+              "ideas.repec.org",
+              "sproutsocial.com",
+              "moburst.com",
+              "researchgate.net",
+              "emerald.com",
+              "eyes4research.com",
+              "mdpi.com",
+              "researchgate.net",
+              "blog.hypeauditor.com",
+              "acr-journal.com",
+              "tedikomwireless.com",
+              "mdpi.com",
+              "attentive.com",
+              "acr-journal.com"
+            ],
+            "domains_unique": [
+              "acr-journal.com",
+              "allindiamediasolutions.com",
+              "amraandelma.com",
+              "attentive.com",
+              "bbbprograms.org",
+              "beyondfifteen.com",
+              "blog.hypeauditor.com",
+              "emerald.com",
+              "eyes4research.com",
+              "forbes.com",
+              "goatagency.com",
+              "ideas.repec.org",
+              "intelliplans.com",
+              "mdpi.com",
+              "medium.com",
+              "mintel.com",
+              "moburst.com",
+              "orkbeyondborder.com",
+              "researchgate.net",
+              "slicktext.com",
+              "sproutsocial.com",
+              "tedikomwireless.com"
+            ],
+            "error": null
+          },
+          "legacy": {
+            "mode": "legacy",
+            "elapsed_sec": 2.656,
+            "items": 1,
+            "domains": [
+              "academic.naver.com"
+            ],
+            "domains_unique": [
+              "academic.naver.com"
+            ],
+            "backend_signals": [
+              "naver_direct"
+            ],
+            "naver_count": 1,
+            "error": null
+          },
+          "semantic_scholar": {
+            "mode": "semantic_scholar",
+            "elapsed_sec": 1.36,
+            "items": 10,
+            "domains": [
+              "currentsignjournal.org",
+              "mdpi.com",
+              "tandfonline.com",
+              "ijfmr.com",
+              "ssrn.com",
+              "economics.pubmedia.id",
+              "ssrn.com",
+              "ijsrem.com",
+              "ejournal.aibpm.com",
+              "journals.sagepub.com"
+            ],
+            "domains_unique": [
+              "currentsignjournal.org",
+              "economics.pubmedia.id",
+              "ejournal.aibpm.com",
+              "ijfmr.com",
+              "ijsrem.com",
+              "journals.sagepub.com",
+              "mdpi.com",
+              "ssrn.com",
+              "tandfonline.com"
+            ],
+            "ss_skip": false,
+            "error": null
+          },
+          "openalex": {
+            "mode": "openalex",
+            "elapsed_sec": 1.656,
+            "items": 10,
+            "domains": [
+              "sciencedirect.com",
+              "sciencedirect.com",
+              "journals.sagepub.com",
+              "sciencedirect.com",
+              "businessperspectives.org",
+              "journals.sagepub.com",
+              "mdpi.com",
+              "tandfonline.com",
+              "mdpi.com",
+              "sciencedirect.com"
+            ],
+            "domains_unique": [
+              "businessperspectives.org",
+              "journals.sagepub.com",
+              "mdpi.com",
+              "sciencedirect.com",
+              "tandfonline.com"
+            ],
+            "oa_cost_usd": 0.001,
+            "error": null
+          },
+          "all_domains_unique": [
+            "academic.naver.com",
+            "acr-journal.com",
+            "allindiamediasolutions.com",
+            "amraandelma.com",
+            "attentive.com",
+            "bbbprograms.org",
+            "beyondfifteen.com",
+            "blog.hypeauditor.com",
+            "businessperspectives.org",
+            "currentsignjournal.org",
+            "economics.pubmedia.id",
+            "ejournal.aibpm.com",
+            "emerald.com",
+            "eyes4research.com",
+            "forbes.com",
+            "goatagency.com",
+            "ideas.repec.org",
+            "ijfmr.com",
+            "ijsrem.com",
+            "intelliplans.com",
+            "journals.sagepub.com",
+            "mdpi.com",
+            "medium.com",
+            "mintel.com",
+            "moburst.com",
+            "orkbeyondborder.com",
+            "researchgate.net",
+            "sciencedirect.com",
+            "slicktext.com",
+            "sproutsocial.com",
+            "ssrn.com",
+            "tandfonline.com",
+            "tedikomwireless.com"
+          ],
+          "academic_domains_hit": [
+            "academic.naver.com",
+            "acr-journal.com",
+            "emerald.com",
+            "journals.sagepub.com",
+            "mdpi.com",
+            "researchgate.net",
+            "sciencedirect.com",
+            "ssrn.com",
+            "tandfonline.com"
+          ],
+          "academic_source_ratio": 0.2727,
+          "academic_hit_count": 9,
+          "academic_ratio_per_backend": {
+            "vertex": 0.1818,
+            "legacy": 1.0,
+            "semantic_scholar": 0.4444,
+            "openalex": 0.8
+          },
+          "ts_utc": "2026-05-22T08:33:31.591626+00:00",
+          "phase": "measure",
+          "run_index": 3
+        },
+        {
+          "topic_key": "academic-en",
+          "mode": "academic",
+          "expected_lang": "auto",
+          "q_lang_detected": "en",
+          "effective_skip_vertex": false,
+          "scholarly_active": true,
+          "query": "consumer behavior in influencer marketing",
+          "vertex": {
+            "mode": "vertex",
+            "elapsed_sec": 34.5,
+            "items": 11,
+            "domains": [
+              "mdpi.com",
+              "intelliplans.com",
+              "forbes.com",
+              "medium.com",
+              "favikon.com",
+              "naos-be.zcu.cz",
+              "agilitypr.com",
+              "mintel.com",
+              "ideas.repec.org",
+              "ojs.amhinternational.com",
+              "docs.rwu.edu"
+            ],
+            "domains_unique": [
+              "agilitypr.com",
+              "docs.rwu.edu",
+              "favikon.com",
+              "forbes.com",
+              "ideas.repec.org",
+              "intelliplans.com",
+              "mdpi.com",
+              "medium.com",
+              "mintel.com",
+              "naos-be.zcu.cz",
+              "ojs.amhinternational.com"
+            ],
+            "error": null
+          },
+          "legacy": {
+            "mode": "legacy",
+            "elapsed_sec": 3.343,
+            "items": 1,
+            "domains": [
+              "academic.naver.com"
+            ],
+            "domains_unique": [
+              "academic.naver.com"
+            ],
+            "backend_signals": [
+              "naver_direct"
+            ],
+            "naver_count": 1,
+            "error": null
+          },
+          "semantic_scholar": {
+            "mode": "semantic_scholar",
+            "elapsed_sec": 1.625,
+            "items": 10,
+            "domains": [
+              "currentsignjournal.org",
+              "mdpi.com",
+              "tandfonline.com",
+              "ijfmr.com",
+              "ssrn.com",
+              "economics.pubmedia.id",
+              "ssrn.com",
+              "ijsrem.com",
+              "ejournal.aibpm.com",
+              "journals.sagepub.com"
+            ],
+            "domains_unique": [
+              "currentsignjournal.org",
+              "economics.pubmedia.id",
+              "ejournal.aibpm.com",
+              "ijfmr.com",
+              "ijsrem.com",
+              "journals.sagepub.com",
+              "mdpi.com",
+              "ssrn.com",
+              "tandfonline.com"
+            ],
+            "ss_skip": false,
+            "error": null
+          },
+          "openalex": {
+            "mode": "openalex",
+            "elapsed_sec": 1.688,
+            "items": 10,
+            "domains": [
+              "sciencedirect.com",
+              "sciencedirect.com",
+              "journals.sagepub.com",
+              "sciencedirect.com",
+              "businessperspectives.org",
+              "journals.sagepub.com",
+              "mdpi.com",
+              "tandfonline.com",
+              "mdpi.com",
+              "sciencedirect.com"
+            ],
+            "domains_unique": [
+              "businessperspectives.org",
+              "journals.sagepub.com",
+              "mdpi.com",
+              "sciencedirect.com",
+              "tandfonline.com"
+            ],
+            "oa_cost_usd": 0.001,
+            "error": null
+          },
+          "all_domains_unique": [
+            "academic.naver.com",
+            "agilitypr.com",
+            "businessperspectives.org",
+            "currentsignjournal.org",
+            "docs.rwu.edu",
+            "economics.pubmedia.id",
+            "ejournal.aibpm.com",
+            "favikon.com",
+            "forbes.com",
+            "ideas.repec.org",
+            "ijfmr.com",
+            "ijsrem.com",
+            "intelliplans.com",
+            "journals.sagepub.com",
+            "mdpi.com",
+            "medium.com",
+            "mintel.com",
+            "naos-be.zcu.cz",
+            "ojs.amhinternational.com",
+            "sciencedirect.com",
+            "ssrn.com",
+            "tandfonline.com"
+          ],
+          "academic_domains_hit": [
+            "academic.naver.com",
+            "docs.rwu.edu",
+            "journals.sagepub.com",
+            "mdpi.com",
+            "sciencedirect.com",
+            "ssrn.com",
+            "tandfonline.com"
+          ],
+          "academic_source_ratio": 0.3182,
+          "academic_hit_count": 7,
+          "academic_ratio_per_backend": {
+            "vertex": 0.1818,
+            "legacy": 1.0,
+            "semantic_scholar": 0.4444,
+            "openalex": 0.8
+          },
+          "ts_utc": "2026-05-22T08:35:12.765725+00:00",
+          "phase": "measure",
+          "run_index": 4
+        }
+      ],
+      "purpose": "academic-en"
+    },
+    "academic-ko": {
+      "topic_key": "academic-ko",
+      "env_snapshot": {
+        "MODE": "academic",
+        "EXPECTED_LANG": "auto",
+        "SKIP_VERTEX_SEARCH": "false",
+        "ALLOWED_DOMAINS_EXTRA_count": 36
+      },
+      "runs": [
+        {
+          "topic_key": "academic-ko",
+          "mode": "academic",
+          "expected_lang": "auto",
+          "q_lang_detected": "ko",
+          "effective_skip_vertex": true,
+          "scholarly_active": false,
+          "query": "Z세대 모바일 광고 수용도 연구",
+          "vertex": {
+            "mode": "vertex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "legacy": {
+            "mode": "legacy",
+            "elapsed_sec": 11.813,
+            "items": 6,
+            "domains": [
+              "dbpia.co.kr",
+              "mobiinside.co.kr",
+              "blog.naver.com",
+              "kiss.kstudy.com",
+              "dbpia.co.kr",
+              "dbpia.co.kr"
+            ],
+            "domains_unique": [
+              "blog.naver.com",
+              "dbpia.co.kr",
+              "kiss.kstudy.com",
+              "mobiinside.co.kr"
+            ],
+            "backend_signals": [
+              "tavily_or_other",
+              "tavily_or_other",
+              "naver_direct",
+              "tavily_or_other",
+              "tavily_or_other",
+              "tavily_or_other"
+            ],
+            "naver_count": 1,
+            "error": null
+          },
+          "semantic_scholar": {
+            "mode": "semantic_scholar",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "openalex": {
+            "mode": "openalex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "all_domains_unique": [
+            "blog.naver.com",
+            "dbpia.co.kr",
+            "kiss.kstudy.com",
+            "mobiinside.co.kr"
+          ],
+          "academic_domains_hit": [
+            "dbpia.co.kr",
+            "kiss.kstudy.com"
+          ],
+          "academic_source_ratio": 0.5,
+          "academic_hit_count": 2,
+          "academic_ratio_per_backend": {
+            "vertex": 0.0,
+            "legacy": 0.5,
+            "semantic_scholar": 0.0,
+            "openalex": 0.0
+          },
+          "ts_utc": "2026-05-22T08:35:24.641781+00:00",
+          "phase": "warmup",
+          "run_index": 0
+        },
+        {
+          "topic_key": "academic-ko",
+          "mode": "academic",
+          "expected_lang": "auto",
+          "q_lang_detected": "ko",
+          "effective_skip_vertex": true,
+          "scholarly_active": false,
+          "query": "Z세대 모바일 광고 수용도 연구",
+          "vertex": {
+            "mode": "vertex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "legacy": {
+            "mode": "legacy",
+            "elapsed_sec": 7.297,
+            "items": 6,
+            "domains": [
+              "dbpia.co.kr",
+              "mobiinside.co.kr",
+              "blog.naver.com",
+              "kiss.kstudy.com",
+              "dbpia.co.kr",
+              "dbpia.co.kr"
+            ],
+            "domains_unique": [
+              "blog.naver.com",
+              "dbpia.co.kr",
+              "kiss.kstudy.com",
+              "mobiinside.co.kr"
+            ],
+            "backend_signals": [
+              "tavily_or_other",
+              "tavily_or_other",
+              "naver_direct",
+              "tavily_or_other",
+              "tavily_or_other",
+              "tavily_or_other"
+            ],
+            "naver_count": 1,
+            "error": null
+          },
+          "semantic_scholar": {
+            "mode": "semantic_scholar",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "openalex": {
+            "mode": "openalex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "all_domains_unique": [
+            "blog.naver.com",
+            "dbpia.co.kr",
+            "kiss.kstudy.com",
+            "mobiinside.co.kr"
+          ],
+          "academic_domains_hit": [
+            "dbpia.co.kr",
+            "kiss.kstudy.com"
+          ],
+          "academic_source_ratio": 0.5,
+          "academic_hit_count": 2,
+          "academic_ratio_per_backend": {
+            "vertex": 0.0,
+            "legacy": 0.5,
+            "semantic_scholar": 0.0,
+            "openalex": 0.0
+          },
+          "ts_utc": "2026-05-22T08:36:31.949543+00:00",
+          "phase": "warmup",
+          "run_index": 1
+        },
+        {
+          "topic_key": "academic-ko",
+          "mode": "academic",
+          "expected_lang": "auto",
+          "q_lang_detected": "ko",
+          "effective_skip_vertex": true,
+          "scholarly_active": false,
+          "query": "Z세대 모바일 광고 수용도 연구",
+          "vertex": {
+            "mode": "vertex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "legacy": {
+            "mode": "legacy",
+            "elapsed_sec": 7.453,
+            "items": 6,
+            "domains": [
+              "dbpia.co.kr",
+              "mobiinside.co.kr",
+              "blog.naver.com",
+              "kiss.kstudy.com",
+              "dbpia.co.kr",
+              "dbpia.co.kr"
+            ],
+            "domains_unique": [
+              "blog.naver.com",
+              "dbpia.co.kr",
+              "kiss.kstudy.com",
+              "mobiinside.co.kr"
+            ],
+            "backend_signals": [
+              "tavily_or_other",
+              "tavily_or_other",
+              "naver_direct",
+              "tavily_or_other",
+              "tavily_or_other",
+              "tavily_or_other"
+            ],
+            "naver_count": 1,
+            "error": null
+          },
+          "semantic_scholar": {
+            "mode": "semantic_scholar",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "openalex": {
+            "mode": "openalex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "all_domains_unique": [
+            "blog.naver.com",
+            "dbpia.co.kr",
+            "kiss.kstudy.com",
+            "mobiinside.co.kr"
+          ],
+          "academic_domains_hit": [
+            "dbpia.co.kr",
+            "kiss.kstudy.com"
+          ],
+          "academic_source_ratio": 0.5,
+          "academic_hit_count": 2,
+          "academic_ratio_per_backend": {
+            "vertex": 0.0,
+            "legacy": 0.5,
+            "semantic_scholar": 0.0,
+            "openalex": 0.0
+          },
+          "ts_utc": "2026-05-22T08:37:39.410201+00:00",
+          "phase": "measure",
+          "run_index": 2
+        },
+        {
+          "topic_key": "academic-ko",
+          "mode": "academic",
+          "expected_lang": "auto",
+          "q_lang_detected": "ko",
+          "effective_skip_vertex": true,
+          "scholarly_active": false,
+          "query": "Z세대 모바일 광고 수용도 연구",
+          "vertex": {
+            "mode": "vertex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "legacy": {
+            "mode": "legacy",
+            "elapsed_sec": 7.797,
+            "items": 6,
+            "domains": [
+              "dbpia.co.kr",
+              "mobiinside.co.kr",
+              "blog.naver.com",
+              "kiss.kstudy.com",
+              "dbpia.co.kr",
+              "dbpia.co.kr"
+            ],
+            "domains_unique": [
+              "blog.naver.com",
+              "dbpia.co.kr",
+              "kiss.kstudy.com",
+              "mobiinside.co.kr"
+            ],
+            "backend_signals": [
+              "tavily_or_other",
+              "tavily_or_other",
+              "naver_direct",
+              "tavily_or_other",
+              "tavily_or_other",
+              "tavily_or_other"
+            ],
+            "naver_count": 1,
+            "error": null
+          },
+          "semantic_scholar": {
+            "mode": "semantic_scholar",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "openalex": {
+            "mode": "openalex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "all_domains_unique": [
+            "blog.naver.com",
+            "dbpia.co.kr",
+            "kiss.kstudy.com",
+            "mobiinside.co.kr"
+          ],
+          "academic_domains_hit": [
+            "dbpia.co.kr",
+            "kiss.kstudy.com"
+          ],
+          "academic_source_ratio": 0.5,
+          "academic_hit_count": 2,
+          "academic_ratio_per_backend": {
+            "vertex": 0.0,
+            "legacy": 0.5,
+            "semantic_scholar": 0.0,
+            "openalex": 0.0
+          },
+          "ts_utc": "2026-05-22T08:38:47.220178+00:00",
+          "phase": "measure",
+          "run_index": 3
+        },
+        {
+          "topic_key": "academic-ko",
+          "mode": "academic",
+          "expected_lang": "auto",
+          "q_lang_detected": "ko",
+          "effective_skip_vertex": true,
+          "scholarly_active": false,
+          "query": "Z세대 모바일 광고 수용도 연구",
+          "vertex": {
+            "mode": "vertex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "legacy": {
+            "mode": "legacy",
+            "elapsed_sec": 7.187,
+            "items": 6,
+            "domains": [
+              "dbpia.co.kr",
+              "mobiinside.co.kr",
+              "blog.naver.com",
+              "kiss.kstudy.com",
+              "dbpia.co.kr",
+              "dbpia.co.kr"
+            ],
+            "domains_unique": [
+              "blog.naver.com",
+              "dbpia.co.kr",
+              "kiss.kstudy.com",
+              "mobiinside.co.kr"
+            ],
+            "backend_signals": [
+              "tavily_or_other",
+              "tavily_or_other",
+              "naver_direct",
+              "tavily_or_other",
+              "tavily_or_other",
+              "tavily_or_other"
+            ],
+            "naver_count": 1,
+            "error": null
+          },
+          "semantic_scholar": {
+            "mode": "semantic_scholar",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "openalex": {
+            "mode": "openalex",
+            "skipped_by_catch43": true,
+            "items": 0,
+            "domains": [],
+            "elapsed_sec": 0.0
+          },
+          "all_domains_unique": [
+            "blog.naver.com",
+            "dbpia.co.kr",
+            "kiss.kstudy.com",
+            "mobiinside.co.kr"
+          ],
+          "academic_domains_hit": [
+            "dbpia.co.kr",
+            "kiss.kstudy.com"
+          ],
+          "academic_source_ratio": 0.5,
+          "academic_hit_count": 2,
+          "academic_ratio_per_backend": {
+            "vertex": 0.0,
+            "legacy": 0.5,
+            "semantic_scholar": 0.0,
+            "openalex": 0.0
+          },
+          "ts_utc": "2026-05-22T08:39:54.423074+00:00",
+          "phase": "measure",
+          "run_index": 4
+        }
+      ],
+      "purpose": "academic-ko"
+    }
+  },
+  "lang_detect": {
+    "n": 10,
+    "correct": 10,
+    "accuracy": 1.0,
+    "rows": [
+      {
+        "query": "consumer behavior in influencer marketing",
+        "expected": "en",
+        "got": "en",
+        "match": true
+      },
+      {
+        "query": "source credibility theory parasocial interaction",
+        "expected": "en",
+        "got": "en",
+        "match": true
+      },
+      {
+        "query": "arxiv preprint advertising effectiveness 2023",
+        "expected": "en",
+        "got": "en",
+        "match": true
+      },
+      {
+        "query": "digital advertising attention metrics",
+        "expected": "en",
+        "got": "en",
+        "match": true
+      },
+      {
+        "query": "Gen Z mobile ad acceptance survey",
+        "expected": "en",
+        "got": "en",
+        "match": true
+      },
+      {
+        "query": "Z세대 모바일 광고 수용도 연구",
+        "expected": "ko",
+        "got": "ko",
+        "match": true
+      },
+      {
+        "query": "한국 광고홍보학회 디지털 광고 효과",
+        "expected": "ko",
+        "got": "ko",
+        "match": true
+      },
+      {
+        "query": "소비자 행동 인플루언서 마케팅",
+        "expected": "ko",
+        "got": "ko",
+        "match": true
+      },
+      {
+        "query": "국내 학술지 광고 수용도 메타분석",
+        "expected": "ko",
+        "got": "ko",
+        "match": true
+      },
+      {
+        "query": "KCI 등재지 모바일 광고 회피 연구",
+        "expected": "ko",
+        "got": "ko",
+        "match": true
+      }
+    ],
+    "detect_source": "local-forced"
+  },
+  "metrics": {
+    "1_business_invariant": {
+      "stability_jaccard_mean": 1.0,
+      "catch43_bypass_business_mode": true,
+      "n_measure_runs": 3,
+      "verdict": "PASS"
+    },
+    "2_academic_source_ratio": {
+      "n": 6,
+      "mean": 0.3915,
+      "min": 0.2581,
+      "max": 0.5,
+      "threshold": 0.6,
+      "verdict": "REVIEW"
+    },
+    "3_lang_detect_accuracy": {
+      "n": 10,
+      "correct": 10,
+      "accuracy": 1.0,
+      "rows": [
+        {
+          "query": "consumer behavior in influencer marketing",
+          "expected": "en",
+          "got": "en",
+          "match": true
+        },
+        {
+          "query": "source credibility theory parasocial interaction",
+          "expected": "en",
+          "got": "en",
+          "match": true
+        },
+        {
+          "query": "arxiv preprint advertising effectiveness 2023",
+          "expected": "en",
+          "got": "en",
+          "match": true
+        },
+        {
+          "query": "digital advertising attention metrics",
+          "expected": "en",
+          "got": "en",
+          "match": true
+        },
+        {
+          "query": "Gen Z mobile ad acceptance survey",
+          "expected": "en",
+          "got": "en",
+          "match": true
+        },
+        {
+          "query": "Z세대 모바일 광고 수용도 연구",
+          "expected": "ko",
+          "got": "ko",
+          "match": true
+        },
+        {
+          "query": "한국 광고홍보학회 디지털 광고 효과",
+          "expected": "ko",
+          "got": "ko",
+          "match": true
+        },
+        {
+          "query": "소비자 행동 인플루언서 마케팅",
+          "expected": "ko",
+          "got": "ko",
+          "match": true
+        },
+        {
+          "query": "국내 학술지 광고 수용도 메타분석",
+          "expected": "ko",
+          "got": "ko",
+          "match": true
+        },
+        {
+          "query": "KCI 등재지 모바일 광고 회피 연구",
+          "expected": "ko",
+          "got": "ko",
+          "match": true
+        }
+      ],
+      "detect_source": "local-forced",
+      "threshold": 0.8,
+      "verdict": "PASS"
+    },
+    "4_en_to_vertex_active_rate": {
+      "n": 3,
+      "active": 3,
+      "rate": 1.0,
+      "threshold": 1.0,
+      "verdict": "PASS"
+    },
+    "5_ko_to_naver_active_rate": {
+      "n": 3,
+      "eff_skip_vertex_count": 3,
+      "naver_hit_count": 3,
+      "skip_rate": 1.0,
+      "naver_rate": 1.0,
+      "threshold_skip": 1.0,
+      "threshold_naver": 0.8,
+      "verdict": "PASS"
+    }
+  }
+}
