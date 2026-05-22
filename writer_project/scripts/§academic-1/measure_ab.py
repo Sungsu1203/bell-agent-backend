@@ -134,7 +134,7 @@ PER_RUN_TIMEOUT_S = 90.0
 INTER_RUN_SLEEP_S = 60.0
 
 
-# ── academic domains (§academic-1 B1 final 29 + §academic-3 B 추가 7 = 36) ────
+# ── academic domains (§academic-1 B1 29 + §academic-3 B +7 + §academic-4 Phase 2 +4 = 40) ──
 ACADEMIC_DOMAINS = {
     # Korean academic society / aggregator / search engine
     "dbpia.co.kr", "kadpr.or.kr", "kci.go.kr", "kiss.kstudy.com", "riss.kr",
@@ -169,6 +169,13 @@ ACADEMIC_DOMAINS = {
 
     # Global industry research repository (advertising-specific)
     "warc.com",
+
+    # §academic-4 Phase 2 commit 3 영역 추가 (catch 67 영역)
+    # 대학 publication + 소형 OA — vertex 학술 영역 hit 정합 (Step C-1 commit 2 2차 측정)
+    "digital.hec.ca",              # HEC Montreal — Canadian business school publication
+    "docs.rwu.edu",                # Roger Williams University — academic repository
+    "knowledge.insead.edu",        # INSEAD business school — research knowledge base
+    "journal.seisense.com",        # SEISENSE Journal — OA 학술 (multidisciplinary)
 }
 
 
@@ -511,6 +518,23 @@ def run_single(topic_key: str, query: str, mode: str, expected_lang: str,
     all_domains_set = sorted(set(d for d in all_domains if d))
     academic_domains = sorted(set(all_domains_set) & ACADEMIC_DOMAINS)
     academic_ratio = (len(academic_domains) / len(all_domains_set)) if all_domains_set else 0.0
+
+    # §academic-4 Phase 2 commit 3 — catch 66 영역 산식 보강 (compat 기존 metric 보존)
+    # primary metric: academic_hit_count (절대 수, dilution 영역 isolation)
+    # secondary metric: academic_ratio_per_backend (backend 별 분리 ratio)
+    def _bk_ratio(rec: dict) -> float:
+        bk_uniq = sorted(set(d for d in (rec.get("domains") or []) if d))
+        if not bk_uniq:
+            return 0.0
+        bk_hit = sorted(set(bk_uniq) & ACADEMIC_DOMAINS)
+        return round(len(bk_hit) / len(bk_uniq), 4)
+    academic_ratio_per_backend = {
+        "vertex": _bk_ratio(vertex_rec),
+        "legacy": _bk_ratio(legacy_rec),
+        "semantic_scholar": _bk_ratio(ss_rec),
+        "openalex": _bk_ratio(oa_rec),
+    }
+
     return {
         "topic_key": topic_key,
         "mode": mode,
@@ -526,6 +550,9 @@ def run_single(topic_key: str, query: str, mode: str, expected_lang: str,
         "all_domains_unique": all_domains_set,
         "academic_domains_hit": academic_domains,
         "academic_source_ratio": round(academic_ratio, 4),
+        # §academic-4 Phase 2 — catch 66 정합 신규 metric (기존 reader 호환 영역 추가만)
+        "academic_hit_count": len(academic_domains),
+        "academic_ratio_per_backend": academic_ratio_per_backend,
         "ts_utc": datetime.now(timezone.utc).isoformat(),
     }
 

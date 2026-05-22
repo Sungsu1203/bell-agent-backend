@@ -663,9 +663,14 @@ driver 정합 패턴 (commit 2 update, **catch 64 lesson 정합**):
 - **catch 43** (language-aware backend routing, §academic-1 완료) — 본 cycle 자연 확장
 - **catch 57** (audit cycle 외부 환경 사전 점검 lesson + anonymous pool reality check + mailto consistency) — Issue 5 STOP gate 정의 보강 + commit 1 smoke 3 attempts 429 재현 → SS anonymous shared pool production 부적합 박제
 - **catch 58** (academic-en 측정 토픽 단일성, §academic-5 이전) — 본 cycle 측정 driver 변경 X
-- **catch 59** (DOI publisher 매핑, 3A 정적 table 채택) — 본 design B3 박제 (37 entries, 10.1177/ SAGE 메인 + 10.21511/ 보강 정합)
+- **catch 59** (DOI publisher 매핑, 3A 정적 table 채택) — 본 design B3 박제 (40 entries, Phase 2 commit 3 +3 보강 정합: 10.36948/ + 10.32535/ + 10.63075/)
 - **catch 60 후보** (60-b dedup 정합성 / 60-c schema versioning / 60-d OA credit monitor) — Step C 측정 후 재평가
-- **catch 61 후보** (SS authenticated pool 활성 layer, `SEMANTIC_SCHOLAR_API_KEY` + `x-api-key` 헤더 박제) — SS key 발급 응답 회신 시 진입, 본 cycle Sub-decision 1A' default skip 단계의 후속
+- **catch 61 활성** (SS authenticated pool 활성 layer, `SEMANTIC_SCHOLAR_API_KEY` + `x-api-key` 헤더 박제) — commit 2 smoke 정합 검증 완료, 1B 전환 확정
+- **catch 62** (PowerShell heredoc single quote escape lesson) — commit 2 사용자 컨펌 안 2 채택
+- **catch 64** (PowerShell `$env:*` 잔존 영역 dotenv override=True 강제 lesson) — commit 2 amend dotenv chain 자연 해소
+- **catch 65** (driver argparse signature 사전 확인 lesson) — Phase 2 prompt 작성 영역 lesson
+- **catch 66 신규** (ratio 산식 OA/SS 합류 시 dilution 함정) — Phase 2 commit 3 박제 (부분 처분 a 채택 — set 보강 + 산식 보강 절대 수, all_uniq 정의 layer 변경은 §academic-5 이전)
+- **catch 67 신규** (ACADEMIC_DOMAINS set 학술 영역 누락 — 대학 publication + 소형 OA) — Phase 2 commit 3 박제 (set 4 entries 보강 정합)
 
 ### scope creep 가드 (STOP-B-3 정합)
 
@@ -673,4 +678,65 @@ driver 정합 패턴 (commit 2 update, **catch 64 lesson 정합**):
 
 ---
 
-*draft 완성 — 사용자 컨펌 대기 (STOP-B-1 정합, commit 금지)*
+## 8. ratio dilution finding 분석 (catch 66 영역, 2026-05-22 Phase 2 commit 3)
+
+### 8-1 baseline vs commit 2 2차 측정 비교
+
+| 영역 | 학술 hit | 전체 unique | ratio |
+|---|---:|---:|---:|
+| §academic-3 close (vertex+legacy 만, baseline) | ~5 | ~17 | 0.3165 |
+| §academic-4 commit 2 2차 ($env:* 주입, 4-backend 합집합) | 6 | 25 | 0.24 |
+| **delta** | +1 (절대 수 ↑) | **+8 (분모 우세 ↑)** | **-0.0765 (ratio 역 dilution)** |
+
+### 8-2 산식 함정 분석
+
+`academic_ratio = (academic_set ∩ all_uniq) / all_uniq`
+
+- 분모 (`all_uniq`) 가 분자 (`academic_set ∩`) 보다 **빠르게 증가** — multi-backend 합류 시 자연스러운 dilution 효과
+- 학술 hit 절대 수는 +1 증가 (catch 51 fix S1 effectiveness 부분 입증) 했으나, vertex 비학술 marketing blog (forbes / medium / zigpoll 등) + SS unknown DOI (`economics.pubmedia.id` / `ijsrem.com`) 영역이 분모만 늘림
+- **결론**: ratio metric 단독으로는 catch 51 fix effectiveness 측정 부적합 — primary metric 영역 academic_hit_count (절대 수) 로 전환 필수
+
+### 8-3 dilution 원인 분포 (commit 2 2차 측정 raw 영역)
+
+| 원인 영역 | 영역 | 처분 |
+|---|---|---|
+| SS unknown DOI 영역 | `economics.pubmedia.id` / `ijsrem.com` (catch 59 매핑 미존재, host fallback 영역) | Phase 2 catch 59 +3 entries 보강 (Task F) |
+| vertex 비학술 marketing blog | forbes / medium / zigpoll (vertex grounding bias 자체 영역, catch 51 본질) | §academic-5 vertex 옵션 조정 영역 (catch 51 cycle scope 외) |
+| ACADEMIC_DOMAINS 미포함 학술 | `digital.hec.ca` / `docs.rwu.edu` / `knowledge.insead.edu` / `journal.seisense.com` (4 entries) | Phase 2 set +4 entries 보강 (Task E) |
+
+### 8-4 처분 안 (사용자 컨펌 채택)
+
+- **부분 처분 (a) 채택** (Phase 2 commit 3 영역):
+  · set 보강 (Task E) — 4 entries 추가, 학술 hit 절대 수 6 → 10 예상 (ratio 0.24 → ~0.40 예상)
+  · 산식 보강 절대 수 추가 (Task D) — `academic_hit_count` primary metric 박제, per-backend ratio 추가
+- **§academic-5 이전** (산식 layer 변경 영역):
+  · `all_uniq` 정의 영역 재검토 (예: vertex 비학술 blog filter layer 추가, scope creep risk 영역)
+  · 대학 도메인 자동 분류 algorithm (catch 67 prevention 영역)
+
+---
+
+## 9. Step C-1 close 선언 (2026-05-22 Phase 2 commit 3)
+
+### 9-1 Step C-1 close 사유
+
+- ✅ catch 51 fix S1 architecture 정합 작동 검증 완료 (4-backend fan-out + dotenv chain + smoke 자산화)
+- ✅ commit 1 (3 신규 module) + commit 2 (시스템 통합) + commit 2 amend (B4-1 dotenv chain) 영역 모두 push origin/main 정합
+- ✅ catch 59 매핑 40 entries + ACADEMIC_DOMAINS 40 set 보강 정합 (Phase 2)
+- ✅ catch 66/67 박제 영역 + 부분 처분 (a) 정합 영역 확정
+- ✅ Sub-decision 1A → 1A_prime → 1B 전환 chain 박제 완료
+
+### 9-2 잔존 영역 (Step C-2 측정 영역 이전)
+
+- Step C-2 측정 (5 runs × 3 topics, single query 유지) — Phase 3 사용자 측 실행 영역
+- catch 66/67 effectiveness 정량 검증 (set +4 + 매핑 +3 후 ratio 영역 + academic_hit_count 영역)
+- §academic-5 이전 영역: catch 58 (multi-query 다변화) + catch 66 산식 layer 변경 (all_uniq 정의) + catch 67 자동 분류 algorithm
+
+### 9-3 close 정합 chain reference
+
+- commit 1: `942328f` (3 신규 module + Sub-decision 1A → 1A_prime)
+- commit 2 + amend: `e3f3de9` (시스템 통합 + 1B 전환 + dotenv chain + catch 62/64/65)
+- commit 3 (예정): Step C-1 close + Step C-2 patch 통합 (Phase 2)
+
+---
+
+*Step C-1 close 정합 — Step C-2 측정 영역 (Phase 3) 진입 대기*

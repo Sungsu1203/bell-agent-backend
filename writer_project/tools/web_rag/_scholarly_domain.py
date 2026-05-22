@@ -4,8 +4,8 @@
 4-step early-return (step_b_design.md B3 정합):
   (1) primary_location.landing_page_url (OpenAlex 전체 cover)
   (2) openAccessPdf.url (Semantic Scholar OA 한정)
-  (3) DOI prefix → publisher 매핑 (catch 59 정적 table 35 entries)
-  (4) venue / source.display_name 매칭 (ACADEMIC_DOMAINS 36 set 정합)
+  (3) DOI prefix → publisher 매핑 (catch 59 정적 table 40 entries · Phase 2 commit 3 +3)
+  (4) venue / source.display_name 매칭 (ACADEMIC_DOMAINS 40 set 정합 · Phase 2 commit 3 +4)
 
 신규 prefix 발견 시 logging fallback — Step C 측정에서 unknown prefix 수집 cycle.
 host normalize (www./m. 제거) — catch 60-b dedup 정합.
@@ -17,9 +17,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# ── catch 59 정적 매핑 table (37 entries · step_b_design.md B3-2 정합) ──────
+# ── catch 59 정적 매핑 table (40 entries · step_b_design.md B3-2 정합) ──────
 # §academic-4 Step C-1 commit 1 보강: 10.1177/ (SAGE 메인 prefix, CRITICAL) +
 #                                     10.21511/ (Business Perspectives) 추가
+# §academic-4 Phase 2 commit 3 보강: 10.36948/ (IJFMR) + 10.32535/ (IJTHAP/AIBPM) +
+#                                     10.63075/ (Journal for Current Sign, best-effort) 추가
 DOI_PREFIX_TO_DOMAIN: Dict[str, str] = {
     # 광고/마케팅 핵심 publisher (10)
     "10.1016/":   "sciencedirect.com",          # Elsevier (JBR, IJRM, JR 등)
@@ -62,8 +64,11 @@ DOI_PREFIX_TO_DOMAIN: Dict[str, str] = {
     "10.31234/":  "osf.io",                     # PsyArXiv
     "10.31219/":  "osf.io",                     # OSF Preprints
     "10.31235/":  "osf.io",                     # SocArXiv
-    # Misc (1)
+    # Misc / 소형 OA (4 entries, §academic-4 Phase 2 commit 3 보강)
     "10.21511/":  "businessperspectives.org",   # Business Perspectives (소형 OA, §academic-4 Step C-1 발견)
+    "10.36948/":  "ijfmr.com",                  # IJFMR (International Journal For Multidisciplinary Research)
+    "10.32535/":  "ejournal.aibpm.com",         # IJTHAP (Asia Pacific Tourism, AIBPM publisher)
+    "10.63075/":  "currentsignjournal.org",     # Journal for Current Sign (best-effort 매핑, Step C-2 정합 검증 영역)
 }
 
 # precomputed longest-prefix-first sort (module import 1회)
