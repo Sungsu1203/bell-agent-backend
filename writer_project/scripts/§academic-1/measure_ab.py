@@ -407,10 +407,84 @@ def call_legacy(query: str, timeout_s: float, dry_run: bool) -> dict:
     }
 
 
+def call_semantic_scholar(query: str, timeout_s: float, dry_run: bool) -> dict:
+    """§academic-4 commit 2 — SS backend 호출 helper (call_vertex 패턴 답습).
+
+    SS skip 토글 (SEMANTIC_SCHOLAR_SKIP=1) 은 semantic_scholar_search 진입 첫 줄 처리.
+    """
+    if dry_run:
+        return {"mode": "semantic_scholar", "elapsed_sec": 0.0, "items": 0,
+                "domains": [], "dry_run": True}
+    _stage(f"semantic_scholar_search start · timeout={timeout_s}s · q={query[:60]!r}")
+    t0 = time.monotonic()
+    try:
+        from tools.web_rag.semantic_scholar import semantic_scholar_search
+    except Exception as e:
+        return {"mode": "semantic_scholar", "elapsed_sec": 0.0, "items": 0, "domains": [],
+                "error": f"import_fail: {type(e).__name__}: {e}"}
+    result, err = _run_with_force_timeout(semantic_scholar_search, (query,), timeout_s)
+    elapsed = round(time.monotonic() - t0, 3)
+    if err:
+        _stage(f"semantic_scholar_search FAIL elapsed={elapsed}s err={err}")
+        return {"mode": "semantic_scholar", "elapsed_sec": elapsed, "items": 0,
+                "domains": [], "error": err}
+    rec = result or {}
+    ss_skip = (rec.get("error") == "SS_SKIP")
+    _stage(f"semantic_scholar_search OK elapsed={elapsed}s items={rec.get('items', 0)} "
+           f"skip={ss_skip}")
+    return {
+        "mode": "semantic_scholar",
+        "elapsed_sec": elapsed,
+        "items": rec.get("items", 0),
+        "domains": rec.get("domains", []),
+        "domains_unique": rec.get("domains_unique", []),
+        "ss_skip": ss_skip,
+        "error": rec.get("error"),
+    }
+
+
+def call_openalex(query: str, timeout_s: float, dry_run: bool) -> dict:
+    """§academic-4 commit 2 — OA backend 호출 helper (call_vertex 패턴 답습).
+
+    catch 60-d: oa_cost_usd 박제 (free tier $1/day = 100k req/day monitor).
+    """
+    if dry_run:
+        return {"mode": "openalex", "elapsed_sec": 0.0, "items": 0,
+                "domains": [], "dry_run": True}
+    _stage(f"openalex_search start · timeout={timeout_s}s · q={query[:60]!r}")
+    t0 = time.monotonic()
+    try:
+        from tools.web_rag.openalex import openalex_search
+    except Exception as e:
+        return {"mode": "openalex", "elapsed_sec": 0.0, "items": 0, "domains": [],
+                "error": f"import_fail: {type(e).__name__}: {e}"}
+    result, err = _run_with_force_timeout(openalex_search, (query,), timeout_s)
+    elapsed = round(time.monotonic() - t0, 3)
+    if err:
+        _stage(f"openalex_search FAIL elapsed={elapsed}s err={err}")
+        return {"mode": "openalex", "elapsed_sec": elapsed, "items": 0,
+                "domains": [], "error": err}
+    rec = result or {}
+    _stage(f"openalex_search OK elapsed={elapsed}s items={rec.get('items', 0)} "
+           f"cost_usd={rec.get('oa_cost_usd', 0.0):.6f}")
+    return {
+        "mode": "openalex",
+        "elapsed_sec": elapsed,
+        "items": rec.get("items", 0),
+        "domains": rec.get("domains", []),
+        "domains_unique": rec.get("domains_unique", []),
+        "oa_cost_usd": rec.get("oa_cost_usd", 0.0),
+        "error": rec.get("error"),
+    }
+
+
 def run_single(topic_key: str, query: str, mode: str, expected_lang: str,
                timeout_s: float, dry_run: bool, logger: logging.Logger,
                detect_fn=None) -> dict:
-    """1회 측정 run: catch 43 hook 결정 → vertex/legacy 호출 → 결과 dict."""
+    """1회 측정 run: catch 43 hook 결정 → vertex/legacy/ss/oa 호출 → 결과 dict.
+
+    §academic-4 commit 2 확장: ss_rec/oa_rec 분기 (mode=academic + q_lang!=ko 조건).
+    """
     eff_skip, q_lang = compute_effective_skip_vertex(query, mode, expected_lang, detect_fn)
     logger.info("[run] topic=%s mode=%s expected_lang=%s q_lang=%s skip_vertex=%s q=%r",
                 topic_key, mode, expected_lang, q_lang, eff_skip, query[:60])
@@ -418,7 +492,22 @@ def run_single(topic_key: str, query: str, mode: str, expected_lang: str,
                   if not eff_skip else {"mode": "vertex", "skipped_by_catch43": True,
                                          "items": 0, "domains": [], "elapsed_sec": 0.0})
     legacy_rec = call_legacy(query, timeout_s, dry_run)
-    all_domains = list(vertex_rec.get("domains", [])) + list(legacy_rec.get("domains", []))
+
+    # §academic-4 commit 2 — ss/oa 분기 (mode=academic + q_lang!=ko)
+    scholarly_active = (mode == "academic" and q_lang != "ko")
+    if scholarly_active:
+        ss_rec = call_semantic_scholar(query, timeout_s, dry_run)
+        oa_rec = call_openalex(query, timeout_s, dry_run)
+    else:
+        ss_rec = {"mode": "semantic_scholar", "skipped_by_catch43": True,
+                  "items": 0, "domains": [], "elapsed_sec": 0.0}
+        oa_rec = {"mode": "openalex", "skipped_by_catch43": True,
+                  "items": 0, "domains": [], "elapsed_sec": 0.0}
+
+    all_domains = (list(vertex_rec.get("domains", []))
+                   + list(legacy_rec.get("domains", []))
+                   + list(ss_rec.get("domains", []))
+                   + list(oa_rec.get("domains", [])))
     all_domains_set = sorted(set(d for d in all_domains if d))
     academic_domains = sorted(set(all_domains_set) & ACADEMIC_DOMAINS)
     academic_ratio = (len(academic_domains) / len(all_domains_set)) if all_domains_set else 0.0
@@ -428,9 +517,12 @@ def run_single(topic_key: str, query: str, mode: str, expected_lang: str,
         "expected_lang": expected_lang,
         "q_lang_detected": q_lang,
         "effective_skip_vertex": eff_skip,
+        "scholarly_active": scholarly_active,
         "query": query,
         "vertex": vertex_rec,
         "legacy": legacy_rec,
+        "semantic_scholar": ss_rec,
+        "openalex": oa_rec,
         "all_domains_unique": all_domains_set,
         "academic_domains_hit": academic_domains,
         "academic_source_ratio": round(academic_ratio, 4),
@@ -591,6 +683,16 @@ def aggregate_metrics(topic_results: dict[str, dict], lang_acc: dict) -> dict:
 
 
 def main() -> int:
+    # §academic-4 commit 2 amend — B4-1 dotenv chain 정합 보강 (catch 64 lesson 자연 해소)
+    # core/config.py 광범위 통합은 §academic-5 이전 영역, driver main 진입점 안 best-effort 로딩.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(PROJECT_ROOT / ".env.openalex", override=True)
+        load_dotenv(PROJECT_ROOT / ".env.semanticscholar", override=True)
+    except Exception as e:
+        print(f"[main] dotenv chain load best-effort skip: {type(e).__name__}: {e}",
+              flush=True)
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true", help="API 호출 없이 구조 검증")
     parser.add_argument("--warmup-only", action="store_true", help="warmup 만 (measure skip)")

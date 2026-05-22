@@ -22,7 +22,7 @@
 
 | # | 영역 | 결정 | 박제 사유 |
 |---:|---|---|---|
-| 1 | ss/oa key 정책 | **1A' (1A 후속, anonymous pool reality check 후)** — SS: `SEMANTIC_SCHOLAR_SKIP=1` default (CloudFront ICN57-P3 throttle 로 anonymous pool 사실상 unusable, mailto+UA+Retry-After backoff 도 fail) → key 발급 후 `SEMANTIC_SCHOLAR_API_KEY` + `x-api-key` 헤더 자동 활성 박제 (catch 61 후보) / OA: key 발급 필수 (`api_key=` 파라미터 + mailto polite pool) 유지 | A2-c pilot 200 OK (1.36s) 는 일시적 상태였으며 commit 1 smoke 에서 3 attempts 모두 429 재현. SS anonymous shared pool production 부적합 reality check (catch 57 보강). mailto 통일 = `sungsu.oh@bellcomm.co.kr` (회사 메일, SS key request form 정합) |
+| 1 | ss/oa key 정책 | **1B (1A_prime 후속, SS authenticated pool 활성 단계)** — SS: `SEMANTIC_SCHOLAR_API_KEY` + `x-api-key` 헤더 활성 (commit 2 smoke 정합 200 OK 검증, attempt=0 1.984s, X-Cache: Miss from cloudfront authenticated pool 정합) + `SEMANTIC_SCHOLAR_SKIP=0` / OA: key 발급 필수 (`api_key=` 파라미터 + mailto polite pool) 유지 | **단계 진화 박제**: 1A (commit 1 anonymous 시도) → 1A_prime (anonymous reality check 후 SKIP=1 default + x-api-key 사전 박제) → **1B (commit 2 SS key 발급 + authenticated pool 활성)**. commit 2 smoke 정합: SS items=10, elapsed 1.984s, domains_unique 학술 도메인 (sagepub / mdpi / ssrn 등) 정합, catch 59 fallback 30% (SS multidisciplinary 분포). mailto 통일 = `sungsu.oh@bellcomm.co.kr` (회사 메일, SS key request form 정합) |
 | 2 | 도메인 추출 path 우선순위 | **4-step early-return**: (1) `primary_location.landing_page_url` (OA, 전체 cover) → (2) `openAccessPdf.url` (SS, OA 한정) → (3) **DOI prefix → publisher 매핑 (catch 59)** → (4) `venue` / `source.display_name` 매칭 (ACADEMIC_DOMAINS 36 set 정합) | A2-c pilot 검증: OA entry 0/1 모두 `landing_page_url` robust (sciencedirect.com 직접) · SS entry 1 의 DOI `10.3390/*` → mdpi.com (catch 59 매핑) hit |
 | 3 | catch 59 채택 | **3A — 정적 prefix → publisher 매핑 table 내장** (광고/마케팅 핵심 + 인접 STEM 35 entries cover, 신규 prefix 발견 시 logging fallback) | Crossref REST / OA works/{doi} 동적 조회 미채택 사유: 추가 latency (REST 호출 1회 × N papers) + OA credit 소비 (10 credit × N) + Step C 측정 fan-out 안정성 우선 |
 | 4 | routing 통합 패턴 | **4A — fan-out 병렬** (vertex + ss + oa 동시 호출, `concurrent.futures.ThreadPoolExecutor` 권고, 에러 isolation + 전체 timeout ~30s) | A2-c latency 실측: vertex 18.157s bottleneck, ss 1.36s, oa 1.82s → fan-out overhead 사실상 0. asyncio 도입은 web_search.py 의 sync 패턴 깨므로 ThreadPoolExecutor 우선 |
@@ -454,7 +454,8 @@ SEMANTIC_SCHOLAR_SKIP=1
 
 - 기존 `.env.vertex` / `.env.openai` / `.env.anthropic` 패턴 답습 (provider 별 별 파일).
 - `.env.openalex` / `.env.semanticscholar` 는 **provider-agnostic backend layer** 이므로 LLM_PROVIDER 토글과 직교 — 모든 venv 에서 동시 로딩 가능.
-- `core/config.py` 의 env 로딩 chain 에 본 2 file 추가 (Step C 영역, design 영역에서는 spec 만).
+- **driver layer 영역 (commit 2 amend 구현 완료)**: `scripts/§academic-1/measure_ab.py` main() 진입 직후 `load_dotenv(PROJECT_ROOT / ".env.openalex", override=True)` + `.env.semanticscholar` chain 추가 (~+8 line, catch 64 lesson 정합 `override=True`). Step C-2 측정 시 사용자 측 `$env:*` 직접 주입 불필요 영역 진입.
+- **app-wide 영역 (§academic-5 이전)**: `core/config.py` 의 env 로딩 chain 에 본 2 file 추가 — 광범위 통합 영역 (모든 venv / pytest / driver 영역 자동 로딩), 본 cycle scope 외.
 
 ### B4-2 measure_ab.py 확장 spec
 
@@ -552,6 +553,60 @@ return {
 - **발화 영역**: OpenAlex free tier $1/day = 100k req/day. `?search=` list call = 10 credit. measure_ab.py 5 runs × 1 query (single, catch 58 유지) × 1 backend = 50 credit per 측정. **임계 100k 의 0.05% 영역**, free tier 충분.
 - **처분 안**: 본 cycle 안에서 monitoring driver 도입 불필요 (사용량 임계 영역 거의 무한대). 단 Step C 측정 시 OA response 의 `meta.cost_usd` 필드 log 박제 권고. **catch 60 후보 박제** (Step C 측정 driver 의 부수 출력 영역).
 
+---
+
+## 7. commit 2 — onboarding + smoke driver 자산화 (§academic-4 Step C-1 commit 2 보강)
+
+### 7-1 env onboarding (STOP-C-7 정합, `.env.*.example` 패턴 채택)
+
+표준 onboarding 패턴 — `.env.*.example` (placeholder template, commit 영역) → 사용자 측 cp 후 실제 key 값 주입 (`.env.<provider>` untracked 유지):
+
+```
+cp writer_project/.env.openalex.example writer_project/.env.openalex
+# edit writer_project/.env.openalex 만 → OPENALEX_API_KEY=<발급값> 주입
+#                                       OPENALEX_MAILTO=sungsu.oh@bellcomm.co.kr 확인
+
+cp writer_project/.env.semanticscholar.example writer_project/.env.semanticscholar
+# edit writer_project/.env.semanticscholar 만 →
+#   1B 단계 (commit 2 활성): SEMANTIC_SCHOLAR_API_KEY=<발급값> 주입 + SKIP=0
+#   1A_prime fallback: SEMANTIC_SCHOLAR_SKIP=1 (anonymous pool throttle isolation 시점)
+```
+
+`.gitignore` 정합 — `.env.*` ignore 패턴 + `!.env.*.example` negation 1 line 추가 (line 19), `.env.<provider>` 실제 key 파일은 untracked 유지.
+
+**⚠️ STOP-C-7 lesson 보강 (§academic-4 commit 2 영역, 사용자 실수 사전 차단 영역)**:
+- `.example` 파일은 **commit 영역 placeholder template 전용** — 실제 key 값 절대 박제 금지
+- 사용자 측 IDE/linter 가 자동으로 `.example` 파일에 실제 key 박제할 risk → onboarding 패턴 `cp .env.*.example .env.<provider>` 직후 `.env.<provider>` 만 edit, `.env.*.example` 은 read-only 보존 권고
+- commit staging 직전 `git diff --cached writer_project/.env.*.example` 1 회 확인 — placeholder (`KEY=` empty) 정합 검증 단계 강제
+- 실제 key 박제 사고 발생 시 즉시 revoke + 재발급 영역 (commit/push 진입 전 staging 영역 검사 필수)
+
+### 7-2 smoke driver 자산화 (writer_project/scripts/§academic-4/smoke/)
+
+| driver | 용도 |
+|---|---|
+| `smoke_ss.py` | SS skip 토글 검증 (default 1) + catch 61 진입 시 authenticated pool 재검증 |
+| `smoke_oa.py` | OA mailto polite pool + api_key 활성 검증 + cost_usd 박제 |
+
+실행 (사용자 측 PowerShell, **cwd 무관** — driver 안 `Path(__file__).resolve().parents[3]` 으로 writer_project root 자동 해소):
+
+```powershell
+$env:PYTHONIOENCODING = "utf-8"; $env:PYTHONUTF8 = "1"
+
+# SS smoke (1B 단계 activate 또는 1A_prime SKIP 검증)
+# 사전: writer_project/.env.semanticscholar 안 SEMANTIC_SCHOLAR_API_KEY + MAILTO + SKIP 주입 정합
+.venv_vertex\Scripts\python.exe writer_project/scripts/§academic-4/smoke/smoke_ss.py
+
+# OA smoke (mailto polite pool + api_key 활성 검증)
+# 사전: writer_project/.env.openalex 안 OPENALEX_API_KEY + MAILTO 주입 정합
+.venv_vertex\Scripts\python.exe writer_project/scripts/§academic-4/smoke/smoke_oa.py
+```
+
+driver 정합 패턴 (commit 2 update, **catch 64 lesson 정합**):
+- `WRITER_PROJECT_DIR = Path(__file__).resolve().parents[3]` — cwd 무관 절대 경로
+- `load_dotenv(WRITER_PROJECT_DIR / '.env.<provider>', override=True)` — **override=True 필수**: PowerShell session 잔존 `$env:*` (catch 64 lesson) 을 `.env.<provider>` 값으로 덮어쓰기. 잔존 영역 사례: 이전 turn 의 `$env:SEMANTIC_SCHOLAR_SKIP=1` 가 새 session 까지 잔존 시 `.env` 의 `SKIP=0` 가 무시됨.
+
+1B 단계 진입 후 SS key 재 smoke / OA mailto polite pool 정합 — 본 smoke driver 재실행 만 으로 검증 가능 (코드 변경 X).
+
 ### catch 60 등록 결정
 
 - **60-a 처분 완료** (본 design 안 해소)
@@ -590,9 +645,10 @@ return {
 
 §academic-3 Step B follow-up 의 "Risk 박제" 패턴 답습 (예상 0.31 ↔ 실측 0.3165 정합 사례):
 
-- **본 cycle 예상 academic-en ratio (1A' 후속 update + commit 1 smoke 정량 근거 반영)**:
-  · SS skip 단계 (default, key 발급 대기 중): vertex+legacy+oa 합집합 → **실측 예상 0.55~0.92** (PARTIAL 가능성 ~20~25%, commit 1 OA smoke 5/5 학술 도메인 hit 정량 근거 — `businessperspectives.org` / `journals.sagepub.com` / `mdpi.com` / `sciencedirect.com` / `tandfonline.com` 전부 ACADEMIC_DOMAINS 정합, catch 59 37 entries 보강 효과 검증)
-  · SS 합류 단계 (key 발급 + `SEMANTIC_SCHOLAR_SKIP=0` 후): vertex+legacy+ss+oa 합집합 → **실측 예상 0.60~0.95** (PARTIAL 가능성 ~10~15%, OA 5/5 정합 + SS 학술 venue 추가 입력 시 분자 우세, 1A 원안 mapping 상한 영역)
+- **본 cycle 예상 academic-en ratio (1B 활성 단계 update, commit 2 SS+OA 정량 근거 반영)**:
+  · 1B 단계 (SS authenticated pool + OA polite pool 합류): vertex+legacy+ss+oa 합집합 → **실측 예상 0.45~0.83** (PARTIAL 가능성 ~25~35%, **보수 영역**)
+  · 보수 영역 사유: commit 2 SS smoke domains_unique 안 학술 분야 분포가 multidisciplinary (`economics.pubmedia.id` / `ijsrem.com` / `ssrn.com` 등) 영역까지 확장 — 분자 (ACADEMIC_DOMAINS 정합 도메인) 비율은 OA 단독 (5/5 = 100%) 대비 SS 합류 시 dilution. catch 59 logging fallback 비율 차이: OA 0% (10/10 hit) ↔ SS 30% (7/10 hit, `10.63075` / `10.36948` / `10.32535` 소형 OA prefix 미매핑). Step C-2 측정 후 fallback prefix 보강 cycle 영역에서 추가 매핑 검토.
+  · 비교 baseline: §academic-3 close 시점 ratio 0.3165 (vertex+legacy 만) → 본 cycle 1B 단계 예상 하한 0.45 도 +0.13 marginal 개선, 임계 0.6 충족 영역은 중간~상한 영역 (~0.60~0.83) 의존
 - **PARTIAL 발생 시 root cause 분리 영역**:
   · SS skip 단계 dilution (학술 venue 7~10 entries 손실 → academic_set 축소, OA 단독으로는 보완 마진 좁음)
   · ss/oa 도메인 unique 가 dedup 후 7~10 entries (vertex 5 dilution 효과)

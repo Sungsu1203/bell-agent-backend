@@ -868,6 +868,63 @@ def web_search_agent(state: State):
                             it for it in legacy_items if isinstance(it, dict)
                         )
 
+                # -----------------------------------------
+                # 1-3. §academic-4 catch 51 fix S1 — 학술 전용 backend fan-out
+                # (Sub-decision 4A 정합: ThreadPoolExecutor + isolation, attempt==0 한정)
+                # 조건: MODE=academic + q_lang != "ko" (catch 43 자연 확장)
+                # SS skip 토글은 semantic_scholar_search 진입 첫 줄에서 처리 (1A_prime)
+                # -----------------------------------------
+                if (attempt == 0 and query
+                        and _get_cfg_attr("MODE", "business") == "academic"
+                        and _q_lang != "ko"):
+                    try:
+                        from concurrent.futures import ThreadPoolExecutor, as_completed
+                        from tools.web_rag.semantic_scholar import semantic_scholar_search
+                        from tools.web_rag.openalex import openalex_search
+                        scholarly_backends = {
+                            "semantic_scholar": semantic_scholar_search,
+                            "openalex": openalex_search,
+                        }
+                        with ThreadPoolExecutor(max_workers=2) as ex:
+                            futures = {ex.submit(fn, query): name
+                                       for name, fn in scholarly_backends.items()}
+                            for fut in as_completed(futures, timeout=30.0):
+                                name = futures[fut]
+                                try:
+                                    sch_result = fut.result(timeout=1.0)
+                                except Exception as e:
+                                    logger.warning("[web_search][%s] failed: %s", name, e)
+                                    continue
+                                if not sch_result or sch_result.get("error"):
+                                    logger.info("[web_search][%s] empty/error: %s",
+                                                name, sch_result.get("error") if sch_result else "None")
+                                    continue
+                                sch_chunks = sch_result.get("chunks") or []
+                                sch_added = 0
+                                for ch in sch_chunks:
+                                    u = ch.get("uri") or ""
+                                    if not u:
+                                        continue
+                                    combined_items.append({
+                                        "title": ch.get("title") or "",
+                                        "url": u,
+                                        "content": ch.get("title") or "",
+                                        "raw_content": "",
+                                        "source": u,
+                                        "metadata": {
+                                            "backend": name,
+                                            "chunk_domain": ch.get("domain") or "",
+                                        },
+                                    })
+                                    sch_added += 1
+                                logger.info(
+                                    "[web_search][%s] ok items=%d added=%d elapsed=%.3fs",
+                                    name, sch_result.get("items", 0), sch_added,
+                                    sch_result.get("elapsed_sec", 0.0),
+                                )
+                    except Exception as e:
+                        logger.warning("[web_search] scholarly fan-out failed: %s", e)
+
                 # 최종 ret: list[dict] 형태로 넘기면, 아래 Normalize 블록이 그대로 처리
                 ret = combined_items
 

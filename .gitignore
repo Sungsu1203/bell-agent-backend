@@ -16,6 +16,7 @@ venv*/
 .env
 .env.*
 !.env.full.template
+!.env.*.example
 
 # ── Secrets / credentials ────────────────────────────────
 writer_project/service_account*.json
