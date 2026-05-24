@@ -1,0 +1,233 @@
+{
+  "topic": "consumer behavior in influencer marketing",
+  "sections": [
+    "Introduction",
+    "Methods",
+    "Results",
+    "Discussion"
+  ],
+  "generated_at_utc": "2026-05-24T09:37:44.587040+00:00",
+  "warmup": 0,
+  "measure": 1,
+  "runs": [
+    {
+      "topic": "consumer behavior in influencer marketing",
+      "sections": [
+        "Introduction",
+        "Methods",
+        "Results",
+        "Discussion"
+      ],
+      "per_section": {
+        "Introduction": {
+          "len_chars": 10414,
+          "word_count": 1329,
+          "chunks_count": 30,
+          "backends": [
+            "openalex",
+            "semantic_scholar",
+            "vertex"
+          ]
+        },
+        "Methods": {
+          "len_chars": 10449,
+          "word_count": 1389,
+          "chunks_count": 26,
+          "backends": [
+            "openalex",
+            "vertex"
+          ]
+        },
+        "Results": {
+          "len_chars": 11642,
+          "word_count": 1636,
+          "chunks_count": 20,
+          "backends": [
+            "openalex",
+            "semantic_scholar",
+            "vertex"
+          ]
+        },
+        "Discussion": {
+          "len_chars": 21169,
+          "word_count": 2750,
+          "chunks_count": 31,
+          "backends": [
+            "openalex",
+            "semantic_scholar",
+            "vertex"
+          ]
+        }
+      },
+      "apa_lines": [
+        "Ellen Piwoz, & Sandra L. Huffman (2015). The Impact of Marketing of Breast-Milk Substitutes on WHO-Recommended Breastfeeding Practices. *Food and Nutrition Bulletin*. https://doi.org/10.1177/0379572115602174",
+        "Jörg Henseler, Christian M. Ringle, & Marko Sarstedt (2014). A new criterion for assessing discriminant validity in variance-based structural equation modeling. *Journal of the Academy of Marketing Science*. https://doi.org/10.1007/s11747-014-0403-8",
+        "Melissa C. Nelson, Mary Story, Nicole Larson, Dianne Neumark‐Sztainer, & Leslie A. Lytle (2008). Emerging Adulthood and College‐aged Youth: An Overlooked Age for Weight‐related Behavior Change. *Obesity*. https://doi.org/10.1038/oby.2008.365",
+        "Joseph F. Hair, G. Tomas M. Hult, Christian M. Ringle, Marko Sarstedt, Nicholas P. Danks, & Soumya Ray (2021). Partial Least Squares Structural Equation Modeling (PLS-SEM) Using R. *Classroom companion: business*. https://doi.org/10.1007/978-3-030-80519-7",
+        "Viswanath Venkatesh, & Hillol Bala (2008). Technology Acceptance Model 3 and a Research Agenda on Interventions. *Decision Sciences*. https://doi.org/10.1111/j.1540-5915.2008.00192.x",
+        "Kathleen M. Eisenhardt, & Jeffrey A. Martin (2000). Dynamic capabilities: what are they?. *Strategic Management Journal*. https://doi.org/10.1002/1097-0266(200010/11)21:10/11<1105::aid-smj133>3.0.co;2-e",
+        "Peter C. Verhoef, Thijs Broekhuizen, Yakov Bart, Abhi Bhattacharya, John Qi Dong, Nicolai Etienne Fabian, & Michael Haenlein (2019). Digital transformation: A multidisciplinary reflection and research agenda. *Journal of Business Research*. https://doi.org/10.1016/j.jbusres.2019.09.022",
+        "Sindhuja Pappu, V. V. P. Kotni, Iragavarapu Lakshmi Prasanna, & S. Krishna (2025). Digital Marketing Influence Research in Consumer Behavior : A Systematic Literature Review Using TCCM and Future Research Agenda. *Indian Journal of Marketing*. https://doi.org/10.17010/ijom/2025/v55/i6/175108",
+        "J. Faludi (2025). Sustainable Fashion, Circularity and Consumer Behavior – Systematic Review and a Social Marketing Research and Policy Agenda. *Social Marketing Quarterly*. https://doi.org/10.1177/15245004241309660",
+        "Preeti Verma, & J. Verma (2025). The Effect of Social Media on Consumer Behavior: A Survey on Influencer Marketing and Online Reviews. *International Journal For Multidisciplinary Research*. https://doi.org/10.36948/ijfmr.2025.v07i03.44480",
+        "(n.d.). ivypanda.com.",
+        "(n.d.). bigbuzzinc.com.",
+        "(n.d.). theright.fit.",
+        "(n.d.). havasedge.com.",
+        "(n.d.). aspire.io.",
+        "(n.d.). mdpi.com.",
+        "(n.d.). researchgate.net.",
+        "(n.d.). forbes.com.",
+        "(n.d.). ijarsct.co.in.",
+        "(n.d.). univ-ovidius.ro.",
+        "(n.d.). acr-journal.com.",
+        "(n.d.). ijsra.net.",
+        "(n.d.). econjournals.com.",
+        "(n.d.). dergipark.org.tr.",
+        "(n.d.). researchgate.net.",
+        "(n.d.). ijrti.org.",
+        "(n.d.). influencity.com.",
+        "(n.d.). propulsiontechjournal.com.",
+        "(n.d.). tandfonline.com.",
+        "(n.d.). wjarr.com.",
+        "Shruti Gupta, & Denise T. Ogden (2009). To buy or not to buy? A social dilemma perspective on green buying. *Journal of Consumer Marketing*. https://doi.org/10.1108/07363760910988201",
+        "Kavita Sharma, Chandni Aswal, & Justin Paul (2022). Factors affecting green purchase behavior: A systematic literature review. *Business Strategy and the Environment*. https://doi.org/10.1002/bse.3237",
+        "Enrique Becerra, & Vishag Badrinarayanan (2013). The influence of brand trust and brand identification on brand evangelism. *Journal of Product & Brand Management*. https://doi.org/10.1108/jpbm-09-2013-0394",
+        "Jörg Henseler, Christian M. Ringle, & Marko Sarstedt (2014). A new criterion for assessing discriminant validity in variance-based structural equation modeling. *Journal of the Academy of Marketing Science*. https://doi.org/10.1007/s11747-014-0403-8",
+        "Mijka Ghorbani, Maria Karampela, & Andrea Tonner (2022). Consumers’ brand personality perceptions in a digital world: A systematic literature review and research agenda. *International Journal of Consumer Studies*. https://doi.org/10.1111/ijcs.12791",
+        "Neeraj Arora, Greg M. Allenby, & James L. Ginter (1998). A Hierarchical Bayes Model of Primary and Secondary Demand. *Marketing Science*. https://doi.org/10.1287/mksc.17.1.29",
+        "Richa Chaudhary (2018). Green buying behavior in India: an empirical analysis. *Journal of Global Responsibility*. https://doi.org/10.1108/jgr-12-2017-0058",
+        "Jörg Henseler, Christian M. Ringle, & Rudolf R. Sinkovics (2009). *Research Explorer (The University of Manchester)*. https://doi.org/10.1108/s1474-7979(2009)0000020014",
+        "Anil Gupta, & Neelika Arora (2017). Consumer adoption of m-banking: a behavioral reasoning theory perspective. *International Journal of Bank Marketing*. https://doi.org/10.1108/ijbm-11-2016-0162",
+        "Mohammad Ashraf (2019). Islamic marketing and consumer behavior toward halal food purchase in Bangladesh. *Journal of Islamic marketing*. https://doi.org/10.1108/jima-03-2018-0051",
+        "(n.d.). agilitypr.com.",
+        "(n.d.). econjournals.com.",
+        "(n.d.). intelliplans.com.",
+        "(n.d.). influencity.com.",
+        "(n.d.). allindiamediasolutions.com.",
+        "(n.d.). mdpi.com.",
+        "(n.d.). researchgate.net.",
+        "(n.d.). griffith.edu.au.",
+        "(n.d.). wjarr.com.",
+        "(n.d.). semanticscholar.org.",
+        "(n.d.). tianjindaxuexuebao.com.",
+        "(n.d.). ivypanda.com.",
+        "(n.d.). researchgate.net.",
+        "(n.d.). repec.org.",
+        "(n.d.). amhinternational.com.",
+        "(n.d.). seisense.com.",
+        "Arnaud De Bruyn, & Gary L. Lilien (2008). A multi-stage model of word-of-mouth influence through viral marketing. *International Journal of Research in Marketing*. https://doi.org/10.1016/j.ijresmar.2008.03.004",
+        "Klaus Wertenbroch (1998). Consumption Self-Control by Rationing Purchase Quantities of Virtue and Vice. *Marketing Science*. https://doi.org/10.1287/mksc.17.4.317",
+        "Sajeev Varki, & Mark Colgate (2001). The Role of Price Perceptions in an Integrated Model of Behavioral Intentions. *Journal of Service Research*. https://doi.org/10.1177/109467050133004",
+        "Youssef Chetioui, Hikma Benlafqih, & Hind Lebdaoui (2020). How fashion influencers contribute to consumers' purchase intention. *Journal of Fashion Marketing and Management*. https://doi.org/10.1108/jfmm-08-2019-0157",
+        "Sun Ying, & Shanyong Wang (2019). Understanding consumers’ intentions to purchase green products in the social media marketing context. *Asia Pacific Journal of Marketing and Logistics*. https://doi.org/10.1108/apjml-03-2019-0178",
+        "Mimi Li, & Liping A. Cai (2011). The Effects of Personal Values on Travel Motivation and Behavioral Intention. *Journal of Travel Research*. https://doi.org/10.1177/0047287511418366",
+        "Md. Nekmahmud, & Mária Fekete‐Farkas (2020). Why Not Green Marketing? Determinates of Consumers’ Intention to Green Purchase Decision in a New Developing Nation. *Sustainability*. https://doi.org/10.3390/su12197880",
+        "Jörg Henseler, Christian M. Ringle, & Marko Sarstedt (2014). A new criterion for assessing discriminant validity in variance-based structural equation modeling. *Journal of the Academy of Marketing Science*. https://doi.org/10.1007/s11747-014-0403-8",
+        "Chien‐Hsin Lin, Peter J. Sher, & Hsin‐Yu Shih (2005). Past progress and future directions in conceptualizing customer perceived value. *International Journal of Service Industry Management*. https://doi.org/10.1108/09564230510613988",
+        "Fareena Sultan, Andrew J. Rohm, & Tao Gao (2009). Factors Influencing Consumer Acceptance of Mobile Marketing: A Two-Country Study of Youth Markets. *Journal of Interactive Marketing*. https://doi.org/10.1016/j.intmar.2009.07.003",
+        "Jihye Kim, Minseong Kim, & Sae-Mi Lee (2024). Unlocking Trust Dynamics: An Exploration of Playfulness, Expertise, and Consumer Behavior in Virtual Influencer Marketing. *International journal of human computer interactions*. https://doi.org/10.1080/10447318.2023.2300018",
+        "B. Sharon, Louis Tanady, Jeni Veronika Br Ginting, Agung Sahbana, & Lina Kurniati (2026). Effect of Live Streaming Interactivity, Influencer Credibility, and Gamification Features on Consumer Impulse Buying in Tiktok Shop. *International Journal of Marketing &amp; Human Resource Research*. https://doi.org/10.47747/ijmhrr.v7i2.3414",
+        "Vivek Kochhar (2025). The Role of Digital Influencers in Shaping Consumers Buying Behavior - An Empirical Study. *International Journal For Multidisciplinary Research*. https://doi.org/10.36948/ijfmr.2025.v07i06.64263",
+        "Khoirun Nissa, Priyanshi Chauhan, Mohamed Asim, P. Chaudhary, Dwi Nita Aryani, Koay Loke Kean, & Anurag Hazarika (2024). The Effect of Influencer Marketing on Consumer Behavior of Fashion Style in the Age of Social Media. *International Journal of Tourism and Hospitality in Asia Pasific*. https://doi.org/10.32535/ijthap.v7i3.3341",
+        "(n.d.). mdpi.com.",
+        "(n.d.). mdpi.com.",
+        "(n.d.). alochana.org.",
+        "(n.d.). ijrti.org.",
+        "(n.d.). econjournals.com.",
+        "(n.d.). researchgate.net.",
+        "Charles E. Basch (1987). Focus Group Interview: An Underutilized Research Technique for Improving Theory and Practice in Health Education. *Health Education Quarterly*. https://doi.org/10.1177/109019818701400404",
+        "Marios Sotiriadis (2017). Sharing tourism experiences in social media. *International Journal of Contemporary Hospitality Management*. https://doi.org/10.1108/ijchm-05-2016-0300",
+        "Linda D. Hollebeek, Mark S. Glynn, & Roderick J. Brodie (2014). Consumer Brand Engagement in Social Media: Conceptualization, Scale Development and Validation. *Journal of Interactive Marketing*. https://doi.org/10.1016/j.intmar.2013.12.002",
+        "Ashkan Afshin, Patrick John Sur, Kairsten Fay, Leslie Cornaby, Giannina Ferrara, Joseph S Salama, Erin C Mullany, Kalkidan Hassen Abate, Cristiana Abbafati, Abebe Zegeye, Mohsen Afarideh, Anju Aggarwal, Sutapa Agrawal, Tomi Akinyemiju, Fares Alahdab, Umar Bacha, Victoria F Bachman, Hamid Badali, Alaa Badawi, ... Gregory A. Roth (2019). Health effects of dietary risks in 195 countries, 1990–2017: a systematic analysis for the Global Burden of Disease Study 2017. *The Lancet*. https://doi.org/10.1016/s0140-6736(19)30041-8",
+        "Yogesh K. Dwivedi, Elvira Ismagilova, David L. Hughes, Jamie Carlson, Raffaele Filieri, Jenna Jacobson, Varsha Jain, Heikki Karjaluoto, Hajer Kéfi, Anjala S. Krishen, Vikram Kumar, Mohammad M. Rahman, Ramakrishnan Raman, Philipp A. Rauschnabel, Jennifer Rowley, Jari Salo, Gina A. Tran, & Yichuan Wang (2020). Setting the future of digital and social media marketing research: Perspectives and research propositions. *International Journal of Information Management*. https://doi.org/10.1016/j.ijinfomgt.2020.102168",
+        "Joseph T. Mahoney, & J. Rajendran Pandian (1992). The resource‐based view within the conversation of strategic management. *Strategic Management Journal*. https://doi.org/10.1002/smj.4250130505",
+        "Yogesh K. Dwivedi, Nripendra P. Rana, Anand Jeyaraj, Marc Clement, & Michael D. Williams (2017). Re-examining the Unified Theory of Acceptance and Use of Technology (UTAUT): Towards a Revised Theoretical Model. *Information Systems Frontiers*. https://doi.org/10.1007/s10796-017-9774-y",
+        "Fleura Bardhi, & Giana M. Eckhardt (2012). Access-Based Consumption: The Case of Car Sharing: Table 1. *Journal of Consumer Research*. https://doi.org/10.1086/666376",
+        "André Hanelt, René Bohnsack, David Marz, & Claudia Marante (2020). A Systematic Review of the Literature on Digital Transformation: Insights and Implications for Strategy and Organizational Change. *Journal of Management Studies*. https://doi.org/10.1111/joms.12639",
+        "Elina Jaakkola (2020). Designing conceptual articles: four approaches. *AMS Review*. https://doi.org/10.1007/s13162-020-00161-0",
+        "M. Černikovaitė (2019). The impact of Influencer marketing on consumer buying behavior in social networks. *Proceedings of 6th International Scientific Conference Contemporary Issues in Business, Management and Economics Engineering ‘2019*. https://doi.org/10.3846/CIBMEE.2019.082",
+        "Chung-Jen Fu, Andri Dayarana K. Silalahi, I-Tung Shih, Do Thi Thanh Phuong, & I. Eunike (2024). Bibliometric Analysis to Explore the Influence of Artificial Intelligence on Consumer Behavior and Marketing Research: A Comprehensive Review and Suggestions for Future Exploration. *International Conference on Information Management and Technology*. https://doi.org/10.1109/ICIMTech63123.2024.10780894",
+        "Kikelomo Fadilat Anjorin, Mustafa Ayobami Raji, & Hameedat Bukola Olodo (2024). The influence of social media marketing on consumer behavior in the retail industry: A comprehensive review. *International Journal of Management &amp; Entrepreneurship Research*. https://doi.org/10.51594/ijmer.v6i5.1123",
+        "Kholoud Fadel, & Elmos Konis (2024). Analyzing the Influence of Marketing Strategies on Consumer Behavior in the Fast Fashion Industry: The Case of Zara in Cyprus. *Revista de Gestão Social e Ambiental*. https://doi.org/10.24857/rgsa.v18n8-160",
+        "Hamza Kaka Abdul Wahab, Faizan Alam, & Eva Lahuerta-Otero (2024). Social media stars: how influencers shape consumer’s behavior on Instagram. *Spanish Journal of Marketing - ESIC*. https://doi.org/10.1108/sjme-09-2023-0257",
+        "(n.d.). intelliplans.com.",
+        "(n.d.). medium.com.",
+        "(n.d.). researchgate.net.",
+        "(n.d.). semanticscholar.org.",
+        "(n.d.). agilitypr.com.",
+        "(n.d.). eelet.org.uk.",
+        "(n.d.). alochana.org.",
+        "(n.d.). mintel.com.",
+        "(n.d.). econjournals.com.",
+        "(n.d.). mdpi.com.",
+        "(n.d.). zcu.cz.",
+        "(n.d.). thecardinal-agency.com.",
+        "(n.d.). researchgate.net.",
+        "(n.d.). theedgeleaders.com.",
+        "(n.d.). ronntorossian.com.",
+        "(n.d.). forbes.com."
+      ],
+      "elapsed_sec": 395.58,
+      "stage_times": {
+        "fetch_Introduction": 95.5,
+        "write_Introduction": 29.73,
+        "fetch_Methods": 104.16,
+        "write_Methods": 19.67,
+        "fetch_Results": 21.91,
+        "write_Results": 17.59,
+        "fetch_Discussion": 73.69,
+        "write_Discussion": 33.33,
+        "references_footer": 0.0
+      },
+      "phase": "measure",
+      "run_index": 0,
+      "axis1_apa": {
+        "pass_ratio": 1.0,
+        "n": 107,
+        "threshold": 0.8,
+        "verdict": "PASS"
+      },
+      "axis2_imrd": {
+        "per_section": {
+          "Introduction": {
+            "word_count": 1329,
+            "verdict": "PASS"
+          },
+          "Methods": {
+            "word_count": 1389,
+            "verdict": "FAIL"
+          },
+          "Results": {
+            "word_count": 1636,
+            "verdict": "PASS"
+          },
+          "Discussion": {
+            "word_count": 2750,
+            "verdict": "FAIL"
+          }
+        },
+        "verdict": "FAIL"
+      },
+      "axis3_backend_ratio": {
+        "openalex_ratio": 0.346,
+        "semantic_scholar_ratio": 0.112,
+        "vertex_ratio": 0.542,
+        "combined_ratio": 0.333,
+        "vertex_filtered_ratio": 0.542,
+        "primary": {
+          "oa_pass": false,
+          "ss_pass": false,
+          "combined_pass": false
+        },
+        "verdict": "FAIL"
+      },
+      "files": {
+        "md_path": "D:\\GPT_AGENT\\writer_project\\scripts\\output\\§paper-writer-1\\paper_consumer_behavior_in_influencer_marketing_20260524_093744.md",
+        "docx_path": "D:\\GPT_AGENT\\writer_project\\scripts\\output\\§paper-writer-1\\paper_consumer_behavior_in_influencer_marketing_20260524_093744.docx",
+        "md_size": 67783,
+        "docx_size": 57536
+      }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+﻿[2026-05-24 18:21:27] [Stage 1/14] dotenv chain + env override 완료
+[Config] LLM provider overlay 로드: D:\GPT_AGENT\writer_project\.env.vertex
+[Config] 토픽 프리셋 로드: D:\GPT_AGENT\writer_project\topics\academic-influencer-marketing-consumer-behavior.env
+[2026-05-24 18:21:31] [Stage 2/14] config 확정 + env dump
+  LLM_PROVIDER=vertexai
+  VERTEX_MAX_RETRIES=0
+  OPENAI_MAX_RETRIES=1
+  LLM_MAX_RETRIES=0
+  SKIP_VERTEX_SEARCH=false
+  TOPIC_SLUG=academic-influencer-marketing-consumer-behavior
+  GCP_PROJECT_ID=gemini-rag-search-final
+  GCP_REGION=us-central1
+  --topic='consumer behavior in influencer marketing'
+  --sections=['Introduction', 'Methods', 'Results', 'Discussion']
+  --timeout=600
+
+[--dry-run] Stage 2 완료, exit (API 비용 0).

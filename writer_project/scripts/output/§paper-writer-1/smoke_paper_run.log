@@ -1,0 +1,347 @@
+﻿[2026-05-24 18:31:04] [Stage 1/14] dotenv chain + env override 완료
+[Config] LLM provider overlay 로드: D:\GPT_AGENT\writer_project\.env.vertex
+[Config] 토픽 프리셋 로드: D:\GPT_AGENT\writer_project\topics\academic-influencer-marketing-consumer-behavior.env
+[2026-05-24 18:31:08] [Stage 2/14] config 확정 + env dump
+  LLM_PROVIDER=vertexai
+  VERTEX_MAX_RETRIES=0
+  OPENAI_MAX_RETRIES=1
+  LLM_MAX_RETRIES=0
+  SKIP_VERTEX_SEARCH=false
+  TOPIC_SLUG=academic-influencer-marketing-consumer-behavior
+  GCP_PROJECT_ID=gemini-rag-search-final
+  GCP_REGION=us-central1
+  --topic='consumer behavior in influencer marketing'
+  --sections=['Introduction', 'Methods', 'Results', 'Discussion']
+  --timeout=600
+
+============================================================
+run 1/1 phase=measure
+============================================================
+[2026-05-24 18:31:08] [Stage 3/14] section 1 (Introduction) fetch start
+.venv_vertex\Scripts\python.exe : 2026-05-24 18:31:11,699 [WARNING] [catch59] unknown DOI prefix (no domain extracted):
+ https://doi.org/10.1159/000430949 (backend=openalex, venue='Gerontology')
+위치 줄:1 문자:1
++ .venv_vertex\Scripts\python.exe writer_project\scripts\§paper-writer- ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (2026-05-24 18:3...='Gerontology'):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+2026-05-24 18:31:11,719 [WARNING] [catch59] unknown DOI prefix (no domain extracted): https://doi.org/10.5539/ijbm.v13n
+1p85 (backend=openalex, venue='International Journal of Business and Management')
+2026-05-24 18:31:11,719 [WARNING] [catch59] unknown DOI prefix (no domain extracted): https://doi.org/10.1158/1055-9965
+.epi-09-0946 (backend=openalex, venue='Cancer Epidemiology Biomarkers & Prevention')
+2026-05-24 18:31:11,719 [INFO] [openalex] ok items=10 domains_unique=5 elapsed=2.766s cost_usd=0.001000
+2026-05-24 18:31:12,017 [INFO] [semantic_scholar] 429 backoff 30.0s (attempt=0, Retry-After='')
+2026-05-24 18:31:43,722 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.61173/10s26h18 (backend=semant
+ic_scholar, venue='Finance &amp; Economics')
+2026-05-24 18:31:43,722 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.59261/inkubis.v8i2.197 (backen
+d=semantic_scholar, venue='Inkubis : Jurnal Ekonomi dan Bisnis')
+2026-05-24 18:31:43,722 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.55041/ijsrem.ibfe048 (backend=
+semantic_scholar, venue='International Journal of Scientific Research in Engineering ')
+2026-05-24 18:31:43,722 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.55927/fjas.v4i4.108 (backend=s
+emantic_scholar, venue='Formosa Journal of Applied Sciences')
+2026-05-24 18:31:43,722 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.37641/jimkes.v13i5.4156 (backe
+nd=semantic_scholar, venue='Jurnal Ilmiah Manajemen Kesatuan')
+2026-05-24 18:31:43,722 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.70062/globalmanagement.v1i4.29
+ (backend=semantic_scholar, venue='Global Management: International Journal of Management Scien')
+2026-05-24 18:31:43,722 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.71305/sahri.v2i2.778 (backend=
+semantic_scholar, venue='Journal of Studies in Academic, Humanities, Research, and In')
+2026-05-24 18:31:43,722 [INFO] [semantic_scholar] ok items=10 domains_unique=2 elapsed=32.015s
+2026-05-24 18:31:44,208 [INFO] AFC is enabled with max remote calls: 10.
+2026-05-24 18:31:57,119 [INFO] HTTP Request: POST https://us-central1-aiplatform.googleapis.com/v1/projects/gemini-rag-
+search-final/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-05-24 18:32:44,425 [INFO] [paper_section_fetch] Introduction → 30 chunks (q=consumer behavior in influencer market
+ing background literat)
+[2026-05-24 18:32:44] [Stage 7/14] section 1 (Introduction) LLM 본문 생성
+D:\gpt_agent\.venv_vertex\Lib\site-packages\google\cloud\aiplatform\models.py:52: FutureWarning: Support for google-clo
+ud-storage < 3.0.0 will be removed in a future version of google-cloud-aiplatform. Please upgrade to google-cloud-stora
+ge >= 3.0.0.
+  from google.cloud.aiplatform.utils import gcs_utils
+2026-05-24 18:32:52,831 [INFO] [LLM] init provider=vertexai | model=gemini-2.5-flash | project=gemini-rag-search-final 
+| region=us-central1 | temp=0.30
+D:\GPT_AGENT\writer_project\core\llm.py:154: LangChainDeprecationWarning: The class `ChatVertexAI` was deprecated in La
+ngChain 3.2.0 and will be removed in 4.0.0. An updated version of the class exists in the `langchain-google-genai packa
+ge and should be used instead. To use it run `pip install -U `langchain-google-genai` and import as `from `langchain_go
+ogle_genai import ChatGoogleGenerativeAI``.
+  return ctor(**kw)
+2026-05-24 18:32:52,831 [INFO] [LLM] ready (provider=vertexai)
+2026-05-24 18:33:14,169 [INFO] [paper_section_writer] Introduction done (len=10414)
+[2026-05-24 18:33:14] [Stage 4/14] section 2 (Methods) fetch start
+2026-05-24 18:33:16,708 [INFO] [openalex] ok items=10 domains_unique=5 elapsed=2.547s cost_usd=0.001000
+2026-05-24 18:33:16,913 [INFO] [semantic_scholar] 429 backoff 30.0s (attempt=0, Retry-After='')
+2026-05-24 18:33:47,198 [INFO] [semantic_scholar] 429 backoff 30.0s (attempt=1, Retry-After='')
+2026-05-24 18:34:18,119 [INFO] AFC is enabled with max remote calls: 10.
+2026-05-24 18:34:28,426 [INFO] HTTP Request: POST https://us-central1-aiplatform.googleapis.com/v1/projects/gemini-rag-
+search-final/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-05-24 18:34:58,303 [INFO] [paper_section_fetch] Methods → 26 chunks (q=consumer behavior in influencer marketing t
+heory framework m)
+[2026-05-24 18:34:58] [Stage 8/14] section 2 (Methods) LLM 본문 생성
+2026-05-24 18:35:17,997 [INFO] [paper_section_writer] Methods done (len=10449)
+[2026-05-24 18:35:17] [Stage 5/14] section 3 (Results) fetch start
+2026-05-24 18:35:20,303 [INFO] [openalex] ok items=10 domains_unique=6 elapsed=2.312s cost_usd=0.001000
+2026-05-24 18:35:21,515 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.58213/yzcry002 (backend=semant
+ic_scholar, venue='Vidhyayana')
+2026-05-24 18:35:21,515 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.48175/ijarsct-34852 (backend=s
+emantic_scholar, venue='International Journal of Advanced Research in Science, Commu')
+2026-05-24 18:35:21,515 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.61602/jdi.2025.83.03 (backend=
+semantic_scholar, venue='Journal of Development and Integration')
+2026-05-24 18:35:21,515 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.62823/ijgrit/3.1(ii).7320 (bac
+kend=semantic_scholar, venue='International Journal of Global Research Innovations &amp; T')
+2026-05-24 18:35:21,515 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.52783/pst.1733 (backend=semant
+ic_scholar, venue='Power system technology')
+2026-05-24 18:35:21,515 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.61796/jaide.v2i4.1518 (backend
+=semantic_scholar, venue='Journal of Artificial Intelligence and Digital Economy')
+2026-05-24 18:35:21,515 [INFO] [semantic_scholar] ok items=10 domains_unique=4 elapsed=1.203s
+2026-05-24 18:35:22,002 [INFO] AFC is enabled with max remote calls: 10.
+2026-05-24 18:35:30,469 [INFO] HTTP Request: POST https://us-central1-aiplatform.googleapis.com/v1/projects/gemini-rag-
+search-final/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-05-24 18:35:39,895 [INFO] [paper_section_fetch] Results → 20 chunks (q=consumer behavior in influencer marketing e
+mpirical findings)
+[2026-05-24 18:35:39] [Stage 9/14] section 3 (Results) LLM 본문 생성
+2026-05-24 18:35:57,488 [INFO] [paper_section_writer] Results done (len=11642)
+[2026-05-24 18:35:57] [Stage 6/14] section 4 (Discussion) fetch start
+2026-05-24 18:35:59,981 [INFO] [openalex] ok items=10 domains_unique=6 elapsed=2.484s cost_usd=0.001000
+2026-05-24 18:36:00,397 [INFO] [semantic_scholar] 429 backoff 30.0s (attempt=0, Retry-After='')
+2026-05-24 18:36:31,392 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.36871/ek.up.p.r.2025.07.04.012
+ (backend=semantic_scholar, venue='EKONOMIKA I UPRAVLENIE: PROBLEMY, RESHENIYA')
+2026-05-24 18:36:31,392 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.30838/ep.206.45-50 (backend=se
+mantic_scholar, venue='Economic scope')
+2026-05-24 18:36:31,392 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.18690/um.epf.5.2025.56 (backen
+d=semantic_scholar, venue='9th FEB International Scientific Conference: Sustainable Man')
+2026-05-24 18:36:31,392 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.70890/brdr.2022.2102 (backend=
+semantic_scholar, venue='Business Review of Digital Revolution')
+2026-05-24 18:36:31,392 [WARNING] [catch59] unknown DOI prefix (no domain extracted): 10.35912/amor.v7i3.3418 (backend=
+semantic_scholar, venue='Annals of Management and Organization Research')
+2026-05-24 18:36:31,392 [INFO] [semantic_scholar] ok items=10 domains_unique=5 elapsed=31.422s
+2026-05-24 18:36:31,814 [INFO] AFC is enabled with max remote calls: 10.
+2026-05-24 18:36:42,767 [INFO] HTTP Request: POST https://us-central1-aiplatform.googleapis.com/v1/projects/gemini-rag-
+search-final/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-05-24 18:37:11,180 [INFO] [paper_section_fetch] Discussion → 31 chunks (q=consumer behavior in influencer marketin
+g synthesis implicat)
+[2026-05-24 18:37:11] [Stage 10/14] section 4 (Discussion) LLM 본문 생성
+2026-05-24 18:37:44,492 [INFO] [paper_section_writer] Discussion done (len=21169)
+[2026-05-24 18:37:44] [Stage 11/14] References footer build (format_apa7)
+[2026-05-24 18:37:44] [Stage 12/14] .md write → paper_consumer_behavior_in_influencer_marketing_20260524_093744.md
+[2026-05-24 18:37:44] [Stage 13/14] .docx write → paper_consumer_behavior_in_influencer_marketing_20260524_093744.docx
+[2026-05-24 18:37:44] [Stage 14/14] axis 측정 완료 + 결과 박제
+
+[saved] D:\GPT_AGENT\writer_project\scripts\output\§paper-writer-1\c_paper_measurement.json
+{
+  "topic": "consumer behavior in influencer marketing",
+  "sections": [
+    "Introduction",
+    "Methods",
+    "Results",
+    "Discussion"
+  ],
+  "per_section": {
+    "Introduction": {
+      "len_chars": 10414,
+      "word_count": 1329,
+      "chunks_count": 30,
+      "backends": [
+        "openalex",
+        "semantic_scholar",
+        "vertex"
+      ]
+    },
+    "Methods": {
+      "len_chars": 10449,
+      "word_count": 1389,
+      "chunks_count": 26,
+      "backends": [
+        "openalex",
+        "vertex"
+      ]
+    },
+    "Results": {
+      "len_chars": 11642,
+      "word_count": 1636,
+      "chunks_count": 20,
+      "backends": [
+        "openalex",
+        "semantic_scholar",
+        "vertex"
+      ]
+    },
+    "Discussion": {
+      "len_chars": 21169,
+      "word_count": 2750,
+      "chunks_count": 31,
+      "backends": [
+        "openalex",
+        "semantic_scholar",
+        "vertex"
+      ]
+    }
+  },
+  "apa_lines": [
+    "Ellen Piwoz, & Sandra L. Huffman (2015). The Impact of Marketing of Breast-Milk Substitutes on WHO-Recommended Breastfeeding Practices. *Food and Nutrition Bulletin*. https://doi.org/10.1177/0379572115602174",
+    "Jörg Henseler, Christian M. Ringle, & Marko Sarstedt (2014). A new criterion for assessing discriminant validity in variance-based structural equation modeling. *Journal of the Academy of Marketing Science*. https://doi.org/10.1007/s11747-014-0403-8",
+    "Melissa C. Nelson, Mary Story, Nicole Larson, Dianne Neumark‐Sztainer, & Leslie A. Lytle (2008). Emerging Adulthood and College‐aged Youth: An Overlooked Age for Weight‐related Behavior Change. *Obesity*. https://doi.org/10.1038/oby.2008.365",
+    "Joseph F. Hair, G. Tomas M. Hult, Christian M. Ringle, Marko Sarstedt, Nicholas P. Danks, & Soumya Ray (2021). Partial Least Squares Structural Equation Modeling (PLS-SEM) Using R. *Classroom companion: business*. https://doi.org/10.1007/978-3-030-80519-7",
+    "Viswanath Venkatesh, & Hillol Bala (2008). Technology Acceptance Model 3 and a Research Agenda on Interventions. *Decision Sciences*. https://doi.org/10.1111/j.1540-5915.2008.00192.x",
+    "Kathleen M. Eisenhardt, & Jeffrey A. Martin (2000). Dynamic capabilities: what are they?. *Strategic Management Journal*. https://doi.org/10.1002/1097-0266(200010/11)21:10/11<1105::aid-smj133>3.0.co;2-e",
+    "Peter C. Verhoef, Thijs Broekhuizen, Yakov Bart, Abhi Bhattacharya, John Qi Dong, Nicolai Etienne Fabian, & Michael Haenlein (2019). Digital transformation: A multidisciplinary reflection and research agenda. *Journal of Business Research*. https://doi.org/10.1016/j.jbusres.2019.09.022",
+    "Sindhuja Pappu, V. V. P. Kotni, Iragavarapu Lakshmi Prasanna, & S. Krishna (2025). Digital Marketing Influence Research in Consumer Behavior : A Systematic Literature Review Using TCCM and Future Research Agenda. *Indian Journal of Marketing*. https://doi.org/10.17010/ijom/2025/v55/i6/175108",
+    "J. Faludi (2025). Sustainable Fashion, Circularity and Consumer Behavior – Systematic Review and a Social Marketing Research and Policy Agenda. *Social Marketing Quarterly*. https://doi.org/10.1177/15245004241309660",
+    "Preeti Verma, & J. Verma (2025). The Effect of Social Media on Consumer Behavior: A Survey on Influencer Marketing and Online Reviews. *International Journal For Multidisciplinary Research*. https://doi.org/10.36948/ijfmr.2025.v07i03.44480",
+    "(n.d.). ivypanda.com.",
+    "(n.d.). bigbuzzinc.com.",
+    "(n.d.). theright.fit.",
+    "(n.d.). havasedge.com.",
+    "(n.d.). aspire.io.",
+    "(n.d.). mdpi.com.",
+    "(n.d.). researchgate.net.",
+    "(n.d.). forbes.com.",
+    "(n.d.). ijarsct.co.in.",
+    "(n.d.). univ-ovidius.ro.",
+    "(n.d.). acr-journal.com.",
+    "(n.d.). ijsra.net.",
+    "(n.d.). econjournals.com.",
+    "(n.d.). dergipark.org.tr.",
+    "(n.d.). researchgate.net.",
+    "(n.d.). ijrti.org.",
+    "(n.d.). influencity.com.",
+    "(n.d.). propulsiontechjournal.com.",
+    "(n.d.). tandfonline.com.",
+    "(n.d.). wjarr.com.",
+    "Shruti Gupta, & Denise T. Ogden (2009). To buy or not to buy? A social dilemma perspective on green buying. *Journal of Consumer Marketing*. https://doi.org/10.1108/07363760910988201",
+    "Kavita Sharma, Chandni Aswal, & Justin Paul (2022). Factors affecting green purchase behavior: A systematic literature review. *Business Strategy and the Environment*. https://doi.org/10.1002/bse.3237",
+    "Enrique Becerra, & Vishag Badrinarayanan (2013). The influence of brand trust and brand identification on brand evangelism. *Journal of Product & Brand Management*. https://doi.org/10.1108/jpbm-09-2013-0394",
+    "Jörg Henseler, Christian M. Ringle, & Marko Sarstedt (2014). A new criterion for assessing discriminant validity in variance-based structural equation modeling. *Journal of the Academy of Marketing Science*. https://doi.org/10.1007/s11747-014-0403-8",
+    "Mijka Ghorbani, Maria Karampela, & Andrea Tonner (2022). Consumers’ brand personality perceptions in a digital world: A systematic literature review and research agenda. *International Journal of Consumer Studies*. https://doi.org/10.1111/ijcs.12791",
+    "Neeraj Arora, Greg M. Allenby, & James L. Ginter (1998). A Hierarchical Bayes Model of Primary and Secondary Demand. *Marketing Science*. https://doi.org/10.1287/mksc.17.1.29",
+    "Richa Chaudhary (2018). Green buying behavior in India: an empirical analysis. *Journal of Global Responsibility*. https://doi.org/10.1108/jgr-12-2017-0058",
+    "Jörg Henseler, Christian M. Ringle, & Rudolf R. Sinkovics (2009). *Research Explorer (The University of Manchester)*. https://doi.org/10.1108/s1474-7979(2009)0000020014",
+    "Anil Gupta, & Neelika Arora (2017). Consumer adoption of m-banking: a behavioral reasoning theory perspective. *International Journal of Bank Marketing*. https://doi.org/10.1108/ijbm-11-2016-0162",
+    "Mohammad Ashraf (2019). Islamic marketing and consumer behavior toward halal food purchase in Bangladesh. *Journal of Islamic marketing*. https://doi.org/10.1108/jima-03-2018-0051",
+    "(n.d.). agilitypr.com.",
+    "(n.d.). econjournals.com.",
+    "(n.d.). intelliplans.com.",
+    "(n.d.). influencity.com.",
+    "(n.d.). allindiamediasolutions.com.",
+    "(n.d.). mdpi.com.",
+    "(n.d.). researchgate.net.",
+    "(n.d.). griffith.edu.au.",
+    "(n.d.). wjarr.com.",
+    "(n.d.). semanticscholar.org.",
+    "(n.d.). tianjindaxuexuebao.com.",
+    "(n.d.). ivypanda.com.",
+    "(n.d.). researchgate.net.",
+    "(n.d.). repec.org.",
+    "(n.d.). amhinternational.com.",
+    "(n.d.). seisense.com.",
+    "Arnaud De Bruyn, & Gary L. Lilien (2008). A multi-stage model of word-of-mouth influence through viral marketing. *International Journal of Research in Marketing*. https://doi.org/10.1016/j.ijresmar.2008.03.004",
+    "Klaus Wertenbroch (1998). Consumption Self-Control by Rationing Purchase Quantities of Virtue and Vice. *Marketing Science*. https://doi.org/10.1287/mksc.17.4.317",
+    "Sajeev Varki, & Mark Colgate (2001). The Role of Price Perceptions in an Integrated Model of Behavioral Intentions. *Journal of Service Research*. https://doi.org/10.1177/109467050133004",
+    "Youssef Chetioui, Hikma Benlafqih, & Hind Lebdaoui (2020). How fashion influencers contribute to consumers' purchase intention. *Journal of Fashion Marketing and Management*. https://doi.org/10.1108/jfmm-08-2019-0157",
+    "Sun Ying, & Shanyong Wang (2019). Understanding consumers’ intentions to purchase green products in the social media marketing context. *Asia Pacific Journal of Marketing and Logistics*. https://doi.org/10.1108/apjml-03-2019-0178",
+    "Mimi Li, & Liping A. Cai (2011). The Effects of Personal Values on Travel Motivation and Behavioral Intention. *Journal of Travel Research*. https://doi.org/10.1177/0047287511418366",
+    "Md. Nekmahmud, & Mária Fekete‐Farkas (2020). Why Not Green Marketing? Determinates of Consumers’ Intention to Green Purchase Decision in a New Developing Nation. *Sustainability*. https://doi.org/10.3390/su12197880",
+    "Jörg Henseler, Christian M. Ringle, & Marko Sarstedt (2014). A new criterion for assessing discriminant validity in variance-based structural equation modeling. *Journal of the Academy of Marketing Science*. https://doi.org/10.1007/s11747-014-0403-8",
+    "Chien‐Hsin Lin, Peter J. Sher, & Hsin‐Yu Shih (2005). Past progress and future directions in conceptualizing customer perceived value. *International Journal of Service Industry Management*. https://doi.org/10.1108/09564230510613988",
+    "Fareena Sultan, Andrew J. Rohm, & Tao Gao (2009). Factors Influencing Consumer Acceptance of Mobile Marketing: A Two-Country Study of Youth Markets. *Journal of Interactive Marketing*. https://doi.org/10.1016/j.intmar.2009.07.003",
+    "Jihye Kim, Minseong Kim, & Sae-Mi Lee (2024). Unlocking Trust Dynamics: An Exploration of Playfulness, Expertise, and Consumer Behavior in Virtual Influencer Marketing. *International journal of human computer interactions*. https://doi.org/10.1080/10447318.2023.2300018",
+    "B. Sharon, Louis Tanady, Jeni Veronika Br Ginting, Agung Sahbana, & Lina Kurniati (2026). Effect of Live Streaming Interactivity, Influencer Credibility, and Gamification Features on Consumer Impulse Buying in Tiktok Shop. *International Journal of Marketing &amp; Human Resource Research*. https://doi.org/10.47747/ijmhrr.v7i2.3414",
+    "Vivek Kochhar (2025). The Role of Digital Influencers in Shaping Consumers Buying Behavior - An Empirical Study. *International Journal For Multidisciplinary Research*. https://doi.org/10.36948/ijfmr.2025.v07i06.64263",
+    "Khoirun Nissa, Priyanshi Chauhan, Mohamed Asim, P. Chaudhary, Dwi Nita Aryani, Koay Loke Kean, & Anurag Hazarika (2024). The Effect of Influencer Marketing on Consumer Behavior of Fashion Style in the Age of Social Media. *International Journal of Tourism and Hospitality in Asia Pasific*. https://doi.org/10.32535/ijthap.v7i3.3341",
+    "(n.d.). mdpi.com.",
+    "(n.d.). mdpi.com.",
+    "(n.d.). alochana.org.",
+    "(n.d.). ijrti.org.",
+    "(n.d.). econjournals.com.",
+    "(n.d.). researchgate.net.",
+    "Charles E. Basch (1987). Focus Group Interview: An Underutilized Research Technique for Improving Theory and Practice in Health Education. *Health Education Quarterly*. https://doi.org/10.1177/109019818701400404",
+    "Marios Sotiriadis (2017). Sharing tourism experiences in social media. *International Journal of Contemporary Hospitality Management*. https://doi.org/10.1108/ijchm-05-2016-0300",
+    "Linda D. Hollebeek, Mark S. Glynn, & Roderick J. Brodie (2014). Consumer Brand Engagement in Social Media: Conceptualization, Scale Development and Validation. *Journal of Interactive Marketing*. https://doi.org/10.1016/j.intmar.2013.12.002",
+    "Ashkan Afshin, Patrick John Sur, Kairsten Fay, Leslie Cornaby, Giannina Ferrara, Joseph S Salama, Erin C Mullany, Kalkidan Hassen Abate, Cristiana Abbafati, Abebe Zegeye, Mohsen Afarideh, Anju Aggarwal, Sutapa Agrawal, Tomi Akinyemiju, Fares Alahdab, Umar Bacha, Victoria F Bachman, Hamid Badali, Alaa Badawi, ... Gregory A. Roth (2019). Health effects of dietary risks in 195 countries, 1990–2017: a systematic analysis for the Global Burden of Disease Study 2017. *The Lancet*. https://doi.org/10.1016/s0140-6736(19)30041-8",
+    "Yogesh K. Dwivedi, Elvira Ismagilova, David L. Hughes, Jamie Carlson, Raffaele Filieri, Jenna Jacobson, Varsha Jain, Heikki Karjaluoto, Hajer Kéfi, Anjala S. Krishen, Vikram Kumar, Mohammad M. Rahman, Ramakrishnan Raman, Philipp A. Rauschnabel, Jennifer Rowley, Jari Salo, Gina A. Tran, & Yichuan Wang (2020). Setting the future of digital and social media marketing research: Perspectives and research propositions. *International Journal of Information Management*. https://doi.org/10.1016/j.ijinfomgt.2020.102168",
+    "Joseph T. Mahoney, & J. Rajendran Pandian (1992). The resource‐based view within the conversation of strategic management. *Strategic Management Journal*. https://doi.org/10.1002/smj.4250130505",
+    "Yogesh K. Dwivedi, Nripendra P. Rana, Anand Jeyaraj, Marc Clement, & Michael D. Williams (2017). Re-examining the Unified Theory of Acceptance and Use of Technology (UTAUT): Towards a Revised Theoretical Model. *Information Systems Frontiers*. https://doi.org/10.1007/s10796-017-9774-y",
+    "Fleura Bardhi, & Giana M. Eckhardt (2012). Access-Based Consumption: The Case of Car Sharing: Table 1. *Journal of Consumer Research*. https://doi.org/10.1086/666376",
+    "André Hanelt, René Bohnsack, David Marz, & Claudia Marante (2020). A Systematic Review of the Literature on Digital Transformation: Insights and Implications for Strategy and Organizational Change. *Journal of Management Studies*. https://doi.org/10.1111/joms.12639",
+    "Elina Jaakkola (2020). Designing conceptual articles: four approaches. *AMS Review*. https://doi.org/10.1007/s13162-020-00161-0",
+    "M. Černikovaitė (2019). The impact of Influencer marketing on consumer buying behavior in social networks. *Proceedings of 6th International Scientific Conference Contemporary Issues in Business, Management and Economics Engineering ‘2019*. https://doi.org/10.3846/CIBMEE.2019.082",
+    "Chung-Jen Fu, Andri Dayarana K. Silalahi, I-Tung Shih, Do Thi Thanh Phuong, & I. Eunike (2024). Bibliometric Analysis to Explore the Influence of Artificial Intelligence on Consumer Behavior and Marketing Research: A Comprehensive Review and Suggestions for Future Exploration. *International Conference on Information Management and Technology*. https://doi.org/10.1109/ICIMTech63123.2024.10780894",
+    "Kikelomo Fadilat Anjorin, Mustafa Ayobami Raji, & Hameedat Bukola Olodo (2024). The influence of social media marketing on consumer behavior in the retail industry: A comprehensive review. *International Journal of Management &amp; Entrepreneurship Research*. https://doi.org/10.51594/ijmer.v6i5.1123",
+    "Kholoud Fadel, & Elmos Konis (2024). Analyzing the Influence of Marketing Strategies on Consumer Behavior in the Fast Fashion Industry: The Case of Zara in Cyprus. *Revista de Gestão Social e Ambiental*. https://doi.org/10.24857/rgsa.v18n8-160",
+    "Hamza Kaka Abdul Wahab, Faizan Alam, & Eva Lahuerta-Otero (2024). Social media stars: how influencers shape consumer’s behavior on Instagram. *Spanish Journal of Marketing - ESIC*. https://doi.org/10.1108/sjme-09-2023-0257",
+    "(n.d.). intelliplans.com.",
+    "(n.d.). medium.com.",
+    "(n.d.). researchgate.net.",
+    "(n.d.). semanticscholar.org.",
+    "(n.d.). agilitypr.com.",
+    "(n.d.). eelet.org.uk.",
+    "(n.d.). alochana.org.",
+    "(n.d.). mintel.com.",
+    "(n.d.). econjournals.com.",
+    "(n.d.). mdpi.com.",
+    "(n.d.). zcu.cz.",
+    "(n.d.). thecardinal-agency.com.",
+    "(n.d.). researchgate.net.",
+    "(n.d.). theedgeleaders.com.",
+    "(n.d.). ronntorossian.com.",
+    "(n.d.). forbes.com."
+  ],
+  "elapsed_sec": 395.58,
+  "stage_times": {
+    "fetch_Introduction": 95.5,
+    "write_Introduction": 29.73,
+    "fetch_Methods": 104.16,
+    "write_Methods": 19.67,
+    "fetch_Results": 21.91,
+    "write_Results": 17.59,
+    "fetch_Discussion": 73.69,
+    "write_Discussion": 33.33,
+    "references_footer": 0.0
+  },
+  "phase": "measure",
+  "run_index": 0,
+  "axis1_apa": {
+    "pass_ratio": 1.0,
+    "n": 107,
+    "threshold": 0.8,
+    "verdict": "PASS"
+  },
+  "axis2_imrd": {
+    "per_section": {
+      "Introduction": {
+        "word_count": 1329,
+        "verdict": "PASS"
+      },
+      "Methods": {
+        "word_count": 1389,
+        "verdict": "FAIL"
+      },
+      "Results": {
+        "word_count": 1636,
+        "verdict": "PASS"
+      },
+      "Discussion": {
+        "word_count": 2750,
+        "verdict": "FAIL"
+      }
+    },
+    "verdict": "FAIL"
+  },
+  "axis3_backend_ratio": {
+    "openalex_ratio": 0.346,
+    "semantic_scholar_ratio": 0.112,
+    "vertex_ratio": 0.542,
+    "combined_ratio": 0.333,
+    "vertex_filtered_ratio": 0.542,
+    "primary": {
+      "oa_pass": false,
+      "ss_pass": false,
+      "combined_pass": false
+    },
+    "verdict": "FAIL"
+  },
+  "files": {
+    "md_path": "D:\\GPT_AGENT\\writer_project\\scripts\\output\\§paper-writer-1\\paper_consumer_behavior_in_influencer_marketing_20260524_093744.md",
+    "docx_path": "D:\\GPT_AGENT\\writer_project\\scripts\\output\\§paper-writer-1\\paper_consumer_behavior_in_influencer_marketing_20260524_093744.docx",
+    "md_size": 67783,
+    "docx_size": 57536
+  }
+}

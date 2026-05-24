@@ -1,20 +1,21 @@
 """§paper-writer-1 Step C-2 — end-to-end paper measurement driver.
 
-argparse 6 groups (사용자 컨펌 ②):
-  --topic / --sections / --output-dir / --warmup / --measure / --sleep / --timeout
+argparse 7 groups:
+  --topic / --sections / --output-dir / --warmup / --measure / --sleep / --timeout / --dry-run
 
 axis 3 metric (B+D 묶음, B-6 design 정합):
-  axis 1: APA 7th regex 정합 — References 항목 중 regex 통과 비율 ≥ 0.8
-  axis 2: IMRD 4 section 정합 — 4 section 존재 + 분량 가이드 ±30% 허용
-  axis 3: per-backend ratio (catch 66 정합):
+  axis 1: APA 7th regex — References 항목 중 regex 통과 비율 ≥ 0.8
+  axis 2: IMRD 4 section — 4 section 존재 + 분량 가이드 ±30% 허용
+  axis 3: per-backend ratio (catch 66):
     primary 3: OA ≥ 0.70, SS ≥ 0.40, combined (OA+SS+vertex mean) ≥ 0.50
-    보조 metric (PASS/FAIL 무관): vertex_filtered_ratio
+    보조 metric: vertex_filtered_ratio
 
-표준 (catch 49 정합):
-  max_retries=0, provider lock, utf-8 stdout/stderr wrapper, stage marker.
+표준 (catch 49):
+  max_retries=0, provider lock, utf-8 wrapper, stage marker 14단계.
 
 실행:
   .venv_vertex\\Scripts\\python.exe writer_project/scripts/§paper-writer-1/measure_paper.py
+  .venv_vertex\\Scripts\\python.exe writer_project/scripts/§paper-writer-1/measure_paper.py --dry-run
 """
 from __future__ import annotations
 
@@ -32,22 +33,13 @@ from pathlib import Path
 from typing import Any
 
 
-# ── utf-8 wrapper + provider lock + retry disable (catch 49) ──
+# ── Step 1: utf-8 wrapper (Windows cp949 회피, catch 49 표준) ──
 os.environ["PYTHONIOENCODING"] = "utf-8"
 try:
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True)
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True)
 except Exception:
     pass
-
-os.environ.setdefault("LLM_PROVIDER", "vertexai")
-os.environ["LLM_MAX_RETRIES"] = "0"
-os.environ["VERTEX_MAX_RETRIES"] = "0"
-os.environ["OPENAI_MAX_RETRIES"] = "0"
-
-
-def _stage(msg: str) -> None:
-    print(f"[stage] {msg}", flush=True)
 
 
 HERE = Path(__file__).resolve().parent
@@ -56,20 +48,53 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-# ── dotenv chain (catch 64: override=True 강제) ──
+# ── Step 2: dotenv chain 먼저 (catch 64: override=True 강제) ──
 from dotenv import load_dotenv  # noqa: E402
-for env_name in (".env", ".env.vertex", ".env.openalex", ".env.semanticscholar"):
-    p = PROJECT_ROOT / env_name
-    if p.exists():
-        load_dotenv(p, override=True)
+for _env_name in (".env", ".env.vertex", ".env.openalex", ".env.semanticscholar"):
+    _p = PROJECT_ROOT / _env_name
+    if _p.exists():
+        load_dotenv(_p, override=True)
 
 
+# ── Step 3: driver env override (dotenv 후 강제 — catch 69 후보 lesson) ──
+# dotenv override=True 가 driver 사전 설정값을 무효화하는 함정 회피:
+# 반드시 dotenv chain 완료 후 driver 가 최종 결정권을 갖도록 강제 set 한다.
+def _force_driver_env_override() -> None:
+    """측정 driver 전용 env 강제 override.
+
+    .env 의 LLM_PROVIDER=openai, OPENAI_MAX_RETRIES=1, SKIP_VERTEX_SEARCH=1,
+    TOPIC_SLUG=venfobel-vitamin 등이 dotenv override=True 로 driver 사전
+    설정값을 덮어쓰는 함정을 차단한다 (catch 69 후보 lesson).
+    """
+    os.environ["LLM_PROVIDER"] = "vertexai"
+    os.environ["VERTEX_MAX_RETRIES"] = "0"
+    os.environ["OPENAI_MAX_RETRIES"] = "0"
+    os.environ["LLM_MAX_RETRIES"] = "0"
+    os.environ["GOOGLE_API_USE_CLIENT_CERTIFICATE"] = "false"
+    os.environ["SKIP_VERTEX_SEARCH"] = "0"
+    os.environ["TOPIC_SLUG"] = "academic-influencer-marketing-consumer-behavior"
+
+
+_force_driver_env_override()
+
+
+# ── Step 4: stage marker (timestamp + 번호 + double flush) ──
+def _stage(n: int, total: int, desc: str) -> None:
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{ts}] [Stage {n}/{total}] {desc}", flush=True)
+    sys.stdout.flush()
+
+
+_stage(1, 14, "dotenv chain + env override 완료")
+
+
+# ── Step 5: logging ──
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 
-# ── lazy imports (after env + sys.path set up) ──
+# ── Step 6: lazy imports (env 확정 후 agent 모듈 로드) ──
 from agent.web_search import paper_section_fetch  # noqa: E402
 from agent.paper_section_writer import (  # noqa: E402
     write_paper_section,
@@ -100,13 +125,21 @@ def _run_one_paper(topic: str, sections: list[str]) -> dict:
     section_bodies: list[str] = []
     section_chunks_all: list[dict] = []
     per_section: dict[str, dict] = {}
+    stage_times: dict[str, float] = {}
     t0 = time.monotonic()
 
     for i, section in enumerate(sections, 1):
-        _stage(f"fetch {section}")
+        fetch_stage = 2 + i
+        write_stage = 6 + i
+        # fetch
+        _stage(fetch_stage, 14, f"section {i} ({section}) fetch start")
+        tf = time.monotonic()
         chunks = paper_section_fetch(topic, section)
+        stage_times[f"fetch_{section}"] = round(time.monotonic() - tf, 2)
         section_chunks_all.extend(chunks)
-        _stage(f"write {section}")
+        # write
+        _stage(write_stage, 14, f"section {i} ({section}) LLM 본문 생성")
+        tw = time.monotonic()
         target_title = f"{i}. {section}"
         body = write_paper_section(
             topic=topic,
@@ -116,6 +149,7 @@ def _run_one_paper(topic: str, sections: list[str]) -> dict:
             references_chunks=chunks,
             previous_sections="\n\n".join(section_bodies),
         )
+        stage_times[f"write_{section}"] = round(time.monotonic() - tw, 2)
         section_bodies.append(body)
         per_section[section] = {
             "len_chars": len(body),
@@ -124,9 +158,12 @@ def _run_one_paper(topic: str, sections: list[str]) -> dict:
             "backends": sorted({c.get("_backend", "?") for c in chunks}),
         }
 
+    _stage(11, 14, "References footer build (format_apa7)")
+    t_ref = time.monotonic()
     apa_lines = build_apa_references(section_chunks_all)
     paper_body = "\n\n".join(section_bodies)
     paper_full = attach_references_footer(paper_body, apa_lines)
+    stage_times["references_footer"] = round(time.monotonic() - t_ref, 2)
     elapsed = time.monotonic() - t0
 
     return {
@@ -138,75 +175,70 @@ def _run_one_paper(topic: str, sections: list[str]) -> dict:
         "chunks": section_chunks_all,
         "apa_lines": apa_lines,
         "elapsed_sec": round(elapsed, 2),
+        "stage_times": stage_times,
     }
 
 
 def _eval_axes(result: dict) -> dict:
-    """5 검증 항목 평가 (axis 1~3 + .md/.docx PASS/FAIL — axis 5 baseline only)."""
-    sections = result["sections"]
+    """axis 1~3 평가."""
     per_section = result["per_section"]
 
-    # axis 1: APA 7th regex 정합
+    # axis 1: APA 7th regex
     apa_lines = result["apa_lines"]
-    apa_pass = sum(1 for l in apa_lines if APA_REGEX.search(l))
+    apa_pass = sum(1 for line in apa_lines if APA_REGEX.search(line))
     apa_ratio = apa_pass / len(apa_lines) if apa_lines else 0.0
     axis1 = {"pass_ratio": round(apa_ratio, 3), "n": len(apa_lines),
              "threshold": 0.8, "verdict": "PASS" if apa_ratio >= 0.8 else "FAIL"}
 
-    # axis 2: IMRD section 분량 가이드 ±30%
+    # axis 2: IMRD section 분량 ±30%
     section_verdicts: dict[str, str] = {}
-    for s in sections:
+    for s in result["sections"]:
         lo, hi = SECTION_WORD_GUIDE.get(s, (0, 99999))
         wc = per_section.get(s, {}).get("word_count", 0)
-        lo_relaxed = int(lo * 0.7)
-        hi_relaxed = int(hi * 1.3)
-        section_verdicts[s] = "PASS" if lo_relaxed <= wc <= hi_relaxed else "FAIL"
-    axis2 = {"per_section": section_verdicts,
+        section_verdicts[s] = "PASS" if int(lo * 0.7) <= wc <= int(hi * 1.3) else "FAIL"
+    axis2 = {"per_section": {s: {"word_count": per_section.get(s, {}).get("word_count", 0),
+                                  "verdict": v} for s, v in section_verdicts.items()},
              "verdict": "PASS" if all(v == "PASS" for v in section_verdicts.values()) else "FAIL"}
 
     # axis 3: per-backend ratio (catch 66, B+D 묶음)
     chunks = result["chunks"]
-    backend_counts: dict[str, int] = {}
+    bc: dict[str, int] = {}
     for c in chunks:
         b = c.get("_backend", "?")
-        backend_counts[b] = backend_counts.get(b, 0) + 1
+        bc[b] = bc.get(b, 0) + 1
     total = len(chunks)
     if total > 0:
-        oa_ratio = backend_counts.get("openalex", 0) / total
-        ss_ratio = backend_counts.get("semantic_scholar", 0) / total
-        vx_ratio = backend_counts.get("vertex", 0) / total
-        combined = statistics.mean([oa_ratio, ss_ratio, vx_ratio])
+        oa = bc.get("openalex", 0) / total
+        ss = bc.get("semantic_scholar", 0) / total
+        vx = bc.get("vertex", 0) / total
+        combined = statistics.mean([oa, ss, vx])
     else:
-        oa_ratio = ss_ratio = vx_ratio = combined = 0.0
+        oa = ss = vx = combined = 0.0
     axis3 = {
-        "openalex_ratio": round(oa_ratio, 3),
-        "semantic_scholar_ratio": round(ss_ratio, 3),
-        "vertex_ratio": round(vx_ratio, 3),
-        "combined_ratio": round(combined, 3),
-        "vertex_filtered_ratio": round(vx_ratio, 3),  # 보조 (현재는 vertex_ratio 와 동일, future filter 후 분리)
-        "primary": {
-            "oa_pass": oa_ratio >= 0.70,
-            "ss_pass": ss_ratio >= 0.40,
-            "combined_pass": combined >= 0.50,
-        },
-        "verdict": "PASS" if (oa_ratio >= 0.70 and ss_ratio >= 0.40 and combined >= 0.50) else "FAIL",
+        "openalex_ratio": round(oa, 3), "semantic_scholar_ratio": round(ss, 3),
+        "vertex_ratio": round(vx, 3), "combined_ratio": round(combined, 3),
+        "vertex_filtered_ratio": round(vx, 3),
+        "primary": {"oa_pass": oa >= 0.70, "ss_pass": ss >= 0.40, "combined_pass": combined >= 0.50},
+        "verdict": "PASS" if (oa >= 0.70 and ss >= 0.40 and combined >= 0.50) else "FAIL",
     }
 
     return {"axis1_apa": axis1, "axis2_imrd": axis2, "axis3_backend_ratio": axis3}
 
 
 def _save_md_docx(result: dict, output_dir: Path, ts: str) -> dict:
-    """.md + .docx 양 format 출력. Returns {md_path, docx_path, md_size, docx_size}."""
+    """.md + .docx 양 format 출력."""
     output_dir.mkdir(parents=True, exist_ok=True)
     slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", result["topic"].lower())[:60].strip("_")
     md_path = output_dir / f"paper_{slug}_{ts}.md"
     docx_path = output_dir / f"paper_{slug}_{ts}.docx"
 
+    _stage(12, 14, f".md write → {md_path.name}")
     md_path.write_text(result["paper_full"], encoding="utf-8")
 
+    _stage(13, 14, f".docx write → {docx_path.name}")
+    docx_size = 0
     try:
         from docx import Document
-        from docx.shared import Pt
         doc = Document()
         for line in result["paper_full"].split("\n"):
             if line.startswith("## "):
@@ -219,18 +251,15 @@ def _save_md_docx(result: dict, output_dir: Path, ts: str) -> dict:
         docx_size = docx_path.stat().st_size
     except Exception as e:
         logger.warning("[docx] failed: %s", e)
-        docx_size = 0
 
     return {
-        "md_path": str(md_path),
-        "docx_path": str(docx_path) if docx_size > 0 else "",
-        "md_size": md_path.stat().st_size,
-        "docx_size": docx_size,
+        "md_path": str(md_path), "docx_path": str(docx_path) if docx_size > 0 else "",
+        "md_size": md_path.stat().st_size, "docx_size": docx_size,
     }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="§paper-writer-1 Step C-2 measure driver")
+    parser = argparse.ArgumentParser(description="§paper-writer-1 measure driver")
     parser.add_argument("--topic", type=str,
                         default="consumer behavior in influencer marketing")
     parser.add_argument("--sections", type=str, nargs="+",
@@ -241,13 +270,29 @@ def main() -> int:
     parser.add_argument("--measure", type=int, default=1)
     parser.add_argument("--sleep", type=int, default=30)
     parser.add_argument("--timeout", type=int, default=600)
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Stage 2 (env dump) 까지만 print 후 exit. API 비용 0.")
     args = parser.parse_args()
+
+    # Stage 2: config 확정 + env dump
+    _stage(2, 14, "config 확정 + env dump")
+    for k in ("LLM_PROVIDER", "VERTEX_MAX_RETRIES", "OPENAI_MAX_RETRIES",
+              "LLM_MAX_RETRIES", "SKIP_VERTEX_SEARCH", "TOPIC_SLUG",
+              "GCP_PROJECT_ID", "GCP_REGION"):
+        print(f"  {k}={os.environ.get(k, '(unset)')}", flush=True)
+    print(f"  --topic={args.topic!r}", flush=True)
+    print(f"  --sections={args.sections}", flush=True)
+    print(f"  --timeout={args.timeout}", flush=True)
+
+    if args.dry_run:
+        print("\n[--dry-run] Stage 2 완료, exit (API 비용 0).", flush=True)
+        return 0
 
     out_dir = Path(args.output_dir)
     runs: list[dict] = []
     for run_i in range(args.warmup + args.measure):
         phase = "warmup" if run_i < args.warmup else "measure"
-        _stage(f"run {run_i + 1} phase={phase}")
+        print(f"\n{'='*60}\nrun {run_i + 1}/{args.warmup + args.measure} phase={phase}\n{'='*60}", flush=True)
         r = _run_one_paper(args.topic, args.sections)
         r["phase"] = phase
         r["run_index"] = run_i
@@ -257,27 +302,26 @@ def main() -> int:
             ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             files = _save_md_docx(r, out_dir, ts)
             r["files"] = files
+            _stage(14, 14, "axis 측정 완료 + 결과 박제")
         runs.append(r)
         if run_i < args.warmup + args.measure - 1:
             time.sleep(args.sleep)
 
-    # 측정 결과 박제 (JSON, body 제외)
+    # JSON 박제 (body/chunks 제외)
     measurements = [
         {k: v for k, v in r.items() if k not in ("paper_full", "section_bodies", "chunks")}
         for r in runs
     ]
     summary = {
-        "topic": args.topic,
-        "sections": args.sections,
+        "topic": args.topic, "sections": args.sections,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-        "warmup": args.warmup,
-        "measure": args.measure,
+        "warmup": args.warmup, "measure": args.measure,
         "runs": measurements,
     }
     json_path = out_dir / "c_paper_measurement.json"
     out_dir.mkdir(parents=True, exist_ok=True)
     json_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    _stage(f"saved {json_path}")
+    print(f"\n[saved] {json_path}", flush=True)
     print(json.dumps(measurements[-1] if measurements else {}, ensure_ascii=False, indent=2))
     return 0
 
