@@ -105,13 +105,13 @@ def format_apa7(
 ) -> str:
     """APA 7th edition citation 영역 영역 1 영역 영역.
 
-    영역 영역 영역 영역 (예시):
+    출력 예시:
     Smith, J. A., & Doe, B. C. (2024). Consumer behavior in influencer marketing.
         *Journal of Marketing Research*, 61(2), 123-145. https://doi.org/10.1177/00222437...
 
     Returns:
-        영역 영역 APA 7th 영역 영역 영역 영역 영역 영역.
-        영역 영역 영역 영역 영역 영역 영역 (예: authors=[]) → 영역 영역 영역 영역 영역 영역 (제목 영역 영역 영역).
+        APA 7th edition 형식의 인용 문자열 1건.
+        edge case (예: authors=[]) → 저자 생략 후 제목부터 시작.
     """
     ...
 
@@ -243,7 +243,7 @@ for section in ["Introduction", "Methods", "Results", "Discussion"]:
     previous_sections.append(section_text)
 ```
 
-### dedup 영역 (영역 영역 영역 영역 영역 영역 영역 영역)
+### dedup 로직 (section 별 fetch chunks 통합 시)
 
 - key 영역: `doi` 우선 (가장 영역 unique 영역), fallback `uri` (canonicalize 영역)
 - canonicalize 영역 = `utils/refs.py` 영역 `_canonicalize_src_for_dedup` 영역 답습 영역
@@ -323,14 +323,19 @@ parser.add_argument("--timeout", type=float, default=240.0)
 
 1. **APA 7th citation 정합 영역** (regex 영역 검증 영역):
    - References section 영역 영역 영역 영역 영역: `^[A-Z][^,]+,\s+[A-Z]\.\s*[A-Z]?\.?(?:,\s+&?\s*)?.*\(\d{4}\)\.\s+.+\.\s+\*.+\*.*\.\s+https://doi\.org/.+$`
-   - threshold: 영역 영역 영역 영역 영역 영역 ≥ 0.8 영역 (영역 영역 영역 영역 영역 영역 영역 영역)
+   - threshold: References 항목 중 regex 통과 비율 ≥ 0.8 (80% 이상)
 2. **IMRD section 정합 영역**:
    - 4 section 영역 영역 영역 영역 (`## 1. Introduction` / `## 2. Methods` / `## 3. Results` / `## 4. Discussion`)
    - 면적 영역 영역 영역 (B-3 영역 영역 영역 영역 ±20% 영역)
    - threshold: 4/4 section PASS + 면적 영역 ±20% 영역 4/4 PASS
 3. **academic_source_ratio 영역 정합 영역** (catch 66 정합):
    - per-backend ratio 영역 박제 영역 (OA / SS / vertex 영역 영역 영역)
-   - threshold: OA ratio ≥ 0.70 + SS ratio ≥ 0.40 + 영역 ratio ≥ 0.50 영역 (영역 영역 §academic-4 영역 영역 정합 영역)
+   - threshold (primary 3):
+     - OA ratio ≥ 0.70  (§academic-4 baseline 0.80 안정 유지 검증)
+     - SS ratio ≥ 0.40  (§academic-4 baseline 0.44 안정 유지 검증)
+     - combined_ratio (OA + SS + vertex mean) ≥ 0.50  (§academic-4 mean 0.3915 → +0.11 진전 검증)
+   - 보조 metric (PASS/FAIL 무관, 박제만):
+     - vertex_filtered_ratio  (vertex filter 동작 검증 — 다음 cycle baseline 활용)
 
 ### 측정 영역 영역 박제 영역
 
@@ -376,7 +381,7 @@ parser.add_argument("--timeout", type=float, default=240.0)
 
 ### 측정 driver 영역 영역 영역 영역
 
-- `scripts/§paper-writer-1/measure_paper.py` 영역 Step C-1 영역 영역 영역 commit 영역 영역 영역 영역 (driver 영역 영역 영역 영역 영역 영역 영역 영역 commit 영역 영역 영역 영역 영역 영역)
+- `scripts/§paper-writer-1/measure_paper.py`는 Step C-2 commit에 포함 (사용자 컨펌 ②, 시스템 통합과 함께 묶음)
 
 ### Step C 진입 전 사용자 컨펌 영역
 
