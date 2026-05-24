@@ -388,6 +388,83 @@ def get_chapter_writer_prompt() -> PromptTemplate:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Paper Section Writer (§paper-writer-1 Step C-1 — 학술 paper IMRD 4 section)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_paper_section_writer_prompt() -> PromptTemplate:
+    """학술 paper 의 IMRD 4 section 작성용 prompt.
+
+    기존 get_section_writer_prompt() (보고서/Q&A) 와는 분리. placeholder 7개:
+    기존 5 ({topic_title}, {target_title}, {outline}, {references}, {messages})
+    + 신규 2 ({section_type}, {previous_sections}).
+
+    References footer 는 본 prompt 가 만들지 않는다 — 본문은 [[N]] marker 만
+    사용하고, post-process 단계에서 utils/citations.format_apa7() 로 구성한다.
+    """
+    tmpl = _tmpl(
+        """
+        현재 주제 (절대 준수): {topic_title}
+
+        너는 학술 논문의 {section_type} section 을 집필하는 연구자다.
+        IMRD 4 section 중 하나로, 이전에 작성된 section 의 흐름을 이어 받아
+        본 section 을 학술 논문 표준 톤으로 작성하라.
+
+        [타깃 일치 규칙]
+        - 본문은 반드시 [작성 대상 섹션 제목] 의 헤딩을 기준으로 작성한다.
+        - 첫 줄은 반드시 타깃 헤딩 한 줄: `## <번호>. <제목>`
+        - 상위 헤딩 (##) 은 딱 한 번만 사용, 소제목은 `###` 이하로만 사용.
+
+        [section 별 작성 지침 — {section_type}]
+        - Introduction: 연구 배경, 선행 연구의 한계 (research gap), 본 연구의
+          research question / 가설 / 기여를 명시한다. 분량 800~1200 단어.
+        - Methods: 이론 framework, 연구 설계 (질적/양적/혼합), 표본/데이터 수집,
+          측정 도구 / 분석 절차를 단계별로 기술한다. 분량 600~1000 단어.
+        - Results: 실증 결과를 표/그림 참조와 함께 객관적으로 보고한다 (해석은
+          최소화하고 Discussion 으로 이월). 통계치는 reference 에서 확인된 값만
+          인용한다. 분량 1000~1500 단어.
+        - Discussion: 결과 종합, 이론적/실무적 시사점, 한계, 향후 연구 방향을
+          제시한다. Introduction 의 research question 에 대한 답을 명시적으로
+          제공한다. 분량 1500~2000 단어.
+
+        [citation 규칙]
+        - 본문 인용 표기는 [참고 자료 요약] 항목의 번호를 [[N]] 형식으로만
+          사용한다 (예: [[1]], [[2]]).
+        - [라벨] 형식의 자체 합성 명칭 금지 (예: [Smith_2024], [marketing_study]).
+        - file:// 또는 http:// 로 시작하는 URL 을 본문에 직접 삽입하지 말 것.
+        - References section 은 본 prompt 에서 만들지 않는다 (post-process 단계
+          에서 APA 7th 형식으로 자동 구성).
+
+        [작성 원칙 — 학술 엄밀성]
+        - 수치/연도/효과 크기는 [참고 자료 요약] 에 명시된 값만 인용한다.
+        - 근거 빈약 문구 (예: "많은 연구가 ~을 보여준다") 금지 — 항상 [[N]] 으로
+          출처 명시한다.
+        - 이전에 작성된 section ({previous_sections}) 의 핵심 주장 / 변수 / 표기
+          를 본 section 에서 일관되게 유지한다.
+        - 학술 톤 — 1인칭 ("우리는") 은 최소화, 수동태 또는 비인격적 진술 권장.
+
+        [작성 대상 섹션 제목]
+        {target_title}
+
+        --------------------------------
+        [논문 전체 개요 (목차)]
+        {outline}
+        --------------------------------
+        [이전에 작성된 section]
+        {previous_sections}
+        --------------------------------
+        [참고 자료 요약 — 본 section 영역 fetch chunks]
+        {references}
+        --------------------------------
+        [이전 대화]
+        {messages}
+        """
+    )
+    pt = PromptTemplate.from_template(tmpl)
+    logger.debug("Paper section writer prompt ready. vars=%s", pt.input_variables)
+    return pt
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Section Writer (report)
 # ─────────────────────────────────────────────────────────────────────────────
 

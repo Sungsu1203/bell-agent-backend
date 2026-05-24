@@ -30,7 +30,7 @@ from tools.web_rag._scholarly_domain import extract_domain_from_paper
 logger = logging.getLogger(__name__)
 
 _SS_ENDPOINT = "https://api.semanticscholar.org/graph/v1/paper/search"
-_SS_FIELDS = "title,venue,year,journal,externalIds,openAccessPdf,authors"
+_SS_FIELDS = "title,venue,year,journal,externalIds,openAccessPdf,authors,abstract"
 _SS_DEFAULT_LIMIT = 10
 _SS_TIMEOUT_S = 10.0
 _SS_BACKOFF_S = 30.0  # §academic-4 commit 1 patch A-3: anonymous pool 회복 window 확보
@@ -201,10 +201,26 @@ def semantic_scholar_search(query: str, verbose: bool = False) -> Dict[str, Any]
         if not d:
             continue
         u = _paper_to_url(paper)
+        # §paper-writer-1 Step C-1: chunks schema 확장 (5 필드 신규)
+        ss_authors_raw = paper.get("authors") or []
+        ss_authors = [
+            a.get("name", "") for a in ss_authors_raw
+            if isinstance(a, dict) and a.get("name")
+        ]
+        ss_journal = paper.get("journal") or {}
+        ss_venue = paper.get("venue") or (
+            ss_journal.get("name") if isinstance(ss_journal, dict) else None
+        )
+        ss_doi = (paper.get("externalIds") or {}).get("DOI")
         chunks.append({
             "uri": u,
             "title": paper.get("title") or "",
             "domain": d,
+            "authors": ss_authors,
+            "year": paper.get("year"),
+            "venue": ss_venue,
+            "doi": ss_doi,
+            "abstract": paper.get("abstract"),
         })
         supports.append({
             "chunk_indices": [i],
