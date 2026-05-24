@@ -905,6 +905,7 @@ def web_search_agent(state: State):
                                     u = ch.get("uri") or ""
                                     if not u:
                                         continue
+                                    # §paper-writer-1 Step C-2: chunks 5 신규 필드 propagation
                                     combined_items.append({
                                         "title": ch.get("title") or "",
                                         "url": u,
@@ -914,6 +915,11 @@ def web_search_agent(state: State):
                                         "metadata": {
                                             "backend": name,
                                             "chunk_domain": ch.get("domain") or "",
+                                            "authors": ch.get("authors") or [],
+                                            "year": ch.get("year"),
+                                            "venue": ch.get("venue"),
+                                            "doi": ch.get("doi"),
+                                            "abstract": ch.get("abstract"),
                                         },
                                     })
                                     sch_added += 1
@@ -1674,9 +1680,62 @@ def get_LOCAL_RAG_ALLOW() -> str:
 
 __all__ = [
     "web_search_agent",
+    # §paper-writer-1 Step C-2 — section-aware fetch (paper mode)
+    "section_to_query", "paper_section_fetch",
     # runtime CFG getters
     "get_WRITER_AGENT", "get_PROJECT_ROOT", "get_SEARCH_BACKENDS",
     "get_HAS_GOOGLE_KEYS", "get_HAS_SERPAPI", "get_HAS_TAVILY",
     "get_MAX_INDEXED_PER_ROUND", "get_MAX_SEARCH_QUERIES_PER_ROUND",
     "get_LOCAL_RAG_ALLOW",
 ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §paper-writer-1 Step C-2 — section-aware fetch (paper mode)
+# ─────────────────────────────────────────────────────────────────────────────
+def section_to_query(topic: str, section_type: str) -> str:
+    """IMRD section_type 에 따라 fetch query 를 분기한다.
+
+    catch 43 routing 과 호환 — 입력 topic 의 언어를 그대로 유지한다 (영어 paper
+    의 경우 영어 query, 한국어 paper 의 경우 한국어 keyword 보강).
+    """
+    t = (topic or "").strip()
+    s = (section_type or "").strip()
+    mapping = {
+        "Introduction": f"{t} background literature review",
+        "Methods": f"{t} theory framework methodology",
+        "Results": f"{t} empirical findings data",
+        "Discussion": f"{t} synthesis implications limitations",
+    }
+    if s in mapping:
+        return mapping[s]
+    logger.warning("[section_to_query] unknown section_type=%r → topic fallback", s)
+    return t
+
+
+def paper_section_fetch(topic: str, section_type: str) -> list[dict]:
+    """paper mode 전용 section-aware fan-out (catch 66: OA primary + SS secondary + vertex filter).
+
+    Returns: chunks list with 5 신규 필드 (authors / year / venue / doi / abstract).
+    각 chunk 는 backend 식별을 위해 `_backend` 키도 갖는다.
+    """
+    from tools.web_rag.openalex import openalex_search
+    from tools.web_rag.semantic_scholar import semantic_scholar_search
+    from tools.web_rag.vertex_search import vertex_web_search
+    query = section_to_query(topic, section_type)
+    all_chunks: list[dict] = []
+    for backend, fn in [("openalex", openalex_search),
+                        ("semantic_scholar", semantic_scholar_search),
+                        ("vertex", vertex_web_search)]:
+        try:
+            r = fn(query)
+        except Exception as e:
+            logger.warning("[paper_section_fetch][%s] failed: %s", backend, e)
+            continue
+        for ch in (r or {}).get("chunks", []) or []:
+            ch2 = dict(ch)
+            ch2["_backend"] = backend
+            all_chunks.append(ch2)
+    logger.info("[paper_section_fetch] %s → %d chunks (q=%s)",
+                section_type, len(all_chunks), query[:60])
+    return all_chunks
