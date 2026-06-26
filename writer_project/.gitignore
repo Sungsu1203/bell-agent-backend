@@ -92,3 +92,9 @@ scripts/output/**/*.patch
 
 # §14-8: diag local 스크립트 (박제 자산 아님 — local only)
 scripts/diag/
+
+# paper writer 산출물 / 백업 (status 오염 방지)
+scripts/output/
+*.bak_*
+_refs_venfobel_backup/
+~$*

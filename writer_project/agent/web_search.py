@@ -1706,6 +1706,10 @@ def section_to_query(topic: str, section_type: str) -> str:
         "Methods": f"{t} theory framework methodology",
         "Results": f"{t} empirical findings data",
         "Discussion": f"{t} synthesis implications limitations",
+        "Theoretical Background": f"{t} theory legal doctrine prior research peer-reviewed",
+        "Proposed Framework": f"{t} measurement model construct operationalization scale",
+        "Research Design (Proposed)": f"{t} research design survey methodology validation",
+        "Expected Contributions": f"{t} implications contribution significance",
     }
     if s in mapping:
         return mapping[s]

@@ -72,7 +72,11 @@ def _force_driver_env_override() -> None:
     os.environ["LLM_MAX_RETRIES"] = "0"
     os.environ["GOOGLE_API_USE_CLIENT_CERTIFICATE"] = "false"
     os.environ["SKIP_VERTEX_SEARCH"] = "0"
-    os.environ["TOPIC_SLUG"] = "academic-influencer-marketing-consumer-behavior"
+    # ── 맥 SSL: OA·SS urllib HTTPS 검증 (certifi 명시 — macOS 루트 인증서 미연결 회피) ──
+    import certifi
+    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+    os.environ["TOPIC_SLUG"] = "academic-trademark-similarity-consumer"  # "academic-influencer-marketing-consumer-behavior"
 
 
 _force_driver_env_override()
@@ -102,13 +106,20 @@ from agent.paper_section_writer import (  # noqa: E402
     attach_references_footer,
 )
 
-
 SECTION_WORD_GUIDE = {
     "Introduction": (800, 1200),
-    "Methods": (600, 1000),
-    "Results": (1000, 1500),
-    "Discussion": (1500, 2000),
+    "Theoretical Background": (1000, 1500),
+    "Proposed Framework": (1000, 1500),
+    "Research Design (Proposed)": (800, 1200),
+    "Expected Contributions": (600, 1000),
 }
+
+# SECTION_WORD_GUIDE = {
+#    "Introduction": (800, 1200),
+#    "Methods": (600, 1000),
+#    "Results": (1000, 1500),
+#    "Discussion": (1500, 2000),
+# }
 
 APA_REGEX = re.compile(
     r"\(\d{4}\)|\(n\.d\.\)|https?://doi\.org/", re.IGNORECASE
@@ -263,7 +274,9 @@ def main() -> int:
     parser.add_argument("--topic", type=str,
                         default="consumer behavior in influencer marketing")
     parser.add_argument("--sections", type=str, nargs="+",
-                        default=["Introduction", "Methods", "Results", "Discussion"])
+                        default=["Introduction", "Theoretical Background",
+                                 "Proposed Framework", "Research Design (Proposed)",
+                                 "Expected Contributions"])
     parser.add_argument("--output-dir", type=str,
                         default=str(PROJECT_ROOT / "scripts" / "output" / "§paper-writer-1"))
     parser.add_argument("--warmup", type=int, default=0)

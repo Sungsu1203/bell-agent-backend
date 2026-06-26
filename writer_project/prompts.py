@@ -425,6 +425,15 @@ def get_paper_section_writer_prompt() -> PromptTemplate:
         - Discussion: 결과 종합, 이론적/실무적 시사점, 한계, 향후 연구 방향을
           제시한다. Introduction 의 research question 에 대한 답을 명시적으로
           제공한다. 분량 1500~2000 단어.
+        - Theoretical Background: 법리·이론 framework 와 선행 연구를 종합해 연구의
+          이론적 토대를 구성한다. 분량 1000~1500 단어.
+        - Proposed Framework: 제안하는 측정 모델/개념틀을 구체적으로 기술한다.
+          아직 수행되지 않은 제안이므로 가정형으로 작성한다. 분량 1000~1500 단어.
+        - Research Design (Proposed): 향후 수행할 연구 설계를 제안한다. 표본·측정·
+          분석은 반드시 미래형("~할 것이다", "~를 제안한다")으로 기술하며, 어떤
+          결과도 보고하지 않고 결과 표를 생성하지 않는다. 분량 800~1200 단어.
+        - Expected Contributions: 기대되는 이론적/실무적 기여와 결론을 제시한다.
+          분량 600~1000 단어.
 
         [citation 규칙]
         - 본문 인용 표기는 [참고 자료 요약] 항목의 번호를 [[N]] 형식으로만
@@ -441,6 +450,9 @@ def get_paper_section_writer_prompt() -> PromptTemplate:
         - 이전에 작성된 section ({previous_sections}) 의 핵심 주장 / 변수 / 표기
           를 본 section 에서 일관되게 유지한다.
         - 학술 톤 — 1인칭 ("우리는") 은 최소화, 수동태 또는 비인격적 진술 권장.
+        - [데이터 날조 절대 금지] 실제 수집된 데이터가 없으므로 구체적 표본 수,
+          통계치(평균·상관·회귀계수·적합도 등), 가상의 응답 결과를 생성하지 말 것.
+          측정·분석은 "수행할 계획"으로만 기술하고 결과 표를 만들지 않는다.
 
         [작성 대상 섹션 제목]
         {target_title}

@@ -15,7 +15,14 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import urllib.request
+import ssl
+import certifi
+
 from tools.web_rag._scholarly_domain import extract_domain_from_paper
+
+# 맥 urllib 루트 인증서 미연결 회피 — certifi 번들 명시 (catch 신규: macOS SSL)
+_SSL_CTX = ssl.create_default_context(cafile=certifi.where())
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +115,7 @@ def openalex_search(query: str) -> Dict[str, Any]:
     for attempt in range(2):
         try:
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=_OA_TIMEOUT_S) as resp:
+            with urllib.request.urlopen(req, timeout=_OA_TIMEOUT_S, context=_SSL_CTX) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
             break
         except urllib.error.HTTPError as e:
