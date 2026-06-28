@@ -485,3 +485,67 @@ ddc59a4 §academic-3 Step B follow-up — 사용자 결정 ①~④ + Risk + PART
 ```
 
 **status: closed (2026-05-20)** — §academic-3 본 미션 (catch 52 fix: `ACADEMIC_DOMAINS` set 글로벌 학술 플랫폼 7 entries 보강) 정식 종결. 부수 미션 (academic source ratio mean ≥ 0.6) PARTIAL — academic-ko 단독 PASS / academic-en 0.3165 잔존 (catch 52 외부, scope creep 경고 박제 정합으로 본 cycle 안 시도 금지). sub-cycle 후보: **catch 51 HIGH 격상** (§academic-4 본 미션 후보) · catch 45/53 LOW 유지 · catch 54/55/56 신규 등록 (LOW/LOW/LOW-MID). lesson: catch 48 lesson 재정착 (148% oversize, PEP 8 separator + inline 주석 stand-alone 산식 명시 권장) + Step B Risk 박제 정확성 검증 (예상 0.31 ↔ 실측 0.3165 정합) + sciencedirect base 중복 발견 (추가 후보 도메인 grep 사전 검증 lesson).
+
+---
+
+## §paper-writer-2 seed 주입 트랙 close (2026-06-28) — 외부 seed reference 강제 주입 + verify 3단 폴백
+
+### 결론 (트랙 완료)
+
+외부 seed reference (교수님 지정 핵심 인용 18편) 를 OA/SS fan-out **전에** paper mode 회수 파이프라인에 강제 주입하는 트랙 완료. paper 가 매번 누락하던 "반드시 인용해야 할" 선행연구를 결정론적으로 References 에 포함.
+
+구현 (`agent/web_search.py`):
+- **`_load_and_hydrate_seeds(section_type, existing_chunks=None)`** — seed JSON 로드 → section slug 매칭 core 항목 (`context` 는 `SEED_INCLUDE_CONTEXT=1` 시) → `fetch_key.title` 로 `openalex_search` hydrate → verify → 정규화 `{title,authors,year,venue,doi,abstract,_backend}` 반환. `SEED_DRY=1` 시 section 무시 + `automating-abercrombie-2024` 1건만 (단위 점검용).
+- **`_clean_chunk_text(chunk)`** — title/abstract/venue **+ authors 리스트 각 원소** HTML 태그 strip + 유니코드 하이픈 (U+2010/2011/2013/2014) → ASCII `-` + 연속공백 정리. seed·일반 chunk 양쪽에 `paper_section_fetch` 회수 직후 **단일 지점** 적용.
+- **`paper_section_fetch` 배선** — `all_chunks` 초기화 직후·fan-out 전 seed extend → fan-out → 단일 클린징 → **출구 doi-dedup** (keep-first, seed 먼저 들어가 보존, doi 없는 chunk 통과) → return.
+- **seed 선별 필터** — `priority=='core'` 항상 / `'context'` 는 flag 시 / 그 외 (`hold`·`oa_unresolved`·`oa_unindexed`) 주입 제외 (데이터는 JSON 에 보존).
+
+### verify 3단 폴백 (catch 76 해소)
+
+1. **doi-match**: `seed.verify_labels.doi == 회수 doi` → 채택
+2. **arxiv-match**: 회수 doi 의 `10.48550/arxiv.(\d+\.\d+)` 추출 id == `seed.verify_labels.arxiv` → 채택
+3. **title-jaccard ≥ 0.8**: doi/arxiv 어긋나도 제목 토큰 자카드 일치 시 채택
+
+3단 전부 실패 → 어느 단계서 떨어졌는지 WARNING 로그 후 skip (catch 70: 무흔적 폐기 금지).
+
+### 태깅 — `_backend="openalex"`
+
+seed chunk 는 `_backend="openalex"` 강제 태깅 → axis3 학술 분자 (oa) 에 합류. `"seed"` 신규 backend 값 금지 — 분모만 키우고 분자 0 기여하는 dilution 함정 (catch 66 계열) 회피.
+
+### 최종 측정 (상표 토픽, `--measure 1`, 2026-06-28)
+
+- **seed 채택: 13/13 injectable core** (core 15 중 2 = `automatic-tm-detection-2026`·`vanheuven-phonetic-tm` 를 OA 미색인으로 `hold` 강등 → injectable 13). 위양성 (false-negative) **0**.
+  - SBERT (`sbert-2019`): seed doi=ACL `10.18653/v1/D19-1410`, OA=arXiv `10.48550/arxiv.1908.10084` → **arxiv-match 로 구제** (catch 76).
+  - STS-benchmark: 원본 제목 'Crosslingual'(붙임) 0건 → OA 색인 정확표기 'Cross-lingual'(하이픈) 교체 후 arxiv-match 채택.
+- **References 품질**: HTML 태그·유니코드 하이픈 잔존 **0** (title/venue/abstract + authors `Yu-Kun Lai` 정규화 확인). axis1 APA PASS (1.0, n=169).
+- **출구 dedup**: seed↔일반 doi 충돌 시 1건 병합·seed 보존 (오프라인 검증). 실측에선 충돌 0건.
+
+### 측정 주의 (catch 77)
+
+seed 효과를 **oa_ratio 로 읽지 말 것**. oa_ratio 는 vertex 수율 변동 (run 별 총 chunks 137→169, vertex 0.62→0.686) 에 희석되어 seed 11→12 증가에도 0.38→0.314 로 **오히려 하락**처럼 보임. seed 절대 기여는 일정 (+0.05, oa 0.26→0.31). **결정 지표 = 절대 채택수 (13)**, 비율 아님.
+
+### catch 박제
+
+- **catch 76** (MID · methodology · 신규): OpenAlex 가 출판본 DOI 대신 arXiv preprint DOI (`10.48550/arxiv.*`) 를 색인하는 경우 → doi-only verify 가 정상 seed 를 위양성 탈락 (SBERT: seed=ACL DOI `10.18653/v1/D19-1410` vs OA=arXiv `10.48550/arxiv.1908.10084`). **해소**: verify 를 3단 폴백 (doi-match → arxiv-match → title-jaccard≥0.8) 으로 확장. arxiv-match 는 회수 doi 에서 `10.48550/arxiv.(\d+\.\d+)` 추출해 seed arxiv id 와 대조. **정량 검증**: 2026-06-28 실측에서 SBERT·LaBSE·multilingual-distillation 3편이 arxiv-match 로 채택 (직전 run doi-mismatch skip → 구제). prevention: seed JSON 에 doi 와 arxiv 라벨 병기 권장 (둘 중 하나로 hydrate 검증 가능).
+- **catch 77** (MID · methodology · 신규): seed 주입 효과를 axis3 oa_ratio 로 평가하면 vertex 수율 변동에 가려짐 — seed 가 oa 분자·분모 동시 증가시키나 vertex chunk 수 변동폭이 더 커서 oa_ratio 가 오히려 하락 가능 (2026-06-28: seed 11→12 증가에도 oa 0.38→0.314). **해소**: seed 효과는 **절대 채택수** (deterministic, 13/13 injectable) 로 평가. oa_ratio 는 backend 수율 비율 지표로만 사용, seed 기여 측정에 부적합. catch 66 (ratio dilution) 의 seed-track 특수 사례 — 분자 절대 수 metric 우선 원칙 재확인.
+
+### seed JSON fetch_key.title 보정 (skip 3건, `scripts/§paper-writer-1/seeds/seed_references_trademark-similarity.json`)
+
+OA 실제 회수 결과로만 교체 (추측 제목 생성 금지 원칙 준수):
+- **sts-benchmark-2017**: `"… Semantic Textual Similarity Multilingual and Crosslingual …"` → OA 색인 정확표기 `"… Semantic Textual Similarity - Multilingual and Cross-lingual …"` 교체. arxiv `1708.00055` 유지 → **재회수 arxiv-match 채택 확인**.
+- **automatic-tm-detection-2026**: 제목 일반적이라 'Pascal VOC' 오회수 + pii/venue 결합 query 도 미회수 → 2026 신간 OA 미색인 추정. `priority: core→hold`, `status="oa_unresolved"`, `_priority_original` 보존. OA 색인 확인 시 fetch_key 교체 후 core 복귀 (re-entry).
+- **vanheuven-phonetic-tm**: 제목/저자 결합 query 모두 무관 회수 → OA 미색인 확인. `priority: core→hold`, `status="oa_unindexed"`, 데이터 보존. 대체 색인처 확보 시 재평가 (re-entry).
+
+### re-entry 조건
+
+1. `automatic-tm-detection-2026` / `vanheuven-phonetic-tm` 의 OA 색인 확인 또는 대체 DB 확보 시 → `oa_recon_note` 갱신 + `priority` core 복귀 + 재측정.
+2. SS 백엔드 무응답 (ss_ratio=0, catch 74/61 계열) 해소 시 axis3 재평가.
+3. axis3 `combined_ratio` 구조 quirk (세 비율 평균 ≤0.333 → `≥0.5` 영구 미달) 임계 재설계는 별 task.
+
+### commit chain (참조)
+
+```
+(이 commit) §paper-writer-2 seed 주입 트랙 close — 코드 + JSON 보정 3건 + dev 박제 (catch 76/77)
+```
+
+**status: closed (2026-06-28)** — §paper-writer-2 seed 주입 트랙 (코드) 정식 종결. 채택 13/13 injectable core (위양성 0) + References clean (HTML/하이픈 잔존 0) + verify 3단 폴백 (catch 76) + 절대수 평가 원칙 (catch 77) 박제. 잔존 별 task: OA 미색인 2건 (hold, re-entry 조건 ①) · SS 무응답 (catch 74) · combined 임계 재설계.

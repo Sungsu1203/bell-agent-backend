@@ -1,0 +1,340 @@
+{
+  "seed_set": "trademark-similarity-confusion",
+  "topic_slug": "consumer-perceived-trademark-similarity",
+  "version": "2026-06-26",
+  "design_note": "OA hydrate 검증결과 반영: openalex_search는 정확한 제목을 query로 넣으면 해당 논문을 top-1로 회수하나, DOI 문자열은 식별자로 해석하지 못함(풀텍스트 토큰 매칭). 따라서 FETCH KEY는 'title'(정확 제목). doi/arxiv/pii는 fetch 후 '올바른 논문을 잡았는지' 대조하는 VERIFY 라벨로 사용. seed chunk는 _backend='openalex'로 태깅해 axis3 학술 분자에 포함(catch 66 분모함정 회피). 'core'=무조건 인용+검색앵커, 'context'=SI/E_b/P_r 맥락변수 도입 시에만.",
+  "resolver_priority": [
+    "title",
+    "doi_verify",
+    "arxiv_verify",
+    "pii_verify"
+  ],
+  "status_legend": {
+    "verified": "resolver key confirmed in source",
+    "confirm_venue": "title/authors solid; venue not cleanly resolved — let OA hydrate by title",
+    "confirm_metadata": "canonical work; confirm full metadata on hydrate"
+  },
+  "references": [
+    {
+      "id": "multifaceted-tm-similarity-2016",
+      "section": "proposed_framework/layer1_overall",
+      "priority": "core",
+      "title": "Multi-faceted assessment of trademark similarity",
+      "authors_short": "(hydrate)",
+      "year": 2016,
+      "venue": "Expert Systems with Applications",
+      "relevance_ko": "외관·의미·소리 3축 유사성을 정보검색 지표 + 인간판단으로 평가 — 우리 3축의 직계 선행",
+      "status": "verified",
+      "fetch_key": {
+        "title": "Multi-faceted assessment of trademark similarity"
+      },
+      "verify_labels": {
+        "pii": "S0957417416304213"
+      }
+    },
+    {
+      "id": "intelligent-tm-similarity-2020",
+      "section": "proposed_framework/layer1_and_layer2",
+      "priority": "core",
+      "title": "Intelligent trademark similarity analysis of image, spelling, and phonetic features using machine learning methodologies",
+      "authors_short": "(hydrate)",
+      "year": 2020,
+      "venue": "Advanced Engineering Informatics (confirm)",
+      "relevance_ko": "철자·발음·이미지 유사도를 미국 혼동 법리에 근거해 한 편에서 측정 — Layer 1+2 통합 선례",
+      "status": "confirm_venue",
+      "fetch_key": {
+        "title": "Intelligent trademark similarity analysis of image, spelling, and phonetic features using machine learning methodologies"
+      },
+      "verify_labels": {
+        "pii": "S1474034620300896"
+      }
+    },
+    {
+      "id": "automatic-tm-similarity-detection-2026",
+      "section": "introduction/positioning",
+      "priority": "hold",
+      "_priority_original": "core",
+      "title": "Automatic similarity detection for trademark",
+      "authors_short": "(hydrate)",
+      "year": 2026,
+      "venue": "ScienceDirect (World Patent Information, confirm)",
+      "relevance_ko": "정량 유사도 점수를 clearance·이의·심사에 임베드하는 최신 연구 — '사전 스크리닝' 포지셔닝 근거",
+      "status": "oa_unresolved",
+      "oa_recon_note": "2026-06-28 OA 재정찰: 제목이 일반적('Automatic similarity detection for trademark')이라 'Pascal VOC' 등 오회수. pii(S017221902600027X)/venue 결합 query 도 정논문 미회수 — 2026 신간으로 OpenAlex 미색인 추정. 주입 보류(hold), 데이터 보존. OA 색인 확인되면 fetch_key 교체 후 core 복귀.",
+      "fetch_key": {
+        "title": "Automatic similarity detection for trademark"
+      },
+      "verify_labels": {
+        "pii": "S017221902600027X"
+      }
+    },
+    {
+      "id": "automating-abercrombie-2024",
+      "section": "proposed_framework/distinctiveness_weight",
+      "priority": "core",
+      "title": "Automating Abercrombie: Machine-learning trademark distinctiveness",
+      "authors_short": "Adarsh, Ash, Bechtold, Beebe & Fromer",
+      "year": 2024,
+      "venue": "Journal of Empirical Legal Studies, 21(4), 826-860",
+      "relevance_ko": "식별력(우리 식별력 가중치 1~5)의 ML 측정 — 저자가 상표 실증의 대가",
+      "status": "verified",
+      "fetch_key": {
+        "title": "Automating Abercrombie: Machine-learning trademark distinctiveness"
+      },
+      "verify_labels": {
+        "doi": "10.1111/jels.12398"
+      }
+    },
+    {
+      "id": "sbert-2019",
+      "section": "proposed_framework/layer1_conceptual_embedding",
+      "priority": "core",
+      "title": "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks",
+      "authors_short": "Reimers & Gurevych",
+      "year": 2019,
+      "venue": "EMNLP-IJCNLP 2019",
+      "relevance_ko": "문장 임베딩 + 코사인 유사도의 원전 — 관념 축 측정방식 그 자체",
+      "status": "verified",
+      "fetch_key": {
+        "title": "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks"
+      },
+      "verify_labels": {
+        "doi": "10.18653/v1/D19-1410",
+        "arxiv": "1908.10084"
+      }
+    },
+    {
+      "id": "labse-2022",
+      "section": "proposed_framework/layer1_conceptual_embedding",
+      "priority": "core",
+      "title": "Language-agnostic BERT Sentence Embedding",
+      "authors_short": "Feng, Yang, Cer, Arivazhagan & Wang",
+      "year": 2022,
+      "venue": "ACL 2022",
+      "relevance_ko": "109개 언어 교차언어 임베딩 — COFFEEBAY/BERRYTALK 같은 한·영 혼재 비교의 근거",
+      "status": "verified",
+      "fetch_key": {
+        "title": "Language-agnostic BERT Sentence Embedding"
+      },
+      "verify_labels": {
+        "arxiv": "2007.01852"
+      }
+    },
+    {
+      "id": "multilingual-distillation-2020",
+      "section": "proposed_framework/layer1_conceptual_embedding",
+      "priority": "core",
+      "title": "Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation",
+      "authors_short": "Reimers & Gurevych",
+      "year": 2020,
+      "venue": "EMNLP 2020",
+      "relevance_ko": "다국어 임베딩 확장 방법론 — 교차언어 측정의 보조 근거",
+      "status": "verified",
+      "fetch_key": {
+        "title": "Making Monolingual Sentence Embeddings Multilingual using Knowledge Distillation"
+      },
+      "verify_labels": {
+        "arxiv": "2004.09813"
+      }
+    },
+    {
+      "id": "sts-benchmark-2017",
+      "section": "research_design/convergent_validity",
+      "priority": "core",
+      "title": "SemEval-2017 Task 1: Semantic Textual Similarity Multilingual and Crosslingual Focused Evaluation",
+      "authors_short": "Cer, Diab, Agirre, Lopez-Gazpio & Specia",
+      "year": 2017,
+      "venue": "SemEval-2017",
+      "relevance_ko": "임베딩 코사인이 사람의 의미 유사도 판단을 재현함을 검증하는 표준 — '기계점수↔지각' 다리",
+      "status": "verified",
+      "fetch_key": {
+        "title": "SemEval-2017 Task 1: Semantic Textual Similarity - Multilingual and Cross-lingual Focused Evaluation"
+      },
+      "oa_recon_note": "2026-06-28 OA 재정찰: 원본 'Crosslingual'(붙임표기)로 0건 → OA 색인 정확표기 'Cross-lingual'(하이픈) + ' - ' separator 로 교체. doi=10.48550/arxiv.1708.00055 → arxiv-match 채택.",
+      "verify_labels": {
+        "arxiv": "1708.00055"
+      }
+    },
+    {
+      "id": "vanheuven-phonetic-tm",
+      "section": "proposed_framework/layer1_phonetic",
+      "priority": "hold",
+      "_priority_original": "core",
+      "title": "Some measures of phonetic similarity for use in legal trademark disputes",
+      "authors_short": "Van Heuven et al.",
+      "year": null,
+      "venue": "(confirm — conference/working paper)",
+      "relevance_ko": "길이정규화·자질가중 레벤슈타인 거리가 혼동가능성 최적 예측자 — 우리 자소-레벤슈타인 정당화",
+      "status": "oa_unindexed",
+      "oa_recon_note": "2026-06-28 OA 재정찰: 제목/저자 결합 query 모두 무관 논문('Quibbling Siblings' 등) 회수 — OpenAlex 미색인 확인. 주입 보류(hold), 데이터 보존. 대체 색인처(다른 DB) 확보 시 재평가.",
+      "fetch_key": {
+        "title": "Some measures of phonetic similarity for use in legal trademark disputes"
+      },
+      "verify_labels": null
+    },
+    {
+      "id": "tm-retrieval-phonetic-2014",
+      "section": "proposed_framework/layer1_phonetic",
+      "priority": "core",
+      "title": "Trademark retrieval based on phonetic similarity",
+      "authors_short": "(hydrate)",
+      "year": 2014,
+      "venue": "(confirm)",
+      "relevance_ko": "음성 코드 비교 + 편집거리 정련의 2단계 알고리즘",
+      "status": "confirm_metadata",
+      "fetch_key": {
+        "title": "Trademark retrieval based on phonetic similarity"
+      },
+      "verify_labels": null
+    },
+    {
+      "id": "beebe-dilution-lab-2019",
+      "section": "research_design/survey_methodology",
+      "priority": "core",
+      "title": "Testing for Trademark Dilution in Court and in the Lab",
+      "authors_short": "Beebe, Germano, Sprigman & Steckel",
+      "year": 2019,
+      "venue": "University of Chicago Law Review",
+      "relevance_ko": "설문 증거의 한계를 실험으로 검증 — Eveready/Squirt/Exxon 포맷 비판; 설문 종속변수 설계 근거",
+      "status": "confirm_metadata",
+      "fetch_key": {
+        "title": "Testing for Trademark Dilution in Court and in the Lab"
+      },
+      "verify_labels": null
+    },
+    {
+      "id": "bedi-reibstein-tarnishment-2020",
+      "section": "theoretical_background/dilution_branch",
+      "priority": "core",
+      "title": "Measuring Trademark Dilution by Tarnishment",
+      "authors_short": "Bedi & Reibstein",
+      "year": 2020,
+      "venue": "Indiana Law Journal, 95(3)",
+      "relevance_ko": "희석을 실증적 청구원인으로 — 통제집단 실험; 출처 다른 걸 알아도 명성 훼손 → 혼동/희석 분리 근거",
+      "status": "verified",
+      "fetch_key": {
+        "title": "Measuring Trademark Dilution by Tarnishment"
+      },
+      "verify_labels": {
+        "ssrn": "3412159"
+      }
+    },
+    {
+      "id": "morrin-jacoby-2000",
+      "section": "theoretical_background/dilution_branch",
+      "priority": "core",
+      "title": "Trademark Dilution: Empirical Measures for an Elusive Concept",
+      "authors_short": "Morrin & Jacoby",
+      "year": 2000,
+      "venue": "Journal of Public Policy & Marketing, 19(2), 265",
+      "relevance_ko": "반응시간 기반 희석 실증의 초기 시도 — Bedi & Reibstein의 선행(개선 전 버전)",
+      "status": "confirm_metadata",
+      "fetch_key": {
+        "title": "Trademark Dilution: Empirical Measures for an Elusive Concept"
+      },
+      "verify_labels": null
+    },
+    {
+      "id": "ljp-slr-2025",
+      "section": "research_design/predictive_validation",
+      "priority": "core",
+      "title": "Legal Judgment Prediction using Natural Language Processing and Machine Learning Methods: A Systematic Literature Review",
+      "authors_short": "Dina, Ravana & Idris",
+      "year": 2025,
+      "venue": "SAGE Open",
+      "relevance_ko": "판결문→결과 예측의 데이터셋·평가법 리뷰 — 우리 '순환→예측' 검증의 train/holdout·지표 인용처",
+      "status": "verified",
+      "fetch_key": {
+        "title": "Legal Judgment Prediction using Natural Language Processing and Machine Learning Methods: A Systematic Literature Review"
+      },
+      "verify_labels": {
+        "doi": "10.1177/21582440251329663"
+      }
+    },
+    {
+      "id": "kci-tm-similarity-criteria",
+      "section": "theoretical_background/korean_doctrine",
+      "priority": "core",
+      "title": "상표의 유사 여부 판단을 위한 일반적 판단기준 및 판단방법의 검토",
+      "authors_short": "(hydrate)",
+      "year": null,
+      "venue": "KCI",
+      "relevance_ko": "외관 무시한 채 호칭·관념만으로 유사 인정 불가, 출처 혼동가능성 착안 — 국내 법리 토대",
+      "status": "confirm_metadata",
+      "fetch_key": {
+        "title": "상표의 유사 여부 판단을 위한 일반적 판단기준 및 판단방법의 검토"
+      },
+      "verify_labels": {
+        "kci": "ART001008024"
+      }
+    },
+    {
+      "id": "keller-1993-brand-equity",
+      "section": "proposed_framework/context_variable_Eb",
+      "priority": "context",
+      "title": "Conceptualizing, Measuring, and Managing Customer-Based Brand Equity",
+      "authors_short": "Keller",
+      "year": 1993,
+      "venue": "Journal of Marketing, 57(1)",
+      "relevance_ko": "E_b(자체 저명성) 변수의 브랜드자산 근거 — 맥락변수 도입 시에만",
+      "status": "confirm_metadata",
+      "fetch_key": {
+        "title": "Conceptualizing, Measuring, and Managing Customer-Based Brand Equity"
+      },
+      "verify_labels": null
+    },
+    {
+      "id": "petty-cacioppo-1986-elm",
+      "section": "proposed_framework/context_variable_Pr",
+      "priority": "context",
+      "title": "The Elaboration Likelihood Model of Persuasion",
+      "authors_short": "Petty & Cacioppo",
+      "year": 1986,
+      "venue": "Advances in Experimental Social Psychology",
+      "relevance_ko": "P_r(가격→정교화→주의) 변수의 정보처리 깊이 근거 — 맥락변수 도입 시에만",
+      "status": "confirm_metadata",
+      "fetch_key": {
+        "title": "The Elaboration Likelihood Model of Persuasion"
+      },
+      "verify_labels": null
+    },
+    {
+      "id": "zaichkowsky-1985-involvement",
+      "section": "proposed_framework/context_variable_involvement",
+      "priority": "context",
+      "title": "Measuring the Involvement Construct",
+      "authors_short": "Zaichkowsky",
+      "year": 1985,
+      "venue": "Journal of Consumer Research, 12(3)",
+      "relevance_ko": "관여도(Layer 3) 측정 척도의 표준 — 맥락변수 도입 시에만",
+      "status": "confirm_metadata",
+      "fetch_key": {
+        "title": "Measuring the Involvement Construct"
+      },
+      "verify_labels": null
+    }
+  ],
+  "not_seeds_handoff": {
+    "korean_case_law": [
+      "대법원 98도2743 (외관·호칭·관념 객관적·전체적·이격적 관찰; 도형상표 외관 지배)",
+      "대법원 2019도11688 (3요소 중 하나라도 유사 시 출처 혼동 우려)",
+      "레드불 v 불스원 / 루이비통 v 루이비통닭 (교수님 자료 사례)"
+    ],
+    "note_ko": "판례는 학술 reference 가 아니라 라벨 코퍼스의 ground-truth 로 들어간다. 교수님이 사건 선정·라벨 기준 확정. seed 의 reference fetch 대상 아님."
+  },
+  "hydrate_protocol": {
+    "fetch_key": "title (exact)",
+    "verify": "hydrate 결과의 doi가 seed의 doi_verify와 일치하는지 대조. 불일치 시 로그+스킵.",
+    "backend_tag": "_backend='openalex' (학술 분자 포함). 'seed' 신규값 금지.",
+    "chunk_schema": [
+      "title",
+      "authors",
+      "year",
+      "venue",
+      "doi",
+      "abstract",
+      "_backend"
+    ],
+    "title_only_caveat": "DOI 없는 항목(law review/KCI/classics)은 제목 hydrate만 가능, verify 생략 + status 유지."
+  }
+}

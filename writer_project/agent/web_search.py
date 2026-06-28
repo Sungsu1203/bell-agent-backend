@@ -1717,6 +1717,227 @@ def section_to_query(topic: str, section_type: str) -> str:
     return t
 
 
+# ── §paper-writer-2 STEP 2: 텍스트 클린징 + 제목 유사도 가드 ──
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+# 유니코드 하이픈/대시 → ASCII '-' (U+2010 hyphen, U+2011 non-breaking,
+# U+2013 en-dash, U+2014 em-dash)
+_UNICODE_HYPHENS = {"‐": "-", "‑": "-", "–": "-", "—": "-"}
+
+
+def _clean_text_value(s: str) -> str:
+    """단일 문자열: HTML 태그 strip + 유니코드 하이픈 → '-' + 연속 공백 정리."""
+    if not s:
+        return s
+    s = _HTML_TAG_RE.sub("", s)              # <i> <b> <sub> <sup> 등 제거
+    for u, a in _UNICODE_HYPHENS.items():
+        s = s.replace(u, a)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _clean_chunk_text(chunk: dict) -> dict:
+    """chunk 의 title/abstract/venue 텍스트 클린징 (in-place 수정 후 반환).
+
+    seed chunk · 일반 OA/SS chunk 양쪽에 동일 적용 (paper_section_fetch 회수
+    직후 단일 지점에서 호출).
+    """
+    if not isinstance(chunk, dict):
+        return chunk
+    for k in ("title", "abstract", "venue"):
+        v = chunk.get(k)
+        if isinstance(v, str):
+            chunk[k] = _clean_text_value(v)
+    # authors 리스트 각 원소도 동일 클린징 (예: 'Yu‐Kun Lai' U+2010 → '-')
+    auth = chunk.get("authors")
+    if isinstance(auth, list):
+        chunk["authors"] = [_clean_text_value(a) if isinstance(a, str) else a
+                            for a in auth]
+    return chunk
+
+
+def _title_tokens(s: str) -> set:
+    """제목 → 정규화 토큰 set (클린징 + 소문자 + 영숫자/한글만)."""
+    s = _clean_text_value(s or "").lower()
+    s = re.sub(r"[^a-z0-9가-힣\s]", " ", s)
+    return {t for t in s.split() if t}
+
+
+def _title_jaccard(a: str, b: str) -> float:
+    """두 제목의 토큰 자카드 유사도 (0.0~1.0)."""
+    ta, tb = _title_tokens(a), _title_tokens(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+# ── §paper-writer-2 STEP 1: 외부 seed reference 주입 (OA hydrate by title) ──
+def _seed_section_slug(section_type: str) -> str:
+    """IMRD section_type → seed JSON 의 section prefix slug.
+
+    'Research Design (Proposed)' → 'research_design',
+    'Theoretical Background' → 'theoretical_background'.
+    괄호 메모 제거 후 소문자 snake_case 화.
+    """
+    s = (section_type or "").lower()
+    s = re.sub(r"\([^)]*\)", " ", s)          # (Proposed) 등 괄호 메모 제거
+    s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
+    return s
+
+
+def _seed_refs_path() -> Path:
+    """seed JSON 경로. env SEED_REFERENCES_PATH 우선, 없으면 trademark 기본."""
+    env_p = os.getenv("SEED_REFERENCES_PATH", "").strip()
+    if env_p:
+        return Path(env_p)
+    root = Path(__file__).resolve().parents[1]  # writer_project/
+    return root / "scripts" / "§paper-writer-1" / "seeds" / "seed_references_trademark-similarity.json"
+
+
+def _load_and_hydrate_seeds(section_type: str,
+                            existing_chunks: Optional[list[dict]] = None) -> list[dict]:
+    """외부 seed reference 를 OA hydrate 하여 정규화 chunk list 로 반환한다 (STEP 1).
+
+    동작:
+      1. seed JSON 로드 (env SEED_REFERENCES_PATH 우선, 기본 trademark seed).
+      2. 대상 seed 선별:
+         - SEED_DRY=1: section 필터 무시, id=='automating-abercrombie-2024' 1건만.
+         - 평시: section prefix 가 현 section_type slug 과 매칭되는 'core' 항목.
+           'context' 항목은 SEED_INCLUDE_CONTEXT=1 일 때만 포함.
+      3. 각 seed: fetch_key.title 로 openalex_search 호출 → top-1 회수.
+      4. verify: verify_labels.doi 가 있으면 회수 chunk.doi 와 대조.
+         불일치/미회수 → 로그 남기고 skip (catch 70: 조용히 버리지 말 것).
+         doi 라벨이 없으면(law review/KCI/classics) title-only → verify 생략 + 채택.
+      5. 정규화 {title,authors,year,venue,doi,abstract,_backend='openalex'}.
+      6. dedup: existing_chunks 또는 이미 채택된 seed 와 doi 중복 시 skip.
+
+    호출 배선(paper_section_fetch 삽입)은 STEP 2. 본 함수는 정의만 — 부작용으로
+    all_chunks 를 건드리지 않는다 (순수 함수, 반환만).
+    """
+    from tools.web_rag.openalex import openalex_search
+
+    path = _seed_refs_path()
+    if not path.exists():
+        logger.warning("[seed] seed JSON 없음 → skip: %s", path)
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.warning("[seed] seed JSON 로드 실패 → skip: %s (%s)", path, e)
+        return []
+
+    refs = data.get("references") or []
+    dry = os.getenv("SEED_DRY", "").strip() == "1"
+    include_context = os.getenv("SEED_INCLUDE_CONTEXT", "").strip() == "1"
+
+    # ── 2. 대상 seed 선별 ──
+    if dry:
+        candidates = [r for r in refs if r.get("id") == "automating-abercrombie-2024"]
+        logger.info("[seed][DRY] section 필터 무시, abercrombie 1건만 hydrate (n=%d)",
+                    len(candidates))
+    else:
+        want = _seed_section_slug(section_type)
+        candidates = []
+        for r in refs:
+            sec_slug = (r.get("section") or "").split("/", 1)[0].strip()
+            if sec_slug != want:
+                continue
+            prio = (r.get("priority") or "core").strip()
+            # 'core' 항상 / 'context' 는 flag 시 / 그 외(hold·oa_unresolved 등) 주입 제외
+            if prio == "core" or (prio == "context" and include_context):
+                candidates.append(r)
+        logger.info("[seed] section_type=%r → slug=%r, 후보 %d건 (context_included=%s)",
+                    section_type, want, len(candidates), include_context)
+
+    # ── dedup 기준: 기존 chunk 의 doi set ──
+    seen_doi: set[str] = set()
+    for ch in (existing_chunks or []):
+        d = (ch.get("doi") or "").strip().lower()
+        if d:
+            seen_doi.add(d)
+
+    out: list[dict] = []
+    for r in candidates:
+        sid = r.get("id") or "(no-id)"
+        title = ((r.get("fetch_key") or {}).get("title") or r.get("title") or "").strip()
+        if not title:
+            logger.warning("[seed][%s] fetch_key.title 없음 → skip", sid)
+            continue
+
+        # ── 3. OA hydrate by title ──
+        try:
+            res = openalex_search(title)
+        except Exception as e:
+            logger.warning("[seed][%s] openalex_search 예외 → skip: %s", sid, e)
+            continue
+        chunks = (res or {}).get("chunks") or []
+        if not chunks:
+            logger.warning("[seed][%s] 미회수(0 chunk) → skip (title=%r)", sid, title[:60])
+            continue
+        top = chunks[0]
+        got_doi = (top.get("doi") or "").strip()
+
+        # ── 4. verify: 3단 폴백 (doi-match → arxiv-match → title-jaccard) ──
+        # OA 가 출판본 대신 프리프린트 DOI(10.48550/arxiv.*)를 색인하는 경우
+        # doi-match 만으로는 정상 seed 가 탈락(위양성) → arxiv·title 폴백으로 구제.
+        labels = r.get("verify_labels") or {}
+        want_doi = (labels.get("doi") or "").strip()
+        want_arxiv = (labels.get("arxiv") or "").strip().lower()
+        sim = _title_jaccard(title, top.get("title") or "")
+        verify_state = None
+        fails = []
+        # (1) doi-match
+        if want_doi:
+            if got_doi.lower() == want_doi.lower():
+                verify_state = "doi-match"
+            else:
+                fails.append(f"doi(want={want_doi},got={got_doi or 'none'})")
+        # (2) arxiv-match: 회수 doi 의 10.48550/arxiv.<id> 와 seed arxiv id 대조
+        if verify_state is None and want_arxiv:
+            m = re.search(r"10\.48550/arxiv\.(\d+\.\d+)", got_doi.lower())
+            got_arxiv = m.group(1) if m else ""
+            if got_arxiv and got_arxiv == want_arxiv:
+                verify_state = f"arxiv-match({got_arxiv})"
+            else:
+                fails.append(f"arxiv(want={want_arxiv},got={got_arxiv or 'none'})")
+        # (3) title-jaccard
+        if verify_state is None:
+            if sim >= 0.8:
+                verify_state = f"title-jaccard={sim:.2f}"
+            else:
+                fails.append(f"title-jaccard={sim:.2f}<0.8")
+        if verify_state is None:
+            logger.warning("[seed][%s] verify 3단 전부 실패 → skip [%s] (got_title=%r)",
+                           sid, "; ".join(fails), (top.get("title") or "")[:50])
+            continue
+        logger.info("[seed][%s] verify 통과 (%s) got_doi=%s", sid, verify_state, got_doi or "(none)")
+
+        # ── 6. dedup ──
+        dkey = got_doi.lower()
+        if dkey and dkey in seen_doi:
+            logger.info("[seed][%s] doi 중복 → skip (doi=%s)", sid, got_doi)
+            continue
+        if dkey:
+            seen_doi.add(dkey)
+
+        # ── 5. 정규화 ──
+        norm = {
+            "title": top.get("title") or title,
+            "authors": top.get("authors") or [],
+            "year": top.get("year"),
+            "venue": top.get("venue"),
+            "doi": got_doi or None,
+            "abstract": top.get("abstract") or "",
+            "_backend": "openalex",
+        }
+        logger.info("[seed][%s] 채택 (%s) doi=%s title=%r",
+                    sid, verify_state, got_doi or "(none)", norm["title"][:60])
+        out.append(norm)
+
+    logger.info("[seed] hydrate 완료: %d/%d 채택 (section_type=%r dry=%s)",
+                len(out), len(candidates), section_type, dry)
+    return out
+
+
 def paper_section_fetch(topic: str, section_type: str) -> list[dict]:
     """paper mode 전용 section-aware fan-out (catch 66: OA primary + SS secondary + vertex filter).
 
@@ -1728,6 +1949,19 @@ def paper_section_fetch(topic: str, section_type: str) -> list[dict]:
     from tools.web_rag.vertex_search import vertex_web_search
     query = section_to_query(topic, section_type)
     all_chunks: list[dict] = []
+
+    # ── §paper-writer-2 STEP 2: 외부 seed reference 선주입 (OA fan-out 전) ──
+    # seed chunk 는 _backend='openalex' 로 태깅되어 axis3 학술 분자에 포함.
+    # dedup 은 existing_chunks(=현 all_chunks) 의 doi 기준 (STEP 1 로직 재사용).
+    try:
+        seeds = _load_and_hydrate_seeds(section_type, existing_chunks=all_chunks)
+        all_chunks.extend(seeds)
+        if seeds:
+            logger.info("[paper_section_fetch] seed 선주입 %d건 합류 (section=%s)",
+                        len(seeds), section_type)
+    except Exception as e:
+        logger.warning("[paper_section_fetch] seed 주입 실패(무시): %s", e)
+
     for backend, fn in [("openalex", openalex_search),
                         ("semantic_scholar", semantic_scholar_search),
                         ("vertex", vertex_web_search)]:
@@ -1740,6 +1974,38 @@ def paper_section_fetch(topic: str, section_type: str) -> list[dict]:
             ch2 = dict(ch)
             ch2["_backend"] = backend
             all_chunks.append(ch2)
+
+    # ── 단일 클린징 지점: seed + 일반 chunk 전부 (회귀 확인용 before/after 1건) ──
+    _titles_before = [c.get("title") for c in all_chunks]
+    for _ch in all_chunks:
+        _clean_chunk_text(_ch)
+    for _i, _t0 in enumerate(_titles_before):
+        _t1 = all_chunks[_i].get("title")
+        if _t0 != _t1:
+            logger.info("[clean] sample before=%r after=%r", _t0, _t1)
+            break
+
+    # ── §paper-writer-2 STEP 2.5: 출구 doi-dedup (일반 루프 무변경, 단일 지점) ──
+    # seed 가 먼저 extend 되므로 "먼저 본 doi keep, 이후 중복 drop" 으로 seed-hydrate
+    # (verify 통과분)이 보존되고 일반 회수 중복만 제거된다. doi 없는 chunk 는 제외.
+    _seen_doi: set[str] = set()
+    _deduped: list[dict] = []
+    _removed = 0
+    for _ch in all_chunks:
+        _d = (_ch.get("doi") or "").strip().lower()
+        if not _d:                       # doi 없는 chunk → dedup 대상 제외, 그대로 통과
+            _deduped.append(_ch)
+            continue
+        if _d in _seen_doi:
+            _removed += 1
+            continue
+        _seen_doi.add(_d)
+        _deduped.append(_ch)
+    if _removed:
+        logger.info("[paper_section_fetch] 출구 doi-dedup: %d건 제거 (%d→%d)",
+                    _removed, len(all_chunks), len(_deduped))
+    all_chunks = _deduped
+
     logger.info("[paper_section_fetch] %s → %d chunks (q=%s)",
                 section_type, len(all_chunks), query[:60])
     return all_chunks
