@@ -1962,6 +1962,9 @@ def paper_section_fetch(topic: str, section_type: str) -> list[dict]:
     from tools.web_rag.semantic_scholar import semantic_scholar_search
     from tools.web_rag.vertex_search import vertex_web_search
     query = section_to_query(topic, section_type)
+    # ── catch 74: SS 전용 단쿼리(tail-only) — topic 프리픽스 제거로 SS 장쿼리 0건 완화.
+    #    OA·vertex 는 full query 유지. tail 이 비면(범용 폴백 등) full query 로 안전 폴백.
+    ss_query = query.removeprefix(topic.strip()).strip() or query
     all_chunks: list[dict] = []
 
     # ── §paper-writer-2 STEP 2: 외부 seed reference 선주입 (OA fan-out 전) ──
@@ -1980,7 +1983,7 @@ def paper_section_fetch(topic: str, section_type: str) -> list[dict]:
                         ("semantic_scholar", semantic_scholar_search),
                         ("vertex", vertex_web_search)]:
         try:
-            r = fn(query)
+            r = fn(ss_query if backend == "semantic_scholar" else query)
         except Exception as e:
             logger.warning("[paper_section_fetch][%s] failed: %s", backend, e)
             continue

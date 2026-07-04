@@ -602,3 +602,57 @@ R2→R6 궤적 (동일 조건 4-way):
 ```
 
 **status: closed (2026-07-04)** — §paper-writer-2 catch 72 쿼리 교정 트랙 정식 종결. 5섹션 명백무관 0/5 + SS 부활 (0→전섹션≥1) + recall 유지 (OA 9~10). seed 트랙과 합쳐 인용 정밀도 작업 완결. 잔존 별 task: catch 74 완전 해소 (OA/SS 쿼리 분리) · catch 78 확인 (vertex grounding 연관) · Intro tail 미세조정 (조건부).
+
+---
+
+## §paper-writer-2 catch 74 close (2026-07-04) — OA/SS 쿼리 길이 분리 (SS tail-only 단쿼리)
+
+### 결론 (트랙 완료)
+catch 72 부분해소로 남겨둔 SS 장쿼리 완전해소. paper_section_fetch fan-out 에서
+SS 백엔드만 topic 프리픽스를 제거한 tail-only 단쿼리를 수신하도록 in-body 분기.
+OA·vertex 는 full query(topic+tail) 유지. 튜플 리터럴·반환 shape 무변경.
+
+### 진단
+SS 0건 원인 = topic(9단어)+tail 합산 13~15단어 장쿼리. SS Graph API 는 장쿼리에
+빈 결과. OA 는 relevance 검색이라 장쿼리 관대(9~10 유지). 백엔드별 쿼리 길이
+민감도가 달라 "단일 쿼리 fan-out" 이 SS를 굶김 → 백엔드별 쿼리 분리로 해소.
+
+### 구현 (agent/web_search.py paper_section_fetch)
+- `ss_query = query.removeprefix(topic.strip()).strip() or query` (query 직후)
+- fan-out 루프: `fn(ss_query if backend=="semantic_scholar" else query)`
+- tail 빈 경우(범용 폴백·미등록 섹션 query==topic) → `or query` 로 full 안전 폴백
+  (빈 쿼리 회귀 방지). 로그 line 은 full query 유지.
+
+### 최종 측정 (5섹션, OA+SS raw, seed·vertex 격리, 같은 런 before/after)
+| 섹션 | tail | SS_before | SS_after | noise | OA |
+|---|---|---:|---:|---:|---:|
+| Introduction | trademark confusion consumer perception | 7 | 5 | 0 | 10 |
+| Theoretical Background | trademark confusion dilution doctrine | 1 | 6 | 0 | 9 |
+| Proposed Framework | trademark confusion dilution | 4 | 4 | 0 | 9 |
+| Research Design | trademark confusion survey empirical | 2 | 6 | 0 | 10 |
+| Expected Contributions | trademark law consumer protection | 5 | 8 | 0 | 9 |
+
+SS 합계 19→29. 굶주리던 섹션 회복(TheoBg 1→6·RD 2→6·EC 5→8). 노이즈 0/5,
+OA full 무변경(9~10), SS_after 섹션 변별 유지(dilution군/survey군/protection군 분리).
+
+### catch 박제
+- catch 74 (MID · retrieval · 해소): SS 0건 = 장쿼리(13~15단어). 해소: SS tail-only
+  단쿼리 분기. 검증 2026-07-04 5섹션 SS ≥4, 노이즈 0/5. prevention: 백엔드별
+  쿼리 길이 민감도 상이 — OA 관대/SS 엄격, fan-out 시 백엔드별 쿼리 분리.
+
+### re-entry 조건
+1. OA도 축약 필요 시(현재 full 9~10로 문제없음) → OA용 쿼리도 별도 파생.
+2. 다른 도메인 topic 에서 tail 이 topic 과 안 겹쳐 removeprefix 무효 시 → 분리
+   로직 재확인(현재 override tail 은 topic 뒤 append 구조라 항상 유효).
+3. OA 섹션 변별 저하(topic 지배로 동일 core 반복) 개선 필요 시 → 별 task
+   (catch 74 밖, OA는 이번 무변경).
+
+### commit chain (참조)
+
+```
+(이 commit) §paper-writer-2 catch 74 close — SS tail-only 분기 + dev 박제
+```
+
+**status: closed (2026-07-04)** — catch 74 완전 종결. SS tail-only 분리로 전 섹션
+SS ≥4 회복 + 노이즈 0/5 + OA 무변경. catch 72(도메인 앵커)와 합쳐 상표 쿼리
+파이프라인 정밀도 완결.
