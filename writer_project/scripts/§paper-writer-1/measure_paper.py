@@ -25,7 +25,6 @@ import json
 import logging
 import os
 import re
-import statistics
 import sys
 import time
 from datetime import datetime, timezone
@@ -46,6 +45,31 @@ HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parents[1]  # writer_project/
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+# R2-a: scripts/ 를 sys.path 에 얹어 § 없는 중립 패키지(common)를 import 가능하게.
+SCRIPTS_ROOT = HERE.parent  # writer_project/scripts
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+# R2-a: axis3 재설계 — vertex chunk 학술/비학술 가름에 공유 ACADEMIC_DOMAINS 참조.
+from urllib.parse import urlparse  # noqa: E402
+from common.academic_domains import ACADEMIC_DOMAINS  # noqa: E402
+
+
+def _chunk_is_academic(chunk: dict) -> bool:
+    """chunk 의 domain(우선)·uri(폴백) host 가 ACADEMIC_DOMAINS 에 걸리면 True.
+
+    vertex chunk = {uri, title, domain} (R1 확정) — domain 필드 우선, 없으면 uri host.
+    subdomain 허용: host == d 또는 host.endswith('.'+d). www. 프리픽스 정규화.
+    """
+    host = (chunk.get("domain") or "").strip().lower()
+    if not host:
+        host = (urlparse(chunk.get("uri") or "").hostname or "").lower()
+    host = host.lstrip(".")
+    if host.startswith("www."):
+        host = host[4:]
+    if not host:
+        return False
+    return any(host == d or host.endswith("." + d) for d in ACADEMIC_DOMAINS)
 
 
 # ── Step 2: dotenv chain 먼저 (catch 64: override=True 강제) ──
@@ -124,6 +148,14 @@ SECTION_WORD_GUIDE = {
 APA_REGEX = re.compile(
     r"\(\d{4}\)|\(n\.d\.\)|https?://doi\.org/", re.IGNORECASE
 )
+
+# ── axis3 재설계 (R2-a) — 학술 회수율 단일 임계 ──
+# 구 산식(oa≥0.70 ∧ ss≥0.40 ∧ combined≥0.50)은 같은 분모 3비율이라 구조적 영구 FAIL.
+# 신 산식: academic_ratio = (OA + SS + 학술vertex) / 전체회수. 비학술 vertex(블로그)는
+# 분모에 남겨 페널티. 개별 백엔드 문턱 폐기, 단일 임계로 판정.
+# 0.50 = 학술 과반 합격선. R2-b 3런 실측 0.517~0.549(mean 0.533) → 현 파이프라인 PASS.
+# vertex_web 은 분모 페널티(상표 토픽 vertex 학술≈0, R2-b 실측 0~1.2%).
+ACADEMIC_RATIO_THRESHOLD = 0.50
 
 
 def _build_outline(sections: list[str]) -> str:
@@ -211,26 +243,45 @@ def _eval_axes(result: dict) -> dict:
                                   "verdict": v} for s, v in section_verdicts.items()},
              "verdict": "PASS" if all(v == "PASS" for v in section_verdicts.values()) else "FAIL"}
 
-    # axis 3: per-backend ratio (catch 66, B+D 묶음)
+    # axis 3: 학술 회수율 (R2-a 재설계) — academic_ratio = (OA + SS + 학술vertex) / total
     chunks = result["chunks"]
-    bc: dict[str, int] = {}
+    n_oa = n_ss = n_vx_acad = n_vx_web = n_other = 0
     for c in chunks:
         b = c.get("_backend", "?")
-        bc[b] = bc.get(b, 0) + 1
+        if b == "openalex":
+            n_oa += 1
+        elif b == "semantic_scholar":
+            n_ss += 1
+        elif b == "vertex":
+            if _chunk_is_academic(c):
+                n_vx_acad += 1
+            else:
+                n_vx_web += 1
+        else:
+            n_other += 1
     total = len(chunks)
-    if total > 0:
-        oa = bc.get("openalex", 0) / total
-        ss = bc.get("semantic_scholar", 0) / total
-        vx = bc.get("vertex", 0) / total
-        combined = statistics.mean([oa, ss, vx])
-    else:
-        oa = ss = vx = combined = 0.0
+    academic_hits = n_oa + n_ss + n_vx_acad          # 학술 분자 (비학술 vertex 제외)
+    academic_ratio = academic_hits / total if total else 0.0
+    # 진단용 per-backend ratio (구 지표 — R2-b 임계 산정 참고, 판정엔 미사용)
+    oa_r = n_oa / total if total else 0.0
+    ss_r = n_ss / total if total else 0.0
+    vx_r = (n_vx_acad + n_vx_web) / total if total else 0.0
     axis3 = {
-        "openalex_ratio": round(oa, 3), "semantic_scholar_ratio": round(ss, 3),
-        "vertex_ratio": round(vx, 3), "combined_ratio": round(combined, 3),
-        "vertex_filtered_ratio": round(vx, 3),
-        "primary": {"oa_pass": oa >= 0.70, "ss_pass": ss >= 0.40, "combined_pass": combined >= 0.50},
-        "verdict": "PASS" if (oa >= 0.70 and ss >= 0.40 and combined >= 0.50) else "FAIL",
+        "academic_ratio": round(academic_ratio, 3),
+        "threshold": ACADEMIC_RATIO_THRESHOLD,           # 0.50 (R2-b 실측 후 R3 확정)
+        "academic_hits": academic_hits,
+        "total": total,
+        "backend_counts": {                               # vertex 를 학술/웹 분해
+            "openalex": n_oa, "semantic_scholar": n_ss,
+            "vertex_academic": n_vx_acad, "vertex_web": n_vx_web,
+            "other": n_other,
+        },
+        # 진단 ratio (판정 미사용) — vertex_academic_ratio 는 실제 도메인 필터 반영값
+        "openalex_ratio": round(oa_r, 3),
+        "semantic_scholar_ratio": round(ss_r, 3),
+        "vertex_ratio": round(vx_r, 3),
+        "vertex_academic_ratio": round(n_vx_acad / total, 3) if total else 0.0,
+        "verdict": "PASS" if academic_ratio >= ACADEMIC_RATIO_THRESHOLD else "FAIL",
     }
 
     return {"axis1_apa": axis1, "axis2_imrd": axis2, "axis3_backend_ratio": axis3}

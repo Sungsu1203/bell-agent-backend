@@ -66,6 +66,13 @@ HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+# R2-a: scripts/ 를 sys.path 에 얹어 § 없는 중립 패키지(common)를 import 가능하게.
+SCRIPTS_ROOT = HERE.parent  # writer_project/scripts
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+# R2-a: ACADEMIC_DOMAINS 공유 모듈 이관 (측정 경로 간 단일 소스). measure_paper.py 도 동일 참조.
+from common.academic_domains import ACADEMIC_DOMAINS  # noqa: E402
 
 # Provider lock — measure driver 는 .venv_vertex 전제. 글로벌 .env 의 LLM_PROVIDER=openai
 # default 가 .env.openai overlay 를 끌고 와 LLM_MODEL=gpt-4o 를 주입 → vertex SDK 가
@@ -134,49 +141,9 @@ PER_RUN_TIMEOUT_S = 90.0
 INTER_RUN_SLEEP_S = 60.0
 
 
-# ── academic domains (§academic-1 B1 29 + §academic-3 B +7 + §academic-4 Phase 2 +4 = 40) ──
-ACADEMIC_DOMAINS = {
-    # Korean academic society / aggregator / search engine
-    "dbpia.co.kr", "kadpr.or.kr", "kci.go.kr", "kiss.kstudy.com", "riss.kr",
-    "academic.naver.com",          # §academic-3 (academic search, naver_direct hit)
-
-    # Global academic society (advertising / marketing)
-    "ama.org", "mmaglobal.com", "msi.org", "pubsonline.informs.org",
-    "aom.org",                     # §academic-3 (Academy of Management root)
-
-    # Global publisher (peer-review)
-    "academic.oup.com", "emerald.com", "journals.sagepub.com",
-    "link.springer.com", "onlinelibrary.wiley.com", "plos.org",
-    "sagepub.com", "science.org", "springer.com", "tandfonline.com", "wiley.com",
-    "mdpi.com",                    # §academic-3 (OA publisher, marketing journals)
-    "sciencedirect.com",           # §academic-3 (Elsevier root, JBR / JoR cover)
-
-    # Global preprint repository
-    "arxiv.org", "papers.ssrn.com", "ssrn.com",
-
-    # Global academic archive
-    "jstor.org", "pmc.ncbi.nlm.nih.gov",
-
-    # Global academic search engine / scholarly metadata
-    "doaj.org", "openalex.org", "semanticscholar.org",
-
-    # Global advertising / marketing journal (peer-review, Sungsu 분야 정합)
-    "acr-journal.com",             # §academic-3 (Assoc. for Consumer Research)
-    "journalofadvertising.org",    # §academic-3 (Journal of Advertising; catch 45 별 cycle)
-
-    # Global academic SNS (peer-review working paper hosting)
-    "researchgate.net",            # §academic-3 (working paper self-archive)
-
-    # Global industry research repository (advertising-specific)
-    "warc.com",
-
-    # §academic-4 Phase 2 commit 3 영역 추가 (catch 67 영역)
-    # 대학 publication + 소형 OA — vertex 학술 영역 hit 정합 (Step C-1 commit 2 2차 측정)
-    "digital.hec.ca",              # HEC Montreal — Canadian business school publication
-    "docs.rwu.edu",                # Roger Williams University — academic repository
-    "knowledge.insead.edu",        # INSEAD business school — research knowledge base
-    "journal.seisense.com",        # SEISENSE Journal — OA 학술 (multidisciplinary)
-}
+# ── academic domains → 공유 모듈(common.academic_domains) 로 이관 (R2-a). ──
+# 이관 전 인라인 정의(§academic-1 B1 29 + §academic-3 B +7 + §academic-4 Phase 2 +4 = 40)는
+# scripts/common/academic_domains.py 로 글자 무변경 이동. 여기선 import (파일 상단)만 유지.
 
 
 # ── 토픽 set + query ──────────────────────────────────────────────────────────

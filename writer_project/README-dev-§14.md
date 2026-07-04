@@ -527,7 +527,7 @@ seed 효과를 **oa_ratio 로 읽지 말 것**. oa_ratio 는 vertex 수율 변�
 ### catch 박제
 
 - **catch 76** (MID · methodology · 신규): OpenAlex 가 출판본 DOI 대신 arXiv preprint DOI (`10.48550/arxiv.*`) 를 색인하는 경우 → doi-only verify 가 정상 seed 를 위양성 탈락 (SBERT: seed=ACL DOI `10.18653/v1/D19-1410` vs OA=arXiv `10.48550/arxiv.1908.10084`). **해소**: verify 를 3단 폴백 (doi-match → arxiv-match → title-jaccard≥0.8) 으로 확장. arxiv-match 는 회수 doi 에서 `10.48550/arxiv.(\d+\.\d+)` 추출해 seed arxiv id 와 대조. **정량 검증**: 2026-06-28 실측에서 SBERT·LaBSE·multilingual-distillation 3편이 arxiv-match 로 채택 (직전 run doi-mismatch skip → 구제). prevention: seed JSON 에 doi 와 arxiv 라벨 병기 권장 (둘 중 하나로 hydrate 검증 가능).
-- **catch 77** (MID · methodology · 신규): seed 주입 효과를 axis3 oa_ratio 로 평가하면 vertex 수율 변동에 가려짐 — seed 가 oa 분자·분모 동시 증가시키나 vertex chunk 수 변동폭이 더 커서 oa_ratio 가 오히려 하락 가능 (2026-06-28: seed 11→12 증가에도 oa 0.38→0.314). **해소**: seed 효과는 **절대 채택수** (deterministic, 13/13 injectable) 로 평가. oa_ratio 는 backend 수율 비율 지표로만 사용, seed 기여 측정에 부적합. catch 66 (ratio dilution) 의 seed-track 특수 사례 — 분자 절대 수 metric 우선 원칙 재확인.
+- **catch 77** (MID · methodology · 신규): seed 주입 효과를 axis3 oa_ratio 로 평가하면 vertex 수율 변동에 가려짐 — seed 가 oa 분자·분모 동시 증가시키나 vertex chunk 수 변동폭이 더 커서 oa_ratio 가 오히려 하락 가능 (2026-06-28: seed 11→12 증가에도 oa 0.38→0.314). **해소**: seed 효과는 **절대 채택수** (deterministic, 13/13 injectable) 로 평가. oa_ratio 는 backend 수율 비율 지표로만 사용, seed 기여 측정에 부적합. catch 66 (ratio dilution) 의 seed-track 특수 사례 — 분자 절대 수 metric 우선 원칙 재확인. **갱신 (2026-07-04, axis3 재설계): 신 산식 `academic_ratio = (OA+SS+vertex_academic)/total` 에서 vertex_web(비학술)이 분모 페널티로 명시적 처리됨 → oa_ratio dilution 은 진단용 보조지표로 강등, 판정은 academic_ratio 단일. 아래 close 섹션 참조.**
 
 ### seed JSON fetch_key.title 보정 (skip 3건, `scripts/§paper-writer-1/seeds/seed_references_trademark-similarity.json`)
 
@@ -539,8 +539,8 @@ OA 실제 회수 결과로만 교체 (추측 제목 생성 금지 원칙 준수)
 ### re-entry 조건
 
 1. `automatic-tm-detection-2026` / `vanheuven-phonetic-tm` 의 OA 색인 확인 또는 대체 DB 확보 시 → `oa_recon_note` 갱신 + `priority` core 복귀 + 재측정.
-2. SS 백엔드 무응답 (ss_ratio=0, catch 74/61 계열) 해소 시 axis3 재평가.
-3. axis3 `combined_ratio` 구조 quirk (세 비율 평균 ≤0.333 → `≥0.5` 영구 미달) 임계 재설계는 별 task.
+2. SS 백엔드 무응답 (ss_ratio=0, catch 74/61 계열) 해소 시 axis3 재평가. **→ 해소 (2026-07-04): catch 74 로 SS 부활 + 아래 「axis3 재설계 close」 섹션에서 재평가 완료.**
+3. axis3 `combined_ratio` 구조 quirk (세 비율 평균 ≤0.333 → `≥0.5` 영구 미달) 임계 재설계는 별 task. **→ 해소 (2026-07-04): 아래 「axis3 재설계 close」 — combined-mean 폐기 → academic_ratio 단일 판정 (임계 0.50).**
 
 ### commit chain (참조)
 
@@ -656,3 +656,81 @@ OA full 무변경(9~10), SS_after 섹션 변별 유지(dilution군/survey군/pro
 **status: closed (2026-07-04)** — catch 74 완전 종결. SS tail-only 분리로 전 섹션
 SS ≥4 회복 + 노이즈 0/5 + OA 무변경. catch 72(도메인 앵커)와 합쳐 상표 쿼리
 파이프라인 정밀도 완결.
+
+---
+
+## §paper-writer-2 axis3 재설계 close (2026-07-04) — combined-mean 폐기 → academic_ratio 단일 판정
+
+### 결론 (트랙 완료)
+axis3 판정부(`scripts/§paper-writer-1/measure_paper.py` `_eval_axes`)가 두 구조적
+모순으로 **영구 FAIL** 이던 것을 해소. 개별 백엔드 문턱(oa/ss/combined)을 폐기하고
+학술 회수율 단일 지표 `academic_ratio` + 단일 임계 0.50 으로 재설계.
+
+### 진단 (구 산식의 구조적 영구 FAIL — 2 모순)
+- **catch 75** (combined-mean quirk): `combined = mean(oa, ss, vx)` 인데 세 비율이 같은
+  분모의 분율이라 합 = 1.0 → mean 최대 **0.333** < 임계 0.50 → 어떤 분포에서도 미달.
+- **모순②** (oa/ss 동시 문턱 불가): `oa ≥ 0.70 ∧ ss ≥ 0.40` 은 같은 분모라 합 1.1 > 1.0
+  → 동시 성립 불가. 즉 verdict=PASS 가 산식상 봉쇄돼 있었음.
+
+### 신 산식
+```
+academic_hits  = openalex + semantic_scholar + vertex_academic
+academic_ratio = academic_hits / total          # total = 전체회수 (vertex_web 포함)
+verdict        = PASS  if academic_ratio >= 0.50  else FAIL
+```
+- vertex chunk(`{uri, title, domain}`)를 **ACADEMIC_DOMAINS 도메인 필터**(`_chunk_is_academic`,
+  domain 우선·uri host 폴백·www/subdomain 정규화)로 학술/비학술 가름.
+- **vertex_web(비학술)은 분모에 남겨 페널티** (변별력 + 비학술 dilution 개선 유인 유지) — X안.
+- 개별 `oa_pass/ss_pass/combined_pass` 폐기. 오해 네이밍 `vertex_filtered_ratio`(구: vx 와
+  동일, 실제 필터 없음) 제거 → `vertex_academic_ratio`(실제 도메인 필터 반영값)로 대체.
+
+### 공유 모듈 이관 (ACADEMIC_DOMAINS)
+- 구: `scripts/§academic-1/measure_ab.py` 인라인 40개 정의 — axis3 경로 미참조였음.
+- 신: `scripts/common/academic_domains.py`(§ 없는 중립 폴더) 로 **글자 무변경 이관**.
+  measure_ab.py 는 `from common.academic_domains import ACADEMIC_DOMAINS` **import 전환만**
+  (로직 무변경). 회귀 dry PASS: 이관 전(HEAD)/모듈/import 후 3자 대칭차집합 ∅, `is` 동일 객체.
+- ⚠️ 개수 정정: 실제 **40개**(소스 주석·git·len 일치). 정찰 초기 "43" 은 오산.
+
+### R2-b 실측 (3런, axis3 전용 하버스 · vertex 검색 5콜/런 · 본문생성 스킵)
+topic = `consumer perceived trademark similarity and likelihood of confusion` (3런 동일)
+
+| run | academic_ratio | hits/total | oa | ss | vertex_academic | vertex_web |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 | 0.532 | 84/158 | 60 | 24 | 0 | 74 |
+| 2 | 0.549 | 89/162 | 60 | 29 | 0 | 73 |
+| 3 | 0.517 | 90/174 | 60 | 29 | 1 | 84 |
+
+- **academic_ratio mean 0.533 · min 0.517 · max 0.549 · 분산폭 0.032** → 임계 0.50 에서 3런 PASS.
+- OA=60 3런 고정(seed 13 + fan-out 안정). total 변동(158~174)은 vertex 회수(73~84)+SS(24~29) 탓.
+- 비용: 3런 총 vertex 15콜 ≈ 20.6k tok(gemini-2.5-flash grounding) + OA ~$0.001/콜, SS 무료 ≈ $0.06~0.09.
+
+### vertex 학술률 정정 (핵심 발견)
+- 정찰 R1 의 "vertex 학술 16%" 는 **인플루언서 토픽(measure_ab academic-en)** 값.
+- **상표 토픽 vertex 학술 = 0~1.2%** (R2-b 실측, vertex_academic 0/0/1). vertex 회수는
+  전부 blog/news/agency 웹(forbes/medium/intelliplans 등) → ACADEMIC_DOMAINS 미hit.
+- ∴ ②안 도메인 필터의 실효는 **"vertex 학술 살림"이 아니라 "vertex 블로그 차단"**.
+  vertex_web 74~84개가 분모 페널티로 academic_ratio 를 ~절반으로 누름(vertex 제거 시 OA+SS만 = 1.0).
+
+### catch 박제
+- **catch 75** (해소): combined-mean ≤0.333 quirk + 모순② → academic_ratio 단일 판정으로 제거.
+- **catch 79** (LOW-MID · methodology · 신규 · **미해결, 기록만**): vertex chunk 는 authors/year/
+  doi 무필드라 `format_apa7` 통과 시 `"(n.d.). <title>."` bare 라인 생성 → axis1 APA regex 의
+  `(n.d.)` 매칭으로 **통과 계상 → APA 통과율 오염**. R2-b 실측상 상표 토픽 vertex 학술≈0 이라
+  vertex_web 74~84개가 전부 axis1 에 (n.d.) 로 잡히는 규모. **axis3 트랙 밖** — 다음 트랙 후보로
+  기록만(처방 보류). 후보 처방: axis1 에서 doi/year 없는 (n.d.)-only 라인 제외 or vertex_web
+  chunk 를 References 생성에서 배제.
+
+### re-entry 조건
+1. 다른 도메인 topic 에서 vertex 학술률이 유의미(≠0)하면 → vertex_web 분모 페널티 강도 재검토.
+2. 임계 0.50 이 파이프라인 개선(SS·OA 수율 ↑)으로 상시 큰 마진 PASS 되면 → 상향 재조정 검토.
+3. catch 79(vertex n.d. axis1 오염) 착수 시 → axis1/References 트랙에서 별도 처리.
+
+### 변경 파일
+- `scripts/common/academic_domains.py` (신규 · ACADEMIC_DOMAINS 40 이관)
+- `scripts/common/__init__.py` (신규 · 빈 패키지 마커)
+- `scripts/§paper-writer-1/measure_paper.py` (axis3 재설계 + `_chunk_is_academic` + 임계 0.50 + `statistics` dead import 제거)
+- `scripts/§academic-1/measure_ab.py` (ACADEMIC_DOMAINS import 전환만, 로직 무변경)
+
+**status: closed (2026-07-04)** — axis3 재설계 종결. 구조적 영구 FAIL(catch 75 + 모순②)
+제거 + 학술 회수율 단일 판정(임계 0.50) + R2-b 3런 0.517~0.549 PASS 검증. vertex 도메인
+필터는 "블로그 차단" 실효로 판명. 잔존 별 task: catch 79(vertex n.d. axis1 오염, 미착수).
