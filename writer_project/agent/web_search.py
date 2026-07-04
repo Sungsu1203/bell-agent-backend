@@ -1701,6 +1701,20 @@ def section_to_query(topic: str, section_type: str) -> str:
     """
     t = (topic or "").strip()
     s = (section_type or "").strip()
+    # ── catch 72: topic-scoped override (trademark 전용) ──
+    # topic 에 'trademark' 포함 시에만 발동. 아래 5개 섹션은 방법명 앵커 tail 로
+    # 교체(SS 장쿼리 0건 완화 + 도메인 노이즈 억제). 미포함 topic·미등록 섹션은
+    # 아래 범용 mapping 으로 자연 폴백 — trademark 아닌 주제엔 영향 0.
+    if "trademark" in t.lower():
+        override = {
+            "Introduction": f"{t} trademark confusion consumer perception",
+            "Theoretical Background": f"{t} trademark confusion dilution doctrine",
+            "Proposed Framework": f"{t} trademark confusion dilution",
+            "Research Design (Proposed)": f"{t} trademark confusion survey empirical",
+            "Expected Contributions": f"{t} trademark law consumer protection",
+        }
+        if s in override:
+            return override[s]
     mapping = {
         "Introduction": f"{t} background literature review",
         "Methods": f"{t} theory framework methodology",

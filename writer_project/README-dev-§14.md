@@ -549,3 +549,56 @@ OA 실제 회수 결과로만 교체 (추측 제목 생성 금지 원칙 준수)
 ```
 
 **status: closed (2026-06-28)** — §paper-writer-2 seed 주입 트랙 (코드) 정식 종결. 채택 13/13 injectable core (위양성 0) + References clean (HTML/하이픈 잔존 0) + verify 3단 폴백 (catch 76) + 절대수 평가 원칙 (catch 77) 박제. 잔존 별 task: OA 미색인 2건 (hold, re-entry 조건 ①) · SS 무응답 (catch 74) · combined 임계 재설계.
+
+---
+
+## §paper-writer-2 catch 72 쿼리 교정 트랙 close (2026-07-04) — section_to_query topic-scoped override (상표 도메인 앵커)
+
+### 결론 (트랙 완료)
+
+seed 주입 트랙의 자매 트랙 — "좋은 논문 주입"(seed) 의 나머지 반쪽 "나쁜 논문 차단"(쿼리 교정) 완료. section_to_query 범용 tail 이 topic 뒤 append 되어 도메인 무관 논문을 회수하던 문제 해소. 인용 정밀도 작업 완결.
+
+구현 (`agent/web_search.py` section_to_query):
+- **topic-scoped override** — topic 소문자에 `"trademark"` 포함 시에만 발동하는 override dict 를 기존 범용 mapping 조회 前에 가드 삽입. 미포함 topic·미등록 섹션은 범용 mapping 자연 폴백 (딴 주제 영향 0, 격리 검증 완료).
+- **5섹션 tail = 상표 도메인어 3~4단어** — Introduction/Theoretical Background/Proposed Framework/Research Design/Expected Contributions 각 tail 에서 방법명·generic 배제, trademark/confusion/dilution/consumer 도메인어만. 범용 mapping dict 값은 한 글자도 미변경 (추가만).
+
+### 진단 (핵심 — 두더지 잡기)
+
+generic·방법명 토큰은 각자 "자기 분야" 논문을 끌어옴: `model/construct`→소프트웨어, `measurement/consumer`→일반마케팅, `phonetic/semantic`→번역·언어학. **노이즈 범인은 방법명 부재가 아니라 generic 존재.** 방법 논문은 seed 담당이므로 쿼리 tail 에 방법명 불필요 — seed 트랙과 역할 분담 (쿼리=도메인 회수, seed=방법 회수).
+
+### 최종 측정 (Proposed Framework 섹션, OA+SS raw 회수, seed·vertex 격리)
+
+R2→R6 궤적 (동일 조건 4-way):
+
+| 버전 | tail | OA | SS | 명백무관 |
+|---|---|---:|---:|---:|
+| R2 (범용, before) | measurement model construct operationalization scale | 6 | 0 | 2 |
+| R3 (v1 과교정) | phonetic Levenshtein visual Jaro-Winkler semantic embedding cosine | 0 | 0 | — |
+| R4 (v2 방법명완화) | similarity measurement phonetic semantic | 9 | 0 | 3 |
+| R5 (v3 도메인전용) | trademark confusion dilution | 9 | 4 | **0** |
+
+5섹션 통일 실측 (R6): 전 섹션 명백무관 **0/5**, SS 전 섹션 ≥1 (0→7/1/4/2/5). OA recall 9~10 안정.
+
+### 측정 주의 (recall 절벽)
+
+도메인 명사 과다 강제 시 catch 72 의 정반대 실패 = recall 0 붕괴 (R3: 희귀 방법명 5개 AND 매칭 → OA 0건). **처방은 "특정 방법명 추가"가 아니라 "generic 제거"** — 도메인어는 흔한 단어라 recall 유지, generic 만 제거하면 노이즈만 빠짐.
+
+### catch 박제
+
+- **catch 72** (HIGH · retrieval · 해소): section_to_query 범용 tail (generic/방법명) 이 topic 뒤 append 되어 도메인 무관 논문 회수 (소프트웨어·일반마케팅·번역·언어학). **해소**: topic-scoped override, tail=상표 도메인어 3~4단어, 방법명·generic 배제. **정량 검증**: 2026-07-04 실측 5섹션 명백무관 0/5 (R2 before 2건 → 0). prevention: 쿼리 tail 은 도메인 앵커 전용, 방법 논문은 seed 담당 (역할 분리 원칙).
+- **catch 74 부분 해소** (SS 무응답): SS 0건 원인이 백엔드 고장 아닌 **장쿼리 (15단어)** 로 확정 — 12단어 통일 후 전 섹션 SS ≥1 회수 부활. 완전 해소 (OA/SS 쿼리 길이 분리) 는 별 task.
+- **catch 78** (MID · cost · 신규): paper_section_fetch 가 vertex_web_search 무조건 호출 (SKIP_VERTEX_SEARCH 무시), chunk 0 기여인데 유료 Gemini 콜 발생. ※grounding 연관 미확인 — "회수 경로 한정 0 기여"로만 기록. 본 트랙 밖.
+
+### re-entry 조건
+
+1. 상표 외 다른 주제 논문 작성 시 → 해당 도메인용 override 추가 필요 (현재 trademark 전용, 범용 mapping 은 fallback 유지).
+2. SS 회수 추가 증대 필요 시 → OA/SS 쿼리 길이 분리 (OA=장쿼리 관대, SS=단쿼리 선호). catch 74 독립 트랙.
+3. Introduction tail `consumer perception` 이 일반마케팅 노이즈 유입 시 → 해당 토큰 제거 (현재 애매 2건, 명백무관 0 이라 미조정).
+
+### commit chain (참조)
+
+```
+(이 commit) §paper-writer-2 catch 72 close — override 블록 + dev 박제 (catch 72 해소 / 74 부분 / 78 신규)
+```
+
+**status: closed (2026-07-04)** — §paper-writer-2 catch 72 쿼리 교정 트랙 정식 종결. 5섹션 명백무관 0/5 + SS 부활 (0→전섹션≥1) + recall 유지 (OA 9~10). seed 트랙과 합쳐 인용 정밀도 작업 완결. 잔존 별 task: catch 74 완전 해소 (OA/SS 쿼리 분리) · catch 78 확인 (vertex grounding 연관) · Intro tail 미세조정 (조건부).
