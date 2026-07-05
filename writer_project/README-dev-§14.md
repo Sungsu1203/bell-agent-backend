@@ -869,3 +869,56 @@ else                                                           → PASS
 파이프라인 건강 기술자 강등 + `axis3_pipeline_health` 개명. R1/R1.5 정찰로 게이트 변별력 0(vertex-skip
 후 1.000 포화 · 유일변동 429 노이즈) 확정, DV1/DV2 오프라인 검증 PASS. catch 79 axis3 몫 흡수·종결,
 axis1 실체판정 몫은 별 트랙 이관. 잔존: catch 78(vertex 스킵 유료 배선), axis1 재설계.
+
+---
+
+## §paper-writer-2 catch 78 close (2026-07-05) — vertex skip 플래그를 paper fan-out에 배선 (References 껍데기 −92, 학술 100%)
+
+### 증상 (버그)
+- `paper_section_fetch`(web_search.py) fan-out 루프가 vertex_web_search 를 **무조건 호출** — `SKIP_VERTEX_SEARCH`
+  를 무시. 레거시 web_search 경로(:754/:832)만 플래그 존중, paper 경로는 미존중.
+- 결과: 영어 상표 토픽에서 vertex 가 law-firm 블로그 등 **비학술 껍데기**를 References 에 다량 주입
+  (author/year 없는 맨 도메인 `(n.d.). arpgweb.com` 류). 유료 Gemini 콜 + 참고문헌 신뢰도 훼손.
+
+### 배선 (3파일 단일 커밋)
+- **A. `agent/web_search.py:1982`** — fan-out 리스트를 base 2튜플(oa·ss)로 빌드 →
+  `_cfg_bool("SKIP_VERTEX_SEARCH", False)` 이 False 일 때만 vertex 튜플 append. **mid-loop continue 아님**
+  (dead 튜플·skip 로직 분산 방지, R1 판정). `_cfg_bool` 재사용 = **신 파서 0**(catch 71 상류 CFG 파싱 차단됨).
+  skip 시 레거시 :833 스타일 로그 1줄.
+- **B. `topics/academic-trademark-similarity-consumer.env:21`** — `SKIP_VERTEX_SEARCH=false → true`.
+  토픽 프리셋(override=True)이 최종 승자라 flip 기계적 관철(R1.5 (a) 실증).
+- **C. `scripts/§paper-writer-1/measure_paper.py:121`** — 드라이버 `SKIP_VERTEX_SEARCH="0" → "1"` 정합.
+  이 키는 config 최초 빌드가 드라이버 override 後(lazy import)라 **토픽 프리셋이 결정 = 드라이버 값 no-op**;
+  혼동 방지 위해 토픽 값(skip)과 정합. :108 stale 주석 갱신.
+
+### 실측 (첫 유료 런, 2026-07-05T06:59Z · exit 0)
+- References **169 → 77** (−92 = vertex law-firm 껍데기 제거). `(n.d.)+맨도메인` 껍데기 잔존 **0**.
+- POST 77 = OA 60 + SS 17 = **100% 학술 backend** (backend_counts total 77 완전 일치).
+- axis3 검산 3층: **L1** vertex_web=0 전 5섹션 / **L2** `sections_with_zero_oa=[]` (OA 10/12/16/13/9 결정론
+  baseline 일치 = OA 파이프라인 무개입) / **L3** verdict=**WARN** (SS 429 flaky: Proposed Framework·
+  Expected Contributions SS=0, R1 원칙상 WARN-only 게이트 아님). 3층 전부 PASS.
+
+### ⚠️ known divergence (차기 통합 catch 후보)
+- **paper 경로 = flat flag**(`SKIP_VERTEX_SEARCH`), **레거시 academic 경로 = catch-43 language routing**
+  (web_search.py:750-753, `_q_lang=="ko"` 시 skip) — 두 경로 vertex 게이팅 **상이**. 현재 무해
+  (참고문헌은 paper 경로 전용 = paper_section_fetch, measure_paper.py:217 단독; R1.5 확인2로 레거시
+  미개입 확정). 통합 시 catch 후보.
+
+### catch 79 잔여 (별 트랙, 78 무관)
+- axis1 APA_REGEX(measure_paper.py:148-150) `(n.d.)`/`(YYYY)` 무조건 매칭 → pass_ratio 1.0 포화.
+  78 로 vertex 껍데기는 원천 차단되나 **(n.d.) 매칭 포화 자체는 axis1 몫으로 잔존**. author/venue/doi
+  실체 판정 재설계는 별 트랙(vertex 무관, 독립 착수).
+
+### 변경 파일
+- `agent/web_search.py` (A) / `topics/academic-trademark-similarity-consumer.env` (B)
+- `scripts/§paper-writer-1/measure_paper.py` (C) / `README-dev-§14.md` (박제)
+
+### re-entry 조건
+1. 한글/틈새 토픽 default 확정 시 → vertex 16% 학술률(mdpi/researchgate)이 진짜 문헌인지 껍데기인지
+   실측 후 토픽별 flag default 결정 (상표=off 는 확정, 한글 토픽 숙제 잔존).
+2. paper↔레거시 vertex 게이팅 통합 필요 시 → known divergence 항목 참조.
+3. axis1 재설계(catch 79 잔여) 착수 시 → (n.d.) 포화 해소.
+
+**status: closed (2026-07-05)** — vertex skip 플래그 paper fan-out 배선 종결. References 169→77
+(껍데기 −92, 학술 100%), axis3 3층 검산 전부 PASS(vertex_web=0 / OA baseline 유지 / WARN). 커밋됨.
+잔존: 한글 토픽 vertex 학술률 실측, paper↔레거시 게이팅 통합, axis1 재설계.

@@ -1979,9 +1979,16 @@ def paper_section_fetch(topic: str, section_type: str) -> list[dict]:
     except Exception as e:
         logger.warning("[paper_section_fetch] seed 주입 실패(무시): %s", e)
 
-    for backend, fn in [("openalex", openalex_search),
-                        ("semantic_scholar", semantic_scholar_search),
-                        ("vertex", vertex_web_search)]:
+    # ── catch 78: paper fan-out 도 SKIP_VERTEX_SEARCH 존중 (레거시 :754/:832 와 정합).
+    #    vertex 튜플을 리스트 빌드 시점에 조건부 제외 — mid-loop continue 금지(dead 튜플·
+    #    skip 로직 분산 방지). _cfg_bool 은 파싱된 CFG bool 을 읽어 catch 71 상류 차단됨.
+    _fan_backends = [("openalex", openalex_search),
+                     ("semantic_scholar", semantic_scholar_search)]
+    if _cfg_bool("SKIP_VERTEX_SEARCH", False):
+        logger.info("[paper_section_fetch] Vertex skipped (SKIP_VERTEX_SEARCH=1)")
+    else:
+        _fan_backends.append(("vertex", vertex_web_search))
+    for backend, fn in _fan_backends:
         try:
             r = fn(ss_query if backend == "semantic_scholar" else query)
         except Exception as e:

@@ -106,6 +106,10 @@ for _env_name in (".env", ".env.vertex", ".env.openalex", ".env.semanticscholar"
 # ── Step 3: driver env override (dotenv 후 강제 — catch 69 후보 lesson) ──
 # dotenv override=True 가 driver 사전 설정값을 무효화하는 함정 회피:
 # 반드시 dotenv chain 완료 후 driver 가 최종 결정권을 갖도록 강제 set 한다.
+# ⚠️ catch 78 정정: SKIP_VERTEX_SEARCH 만은 예외 — config 최초 빌드가 이 함수
+#   호출 後(lazy import)라, 토픽 프리셋(topics/<slug>.env override=True)이 최종
+#   승자다. 즉 여기 SKIP_VERTEX_SEARCH set 은 CFG 상 no-op(토픽이 결정권).
+#   혼동 방지 위해 토픽 값(=1, skip)과 정합되게 "1" 로 맞춰 둔다.
 def _force_driver_env_override() -> None:
     """측정 driver 전용 env 강제 override.
 
@@ -118,7 +122,7 @@ def _force_driver_env_override() -> None:
     os.environ["OPENAI_MAX_RETRIES"] = "0"
     os.environ["LLM_MAX_RETRIES"] = "0"
     os.environ["GOOGLE_API_USE_CLIENT_CERTIFICATE"] = "false"
-    os.environ["SKIP_VERTEX_SEARCH"] = "0"
+    os.environ["SKIP_VERTEX_SEARCH"] = "1"  # catch 78: no-op(토픽 프리셋 결정) — 토픽 값과 정합
     # ── 맥 SSL: OA·SS urllib HTTPS 검증 (certifi 명시 — macOS 루트 인증서 미연결 회피) ──
     import certifi
     os.environ.setdefault("SSL_CERT_FILE", certifi.where())
