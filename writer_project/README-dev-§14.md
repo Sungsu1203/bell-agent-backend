@@ -722,6 +722,8 @@ topic = `consumer perceived trademark similarity and likelihood of confusion` (3
   References 의 68.6% 가 도메인껍데기 오염 + ② axis1(임계 0.8)이 품질을 전혀 변별 못 하는 포화 지표.
   **axis3 트랙 밖** — axis1 재설계(author/venue/doi 실체 판정)는 **별 트랙**으로 등재. 껍데기 원천
   차단은 catch 78(vertex 스킵) 몫.
+  **→ 갱신 (2026-07-05): axis3 몫(게이트 부적합)은 「axis3 기술자 재정의 (R2)」에서 기술자 강등으로
+  흡수·종결. catch 79 잔여 = axis1 실체판정 별 트랙 + catch 78 껍데기 차단만.**
 
 ### re-entry 조건
 1. 다른 도메인 topic 에서 vertex 학술률이 유의미(≠0)하면 → vertex_web 분모 페널티 강도 재검토.
@@ -737,6 +739,8 @@ topic = `consumer perceived trademark similarity and likelihood of confusion` (3
 **status: closed (2026-07-04)** — axis3 재설계 종결. 구조적 영구 FAIL(catch 75 + 모순②)
 제거 + 학술 회수율 단일 판정(임계 0.50) + R2-b 3런 0.517~0.549 PASS 검증. vertex 도메인
 필터는 "블로그 차단" 실효로 판명. 잔존 별 task: catch 79(vertex n.d. axis1 오염, 미착수).
+**⚠️ superseded by 2026-07-05 「axis3 기술자 재정의 (R2)」(아래)** — 임계 0.50 게이트 자체가
+vertex-skip 후 1.000 포화로 변별력 0 판명 → 게이트 폐기·기술자 강등으로 대체.
 
 ---
 
@@ -788,3 +792,80 @@ catch 80 오정렬이 본문 학술인용을 **vertex 도메인껍데기**(#13 `
 **status: closed (2026-07-05)** — catch 80 종결. 섹션-로컬↔글로벌 오정렬을 본문 [[N]] 글로벌
 승격으로 해소. 3겹 dry(삽입점·regex·기존리포트 교정) PASS, axis1/axis3/footer 무영향. 교차로
 catch 79 인용-껍데기 오연결 부분 해소(껍데기 존재는 catch 78 잔존).
+
+---
+
+## §paper-writer-2 axis3 기술자 재정의 (R2, 2026-07-05) — 품질 게이트 폐기 → 파이프라인 건강 기술자 (catch 79 흡수)
+
+### 결론 (07-04 axis3 재설계 close 를 재정의로 대체)
+07-04 close 의 `academic_ratio ≥ 0.50` 단일 임계 게이트를 **폐기**. axis3 를 품질 게이트에서
+**파이프라인 건강/커버리지 기술자**로 강등하고 verdict 를 3-state(PASS/WARN/FAIL)로 재배선.
+outer key `axis3_backend_ratio` → **`axis3_pipeline_health`** 개명. catch 79 는 이 트랙으로 흡수
+(새 catch 번호 없음).
+
+### 게이트안 폐기 근거 (R1 + R1.5 정찰, read-only · 유료 0)
+- **`academic_ratio` 는 게이트로 변별력 0**: R1.5 확정 — `backend_counts.other=0`(3런) 이라 vertex
+  스킵(catch 78) 후 ratio = (oa+ss)/(oa+ss) = **정확히 1.000**(포화). 게이트가 아무것도 안 잼.
+- **유일한 런간 변동이 429 노이즈**: 후보 지표 `ss/(oa+ss)` 도 3런 중 4/5 섹션 완전 평탄, 유일
+  변동은 run1 Introduction SS 0↔5 — 원인은 `[semantic_scholar] 429 backoff`(axis3_run1.log:9).
+  즉 품질 신호 아닌 rate-limit 아티팩트에 임계를 거는 꼴 = **catch 79/과거 combined-mean 함정 재현**.
+- ∴ 품질 게이트로서 axis3 회생 불가 → 목적을 게이트→기술자로 하향. 학술 품질 실체 판정은
+  **axis1 재설계(별 트랙)** 로 이관.
+
+### 신 정의 — 3-state 파이프라인 건강 기술자
+섹션별 backend 카운트(`per_section[*].backend_counts`, 신규 P1 캡처)에서 파생, **분할 severity**:
+```
+sections_with_zero_oa (OA=0) OR sections_with_other (other>0)  → FAIL
+elif sections_with_zero_ss (SS=0)                              → WARN
+else                                                           → PASS
+```
+- **SS=0 → WARN (게이트 아님)**: SS 0-death 는 429 백오프 소진 등 flaky 원인(R1: run1 Intro SS=0
+  은 429, 단 run1 EC 는 429 맞고도 재시도 회복 SS=8 → n=1 단일사례). 자동 FAIL 금지 = R1 원칙.
+- **OA=0 → FAIL**: OA 는 완전 결정론(3런 섹션별 10/12/16/13/9 불변) → 0 은 불변식 위반 = 파이프라인 완파.
+- **other>0 → FAIL**: 정상선 3런 전부 0 → >0 은 미상 `_backend` 태그 누출 = 코드/설정 회귀 tripwire.
+- `academic_ratio`·`academic_hits` 는 **informational 로만 유지**(판정 미참여). 구 `ACADEMIC_RATIO_THRESHOLD`
+  상수 + `oa_ratio/ss_ratio/vertex_ratio/vertex_academic_ratio` 진단필드 폐기.
+
+### 임계 정정 (3단 정합)
+- 인계메모 추정치 **"임계 0.60" 은 오기** — §academic-4 트랙(catch 51/61 `academic_source_ratio` 0.60)과
+  혼동한 값으로 paper-writer axis3 와 무관.
+- 07-04 close 실제 커밋값 = **0.50**(`ACADEMIC_RATIO_THRESHOLD=0.50`, dcbb7f12 measure_paper.py:158).
+- **현재 = 임계 자체 폐기**(게이트 삭제) → 0.50/0.60 논의 모두 무의미해짐.
+
+### 배선 (measure_paper.py, +67/−39 · 유료 0)
+- `_count_backends(chunks)` 헬퍼 신설 — aggregate(`_eval_axes`)·per-section(`_run_one_paper`) **분류
+  단일 소스**(구 인라인 카운트 루프 중복 제거). vertex 는 `_chunk_is_academic` 로 학술/웹 분해.
+- **P1**: `per_section[section]` 빌드에 `"backend_counts": _count_backends(chunks)` — catch 80 offset
+  스냅/extend/shift 라인 무접촉, chunks read-only.
+- **P2/P3**: `_eval_axes` axis3 → 섹션별 파생(`sections_with_zero_ss/oa/other`, `per_section_backends`)
+  + 3-state verdict + `academic_ratio` informational.
+- 개명 outer key `axis3_pipeline_health`(잔존 `axis3_backend_ratio` 참조 0 확인).
+- 종합부 무배선: 크로스-axis verdict 종합기 부재(`main` :382-383 `r.update` 병합만) → WARN 3-state 안전.
+
+### dry 검증 (오프라인 재생, measure_paper 풀런 없음 · 유료 0)
+- **DV1**(저장 axis3_run{1,2,3}.json 재생): run1 → **WARN**(Intro SS=0 가시화) · run2/3 → **PASS**.
+  aggregate backend_counts·academic_ratio 가 R1.5 실측(60/24·60/29·60/29+1, 0.532/0.549/0.517) 정확 재현
+  = 헬퍼 충실도 교차검증.
+- **DV2**(synthetic 5경로): 정상→PASS / SS=0→WARN / OA=0→FAIL / other=1→FAIL / SS=0∧OA=0→FAIL
+  (FAIL>WARN 우선) — 전부 기대 일치.
+
+### catch 79 흡수
+- **catch 79 = 이 트랙으로 흡수**(별 catch 번호 없음). R1 재정의(07-04 close 섹션 참조)의 실효
+  ①(References 68.6% 도메인껍데기)·②(axis1 포화) 중 **axis3 게이트 부적합분은 본 기술자 강등으로 해소**.
+- 남은 **axis1 포화(author/venue/doi 실체 판정)는 별 트랙**(catch 79 잔여 = axis1 재설계), 껍데기 원천
+  차단은 **catch 78(vertex 스킵)** 몫. → catch 79 의 axis3 몫 종결, axis1 몫 이관.
+
+### 변경 파일
+- `scripts/§paper-writer-1/measure_paper.py` (`_count_backends` 헬퍼 + P1 per_section backend_counts
+  + P2/P3 3-state 기술자 + `axis3_pipeline_health` 개명 + `ACADEMIC_RATIO_THRESHOLD` 폐기)
+
+### re-entry 조건
+1. SS 429 견고화(retry/백오프 강화)로 SS 0-death 제거 시 → WARN 신호 발생 빈도 재평가.
+2. catch 78 vertex 스킵 첫 유료 런 후 → `per_section_backends` vertex_* = 0 반영 + 기술자 verdict
+   무영향(1.000 포화가 게이트 아닌 informational) 실측 검산.
+3. axis1 재설계(catch 79 잔여) 착수 시 → 학술 실체 판정 축을 axis1 로, axis3 는 건강 기술자로 분리 유지.
+
+**status: closed (2026-07-05)** — axis3 기술자 재정의 종결. 07-04 게이트(임계 0.50) 폐기 → 3-state
+파이프라인 건강 기술자 강등 + `axis3_pipeline_health` 개명. R1/R1.5 정찰로 게이트 변별력 0(vertex-skip
+후 1.000 포화 · 유일변동 429 노이즈) 확정, DV1/DV2 오프라인 검증 PASS. catch 79 axis3 몫 흡수·종결,
+axis1 실체판정 몫은 별 트랙 이관. 잔존: catch 78(vertex 스킵 유료 배선), axis1 재설계.

@@ -72,6 +72,29 @@ def _chunk_is_academic(chunk: dict) -> bool:
     return any(host == d or host.endswith("." + d) for d in ACADEMIC_DOMAINS)
 
 
+def _count_backends(chunks: list[dict]) -> dict:
+    """chunks 를 _backend 태그로 분류해 카운트 (vertex 는 _chunk_is_academic 로 학술/웹 분해).
+
+    aggregate(_eval_axes)·per-section(_run_one_paper) 공용 — 분류 로직 단일 소스.
+    """
+    counts = {"openalex": 0, "semantic_scholar": 0,
+              "vertex_academic": 0, "vertex_web": 0, "other": 0}
+    for c in chunks:
+        b = c.get("_backend", "?")
+        if b == "openalex":
+            counts["openalex"] += 1
+        elif b == "semantic_scholar":
+            counts["semantic_scholar"] += 1
+        elif b == "vertex":
+            if _chunk_is_academic(c):
+                counts["vertex_academic"] += 1
+            else:
+                counts["vertex_web"] += 1
+        else:
+            counts["other"] += 1
+    return counts
+
+
 # ── Step 2: dotenv chain 먼저 (catch 64: override=True 강제) ──
 from dotenv import load_dotenv  # noqa: E402
 for _env_name in (".env", ".env.vertex", ".env.openalex", ".env.semanticscholar"):
@@ -149,13 +172,13 @@ APA_REGEX = re.compile(
     r"\(\d{4}\)|\(n\.d\.\)|https?://doi\.org/", re.IGNORECASE
 )
 
-# ── axis3 재설계 (R2-a) — 학술 회수율 단일 임계 ──
-# 구 산식(oa≥0.70 ∧ ss≥0.40 ∧ combined≥0.50)은 같은 분모 3비율이라 구조적 영구 FAIL.
-# 신 산식: academic_ratio = (OA + SS + 학술vertex) / 전체회수. 비학술 vertex(블로그)는
-# 분모에 남겨 페널티. 개별 백엔드 문턱 폐기, 단일 임계로 판정.
-# 0.50 = 학술 과반 합격선. R2-b 3런 실측 0.517~0.549(mean 0.533) → 현 파이프라인 PASS.
-# vertex_web 은 분모 페널티(상표 토픽 vertex 학술≈0, R2-b 실측 0~1.2%).
-ACADEMIC_RATIO_THRESHOLD = 0.50
+# ── axis3 재정의 (R2) — 품질 게이트 → 파이프라인 건강/커버리지 기술자 ──
+# R1/R1.5: academic_ratio 는 vertex-skip 시 (oa+ss)/(oa+ss)=1.000 포화(변별력 0),
+#   유일 런간 변동도 SS 429 노이즈 → 품질 게이트 부적합(catch 79 함정). 게이트 강등.
+# 신 역할 = 섹션별 backend 카운트로 degradation 감지(분할 severity):
+#   섹션 SS=0 → WARN(429 flaky, 게이트 금지), 섹션 OA=0 → FAIL(완파),
+#   other>0 → FAIL(미상 backend 누출 tripwire).
+# academic_ratio 는 informational 로만 유지(판정 미사용). 구 임계 상수 폐기.
 
 
 # ── catch 80: 본문 [[N]] 글로벌 승격 ──
@@ -217,6 +240,7 @@ def _run_one_paper(topic: str, sections: list[str]) -> dict:
             "word_count": len(body.split()),
             "chunks_count": len(chunks),
             "backends": sorted({c.get("_backend", "?") for c in chunks}),
+            "backend_counts": _count_backends(chunks),   # P1: 섹션별 backend 분류 (axis3 기술자)
         }
 
     _stage(11, 14, "References footer build (format_apa7)")
@@ -261,48 +285,52 @@ def _eval_axes(result: dict) -> dict:
                                   "verdict": v} for s, v in section_verdicts.items()},
              "verdict": "PASS" if all(v == "PASS" for v in section_verdicts.values()) else "FAIL"}
 
-    # axis 3: 학술 회수율 (R2-a 재설계) — academic_ratio = (OA + SS + 학술vertex) / total
+    # axis 3: 파이프라인 건강/커버리지 기술자 (R2 재정의) — 품질 게이트 강등.
+    # aggregate 분류는 _count_backends 재사용(per-section 과 단일 소스). 섹션별 신호는
+    # per_section[*].backend_counts(P1 캡처)에서 파생. academic_ratio 는 informational 로만.
     chunks = result["chunks"]
-    n_oa = n_ss = n_vx_acad = n_vx_web = n_other = 0
-    for c in chunks:
-        b = c.get("_backend", "?")
-        if b == "openalex":
-            n_oa += 1
-        elif b == "semantic_scholar":
-            n_ss += 1
-        elif b == "vertex":
-            if _chunk_is_academic(c):
-                n_vx_acad += 1
-            else:
-                n_vx_web += 1
-        else:
-            n_other += 1
+    agg = _count_backends(chunks)
+    n_oa, n_ss = agg["openalex"], agg["semantic_scholar"]
+    n_vx_acad, n_vx_web, n_other = agg["vertex_academic"], agg["vertex_web"], agg["other"]
     total = len(chunks)
-    academic_hits = n_oa + n_ss + n_vx_acad          # 학술 분자 (비학술 vertex 제외)
+    academic_hits = n_oa + n_ss + n_vx_acad          # informational (구 분자, 판정 미사용)
     academic_ratio = academic_hits / total if total else 0.0
-    # 진단용 per-backend ratio (구 지표 — R2-b 임계 산정 참고, 판정엔 미사용)
-    oa_r = n_oa / total if total else 0.0
-    ss_r = n_ss / total if total else 0.0
-    vx_r = (n_vx_acad + n_vx_web) / total if total else 0.0
+
+    # 섹션별 파생 신호 (P1 이 per_section 에 backend_counts 를 심음)
+    per_section_backends = {s: d.get("backend_counts", {}) for s, d in per_section.items()}
+    sections_with_zero_ss = [s for s, bc in per_section_backends.items()
+                             if bc.get("semantic_scholar", 0) == 0]
+    sections_with_zero_oa = [s for s, bc in per_section_backends.items()
+                             if bc.get("openalex", 0) == 0]
+    sections_with_other = [s for s, bc in per_section_backends.items()
+                           if bc.get("other", 0) > 0]
+
+    # 3-state verdict (분할 severity): FAIL(완파/tripwire) > WARN(429 flaky) > PASS.
+    if sections_with_zero_oa or sections_with_other:
+        a3_verdict = "FAIL"
+    elif sections_with_zero_ss:
+        a3_verdict = "WARN"
+    else:
+        a3_verdict = "PASS"
+
     axis3 = {
-        "academic_ratio": round(academic_ratio, 3),
-        "threshold": ACADEMIC_RATIO_THRESHOLD,           # 0.50 (R2-b 실측 후 R3 확정)
-        "academic_hits": academic_hits,
-        "total": total,
-        "backend_counts": {                               # vertex 를 학술/웹 분해
+        "verdict": a3_verdict,                            # 3-state: PASS / WARN / FAIL
+        "sections_with_zero_oa": sections_with_zero_oa,   # FAIL 신호 (OA 결정론 위반 = 완파)
+        "sections_with_other": sections_with_other,       # FAIL 신호 (미상 backend tripwire)
+        "sections_with_zero_ss": sections_with_zero_ss,   # WARN 신호 (429 flaky, 게이트 아님)
+        "per_section_backends": per_section_backends,     # informational (섹션→backend 카운트)
+        "backend_counts": {                               # aggregate (vertex 학술/웹 분해)
             "openalex": n_oa, "semantic_scholar": n_ss,
             "vertex_academic": n_vx_acad, "vertex_web": n_vx_web,
             "other": n_other,
         },
-        # 진단 ratio (판정 미사용) — vertex_academic_ratio 는 실제 도메인 필터 반영값
-        "openalex_ratio": round(oa_r, 3),
-        "semantic_scholar_ratio": round(ss_r, 3),
-        "vertex_ratio": round(vx_r, 3),
-        "vertex_academic_ratio": round(n_vx_acad / total, 3) if total else 0.0,
-        "verdict": "PASS" if academic_ratio >= ACADEMIC_RATIO_THRESHOLD else "FAIL",
+        "total": total,
+        # informational — 판정 미사용 (R1 에서 품질 게이트 강등)
+        "academic_ratio": round(academic_ratio, 3),
+        "academic_hits": academic_hits,
     }
 
-    return {"axis1_apa": axis1, "axis2_imrd": axis2, "axis3_backend_ratio": axis3}
+    return {"axis1_apa": axis1, "axis2_imrd": axis2, "axis3_pipeline_health": axis3}
 
 
 def _save_md_docx(result: dict, output_dir: Path, ts: str) -> dict:
