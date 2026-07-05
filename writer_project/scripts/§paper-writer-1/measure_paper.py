@@ -158,6 +158,20 @@ APA_REGEX = re.compile(
 ACADEMIC_RATIO_THRESHOLD = 0.50
 
 
+# ── catch 80: 본문 [[N]] 글로벌 승격 ──
+# writer 는 섹션당 로컬 1-based 로 [[N]] 을 매기지만 References footer 는 전 섹션
+# concat 글로벌 번호라 섹션 2~5 인용이 오정렬된다. 각 섹션 body 의 [[N]] 에 그 섹션의
+# 글로벌 오프셋(= 이전 섹션들 chunk 누적 수)을 더해 footer 와 정합시킨다.
+_CITE_MARKER_RE = re.compile(r"\[\[(\d+)\]\]")
+
+
+def _shift_citation_markers(body: str, offset: int) -> str:
+    """body 내 [[N]] 마커를 [[N+offset]] 로 재작성 (자릿수 안전 · offset==0 no-op)."""
+    if offset == 0 or not body:
+        return body
+    return _CITE_MARKER_RE.sub(lambda m: f"[[{int(m.group(1)) + offset}]]", body)
+
+
 def _build_outline(sections: list[str]) -> str:
     return "\n".join(f"## {i}. {s}" for i, s in enumerate(sections, 1))
 
@@ -179,6 +193,8 @@ def _run_one_paper(topic: str, sections: list[str]) -> dict:
         tf = time.monotonic()
         chunks = paper_section_fetch(topic, section)
         stage_times[f"fetch_{section}"] = round(time.monotonic() - tf, 2)
+        # catch 80: extend 直前 = 이전 섹션들 누적 길이 = 이 섹션의 글로벌 오프셋
+        cite_offset = len(section_chunks_all)
         section_chunks_all.extend(chunks)
         # write
         _stage(write_stage, 14, f"section {i} ({section}) LLM 본문 생성")
@@ -193,6 +209,8 @@ def _run_one_paper(topic: str, sections: list[str]) -> dict:
             previous_sections="\n\n".join(section_bodies),
         )
         stage_times[f"write_{section}"] = round(time.monotonic() - tw, 2)
+        # catch 80: 로컬 [[N]] → 글로벌 [[N+offset]] (footer 정합). offset==0 이면 no-op.
+        body = _shift_citation_markers(body, cite_offset)
         section_bodies.append(body)
         per_section[section] = {
             "len_chars": len(body),

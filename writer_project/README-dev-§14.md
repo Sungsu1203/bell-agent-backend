@@ -713,12 +713,15 @@ topic = `consumer perceived trademark similarity and likelihood of confusion` (3
 
 ### catch 박제
 - **catch 75** (해소): combined-mean ≤0.333 quirk + 모순② → academic_ratio 단일 판정으로 제거.
-- **catch 79** (LOW-MID · methodology · 신규 · **미해결, 기록만**): vertex chunk 는 authors/year/
-  doi 무필드라 `format_apa7` 통과 시 `"(n.d.). <title>."` bare 라인 생성 → axis1 APA regex 의
-  `(n.d.)` 매칭으로 **통과 계상 → APA 통과율 오염**. R2-b 실측상 상표 토픽 vertex 학술≈0 이라
-  vertex_web 74~84개가 전부 axis1 에 (n.d.) 로 잡히는 규모. **axis3 트랙 밖** — 다음 트랙 후보로
-  기록만(처방 보류). 후보 처방: axis1 에서 doi/year 없는 (n.d.)-only 라인 제외 or vertex_web
-  chunk 를 References 생성에서 배제.
+- **catch 79** (LOW-MID · methodology · 신규 · **미해결, 기록만** · **2026-07-05 재정의**):
+  vertex chunk 는 authors/year/doi 무필드라 `format_apa7` 통과 시 `"(n.d.). <domain>."` bare
+  라인 생성(title 이 도메인 그 자체). **재정의(R1 정찰)**: `APA_REGEX` 가 `(n.d.)`·`(YYYY)` 둘 다
+  매칭 + `format_apa7` 이 모든 라인에 둘 중 하나를 항상 방출 → **axis1 pass_ratio 는 구조적으로
+  1.0 고정(포화 지표, 변별력 0)**. backup JSON 실측: References 169줄 중 116줄(68.6%)이 도메인
+  껍데기인데도 pass_ratio 1.0. → catch 79 실효는 ~~"APA 통과율 오염"~~ **아님**. 실효 = ① 딜리버러블
+  References 의 68.6% 가 도메인껍데기 오염 + ② axis1(임계 0.8)이 품질을 전혀 변별 못 하는 포화 지표.
+  **axis3 트랙 밖** — axis1 재설계(author/venue/doi 실체 판정)는 **별 트랙**으로 등재. 껍데기 원천
+  차단은 catch 78(vertex 스킵) 몫.
 
 ### re-entry 조건
 1. 다른 도메인 topic 에서 vertex 학술률이 유의미(≠0)하면 → vertex_web 분모 페널티 강도 재검토.
@@ -734,3 +737,54 @@ topic = `consumer perceived trademark similarity and likelihood of confusion` (3
 **status: closed (2026-07-04)** — axis3 재설계 종결. 구조적 영구 FAIL(catch 75 + 모순②)
 제거 + 학술 회수율 단일 판정(임계 0.50) + R2-b 3런 0.517~0.549 PASS 검증. vertex 도메인
 필터는 "블로그 차단" 실효로 판명. 잔존 별 task: catch 79(vertex n.d. axis1 오염, 미착수).
+
+---
+
+## §paper-writer-2 catch 80 close (2026-07-05) — 본문 [[N]] 글로벌 승격 (섹션-로컬↔footer 오정렬 해소)
+
+### 증상
+본문 in-text 인용 `[[N]]` 은 섹션당 1-based **로컬**(writer 가 섹션별로 `enumerate` 리셋,
+`agent/paper_section_writer.py:47`), footer References 는 `section_chunks_all` concat **글로벌**
+1-based(`measure_paper.py:206` build + `:94` enumerate). **오프셋 보정 부재.** → 섹션 1만 offset 0
+으로 우연 정합, 섹션 2~5 는 +29/+59/+117/+143 어긋나 인용이 엉뚱한 논문 지시. 실측(리포트
+`paper_..._20260628_123513.md`): 섹션 2~5 인용 N 전부 ≤13 → 죄다 Introduction footer 밴드(1~29)로
+오낙착. 섹션 1(6건)만 정상.
+
+### 해결 = (b) 본문 [[N]] 글로벌 승격
+`_run_one_paper` 2-지점 배선 + 헬퍼:
+- `_shift_citation_markers(body, offset)`: `\[\[(\d+)\]\]` 캡처그룹 → `int(N)+offset` 재조립
+  (자릿수 안전, offset==0 no-op).
+- 지점①(`measure_paper.py` extend 直前): `cite_offset = len(section_chunks_all)` 스냅
+  (루프 지역변수, = Σ 섹션 1..k-1 chunk 수 = 글로벌 오프셋).
+- 지점②(append 直前): `body = _shift_citation_markers(body, cite_offset)`.
+- (a) footer 포맷 변경(高침습) · (c) 매핑테이블(오버킬) 기각.
+
+### 무접촉 확정
+axis1(`apa_lines` 만 읽음 `measure_paper.py:230-232`, pass_ratio 1.0·n=169 불변) · axis3 · footer(
+`build_apa_references`) · writer · prompts. 헬퍼는 `section_bodies` 문자열만 치환.
+
+### 검증 (3겹 dry, 유료 0)
+- **STOP-1**(삽입점): extend 直前 스냅 2-지점 확정 + 오프셋 손계산 `[0,29,59,117,143]` (backup
+  per_section.chunks_count `[29,30,58,26,26]` 누적) 일치.
+- **STOP-2**(regex 자릿수): `[[1]] [[12]] [[9]]`+29→`[[30]] [[41]] [[38]]` / 인접 `[[1]][[2]]`→
+  `[[144]][[145]]` / 중복 둘 다 / offset=0 no-op / 마커無 0건 — 전부 PASS.
+- **STOP-3**(기존 리포트 교정 검산, 재실행 아님): recon 4건 정확 일치
+  `[[13]]→[[42]]`·`[[12]]→[[71]]`·`[[5]]→[[122]]`·`[[8]]→[[151]]`, 전 섹션 전량치환 누락 0,
+  교정번호 전부 해당 섹션 footer 밴드 내부.
+
+### 교차 발견 (→ catch 79 부분 해소)
+catch 80 오정렬이 본문 학술인용을 **vertex 도메인껍데기**(#13 `trestlelaw.com`, #12 `gfrlaw.com`)에
+오연결하고 있었음. 교정으로 실제 학술논문(Johannessen 2011, Kruger 2014 등) 연결 복원. 단 footer
+껍데기 116줄 **존재 자체**는 잔존 → catch 78(vertex 스킵) 몫(catch 80 ⟂ vertex, 독립 축).
+
+### 변경 파일
+- `scripts/§paper-writer-1/measure_paper.py` (`_shift_citation_markers` 헬퍼 + `_run_one_paper` 2-지점)
+
+### re-entry 조건
+1. vertex 스킵(catch 78) 등으로 `section_chunks_all` 재구성 시 → 오프셋은 `len()` 동적이라 자동 정합
+   (하드코딩 없음). 단 섹션 내 dedup 로 chunk 수 변동 시 offset 자동 반영 확인.
+2. writer 가 `[[N]]` 외 인용 표기(예: `[N]`, `(N)`)를 방출하기 시작하면 → regex 확장.
+
+**status: closed (2026-07-05)** — catch 80 종결. 섹션-로컬↔글로벌 오정렬을 본문 [[N]] 글로벌
+승격으로 해소. 3겹 dry(삽입점·regex·기존리포트 교정) PASS, axis1/axis3/footer 무영향. 교차로
+catch 79 인용-껍데기 오연결 부분 해소(껍데기 존재는 catch 78 잔존).
