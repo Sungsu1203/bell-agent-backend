@@ -922,3 +922,54 @@ axis1 실체판정 몫은 별 트랙 이관. 잔존: catch 78(vertex 스킵 유�
 **status: closed (2026-07-05)** — vertex skip 플래그 paper fan-out 배선 종결. References 169→77
 (껍데기 −92, 학술 100%), axis3 3층 검산 전부 PASS(vertex_web=0 / OA baseline 유지 / WARN). 커밋됨.
 잔존: 한글 토픽 vertex 학술률 실측, paper↔레거시 게이팅 통합, axis1 재설계.
+
+-------
+
+## §paper-writer-2 catch 79 close (2026-07-06) — axis1 재설계: regex 포화 → venue OR doi 존재 3등급 실체 판정
+
+### 한 줄
+axis1 이 인용을 `(YYYY)`/`(n.d.)` 정규식 통과로 재던 포화 게이트(pass_ratio 1.000 고정, 변별력 0)를
+폐기하고, chunk 최상위 필드(venue/doi) **존재**로 인용 실체를 3등급 판정하는 결정론·무료 detector 로 교체.
+catch 78 이 (n.d.) 껍데기를 원천 차단한 뒤라 axis1 이 재는 대상이 순수 학술 인용뿐 → 재설계 효과 깨끗이 측정.
+
+### 재설계 내용
+- **A(조립 문자열 regex 되파싱) 폐기 → B(chunk 최상위 필드 직독) 채택**. `format_apa7` 이 year 를 항상
+  `(YYYY)`|`(n.d.)` 로 뱉어 구 regex 는 무조건 매칭 = 포화. 재료(authors/year/venue/doi)가 chunk 원본
+  필드로 이미 존재(OA `openalex.py:160-`, SS `semantic_scholar.py:222-`), `build_apa_references` 도 이미
+  최상위 직독 중 → B 무손실.
+- **detector `axis1_grade(chunk)`** (measure_paper.py): 완전체(venue AND doi) / 부분체(venue XOR doi) /
+  결손(둘 다 없음). **결손만 fail**. 빈 판정 `_blank` = None·''·공백 (SS 는 venue='' 반환 = R2.5 지뢰1).
+- ⭐ **doi 필수 아님**: 법학 리포지토리 정식인용(Beebe/Tushnet/Senftleben/Heymann)은 doi 없이도 학술 →
+  venue OR doi. doi 필수 걸면 이번 런 부분체 34개(venue있음·doi없음) 전부 오탈락.
+- **threshold 0.90**, **3-state verdict**: FAIL(ratio<0.90) / WARN(ratio≥0.90 이나 결손>0) / PASS(결손 0).
+  **gate 유지**(axis3 처럼 informational 강등 아님 — R1 확정). 파생 필드: grade_dist·n_missing·missing_by_section.
+
+### 실측 (remeasure 유료 런 2026-07-06T09:46Z, exit 0, vertex off)
+- axis1 = **WARN**, pass_ratio **0.944**(=84/89), 완전체 43 / 부분체 41 / 결손 5. old 1.000 포화 대비 변별 복원.
+- 오프라인 R3 설계(chunks_raw_dump.json 89개)와 **라이브 완전 일치**(등급 분포·ratio·verdict·섹션 결손 동일).
+- L2: References 89(OA 60 + SS 29) = R2.5 스케일 유지, 참고문헌 무붕괴. axis2/axis3 무변경(axis3 PASS).
+
+### known divergence (무해, 별 트랙 후보)
+- **결손 5 전부 OA·정식 논문의 OA 메타 미충전**(껍데기 아님): Janis&Dinwoodie "Confusion Over Use"(3섹션
+  중복)·윤선희(2005 한글)·Beebe&Germano(2019). venue/doi 둘 다 OA 가 못 채운 케이스 = axis1 "존재만"
+  판정상 정당한 fail 이나 실체는 학술.
+- **R2 계측 상주**: `_run_one_paper` 가 각 chunk 에 `_section` 태그(_backend 대칭 additive) + `main` 이
+  `chunks_raw_dump.json` 별도 덤프(c_paper_measurement.json 무오염). detector 재튜닝 재료로 상주.
+
+### 변경 파일 (2파일 단일 커밋)
+- `scripts/§paper-writer-1/measure_paper.py` (detector 이식 + R2 계측 + 채점부 배선 + 구 regex 정정 박제)
+- `README-dev-§14.md` (본 박제)
+
+### 별 트랙 후보 (axis1 밖, 미착수)
+1. **OA 메타 충전 개선**: 결손 5 전부 OA venue/doi 미충전. OA API landing_page/host_venue 재조회로 보강 여지.
+2. **venue 부정합/predatory 판별**: SS Anita(2024) 제목-저널 불일치(상표법 논문인데 venue='African J of
+   Biological Sci') 류. 존재는 하나 부정합 = 품질 축. axis1(존재·결정론·무료) 밖 = embedding/LLM 별 트랙.
+
+### re-entry 조건
+1. OA 메타 충전 개선 착수 시 → 결손 5(전부 OA)를 landing_page_url·host_venue 보강으로 부분체 승격 검토.
+2. venue 부정합 판별 필요 시 → 별 트랙(품질 축, axis1 결정론 계약 밖).
+3. threshold 0.90 재조정 필요 시 → 결손율 실분포(현 5.6%) 기준. 부분체는 구조상 pass(정상 법학인용 오탈락 0).
+
+**status: closed (2026-07-06)** — axis1 regex 포화 → venue OR doi 3등급 실체 판정 재설계 종결.
+remeasure WARN(0.944, 결손 5) = 오프라인 설계 라이브 재현, 포화 회귀 없음. 커밋됨.
+잔존 별 트랙: OA 메타 충전 개선, venue 부정합/predatory 판별.

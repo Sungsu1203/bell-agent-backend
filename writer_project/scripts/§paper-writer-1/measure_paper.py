@@ -4,7 +4,8 @@ argparse 7 groups:
   --topic / --sections / --output-dir / --warmup / --measure / --sleep / --timeout / --dry-run
 
 axis 3 metric (B+D 묶음, B-6 design 정합):
-  axis 1: APA 7th regex — References 항목 중 regex 통과 비율 ≥ 0.8
+  axis 1 (catch 79 재설계): chunk venue OR doi 존재 3등급 실체 판정 — pass_ratio ≥ 0.90,
+          3-state verdict(FAIL/WARN/PASS, gate 유지). 구 regex 포화 폐기.
   axis 2: IMRD 4 section — 4 section 존재 + 분량 가이드 ±30% 허용
   axis 3: per-backend ratio (catch 66):
     primary 3: OA ≥ 0.70, SS ≥ 0.40, combined (OA+SS+vertex mean) ≥ 0.50
@@ -172,9 +173,41 @@ SECTION_WORD_GUIDE = {
 #    "Discussion": (1500, 2000),
 # }
 
-APA_REGEX = re.compile(
-    r"\(\d{4}\)|\(n\.d\.\)|https?://doi\.org/", re.IGNORECASE
-)
+# ── catch 79 종결: axis1 재설계 — regex 포화 → venue OR doi 존재 3등급 실체 판정 ──
+# 구 APA_REGEX 는 format_apa7 이 year 를 항상 (YYYY)|(n.d.) 로 뱉어 pass_ratio 1.000
+# 포화(변별력 0) = catch 79 함정. 조립 문자열 regex 되파싱(A) 대신 chunk 최상위 필드
+# 직독(B)으로 전환. 삭제 아니라 정정 박제(catch 69/70/71 원칙): 후임자 "왜 regex
+# 안 쓰나" 오독 방지.  구 regex = r"\(\d{4}\)|\(n\.d\.\)|https?://doi\.org/" (IGNORECASE)
+
+
+def _blank(v) -> bool:
+    """빈 판정: None · '' · 공백 = True (R2.5 지뢰1: SS 는 venue='' 반환).
+
+    str 아닌 truthy(int year 등)는 blank 아님. venue/doi 는 str|None 이라 안전.
+    """
+    return v is None or (isinstance(v, str) and not v.strip()) or v == ""
+
+
+def axis1_grade(chunk: dict) -> dict:
+    """chunk 최상위 venue/doi 존재로 인용 실체 3등급 판정 (결정론·무료·format-level).
+
+    ⚠️ R2.5 지뢰3: paper_section_fetch 의 OA/SS chunk 는 최상위 필드 형태(metadata
+       중첩 아님). 이 함수는 그 최상위 계약을 가정한다.
+    사정권 = 존재(가)만. venue 부정합/predatory 품질 판별은 axis1 밖(별 트랙).
+    embedding/LLM/네트워크 호출 0.
+        완전체 = venue AND doi / 부분체 = venue XOR doi / 결손 = 둘 다 없음(유일 fail).
+    doi 필수 아님: 법학 리포지토리 정식인용은 doi 없이도 학술(부분체 pass).
+    """
+    has_venue = not _blank(chunk.get("venue"))
+    has_doi = not _blank(chunk.get("doi"))
+    if has_venue and has_doi:
+        grade = "complete"
+    elif has_venue or has_doi:
+        grade = "partial"
+    else:
+        grade = "missing"
+    return {"grade": grade, "pass": grade != "missing",
+            "has_venue": has_venue, "has_doi": has_doi}
 
 # ── axis3 재정의 (R2) — 품질 게이트 → 파이프라인 건강/커버리지 기술자 ──
 # R1/R1.5: academic_ratio 는 vertex-skip 시 (oa+ss)/(oa+ss)=1.000 포화(변별력 0),
@@ -222,6 +255,10 @@ def _run_one_paper(topic: str, sections: list[str]) -> dict:
         stage_times[f"fetch_{section}"] = round(time.monotonic() - tf, 2)
         # catch 80: extend 直前 = 이전 섹션들 누적 길이 = 이 섹션의 글로벌 오프셋
         cite_offset = len(section_chunks_all)
+        # R2 계측(axis1 재설계): 각 chunk 에 섹션 라벨 태그 (_backend 와 대칭 additive).
+        #   build_apa_references·_count_backends·writer 어디도 이 키 미참조 → 로직 영향 0.
+        for _c in chunks:
+            _c["_section"] = section
         section_chunks_all.extend(chunks)
         # write
         _stage(write_stage, 14, f"section {i} ({section}) LLM 본문 생성")
@@ -272,12 +309,34 @@ def _eval_axes(result: dict) -> dict:
     """axis 1~3 평가."""
     per_section = result["per_section"]
 
-    # axis 1: APA 7th regex
-    apa_lines = result["apa_lines"]
-    apa_pass = sum(1 for line in apa_lines if APA_REGEX.search(line))
-    apa_ratio = apa_pass / len(apa_lines) if apa_lines else 0.0
-    axis1 = {"pass_ratio": round(apa_ratio, 3), "n": len(apa_lines),
-             "threshold": 0.8, "verdict": "PASS" if apa_ratio >= 0.8 else "FAIL"}
+    # axis 1 (catch 79 재설계): chunk 최상위 venue/doi 존재 3등급 실체 판정.
+    #   구 regex(year 포화) 대신 axis1_grade. 입력 = build_apa_references 가 소비하는
+    #   그 chunks(최상위 필드). threshold 0.90, 3-state verdict(gate 유지).
+    a1_chunks = result["chunks"]
+    a1_grades = [axis1_grade(c) for c in a1_chunks]
+    a1_n = len(a1_grades)
+    a1_dist = {"complete": 0, "partial": 0, "missing": 0}
+    for g in a1_grades:
+        a1_dist[g["grade"]] += 1
+    a1_pass = a1_n - a1_dist["missing"]            # 결손 아닌 것 = pass(venue OR doi)
+    a1_ratio = a1_pass / a1_n if a1_n else 0.0
+    A1_THRESHOLD = 0.90
+    if a1_ratio < A1_THRESHOLD:
+        a1_verdict = "FAIL"                        # 결손 과다
+    elif a1_dist["missing"] > 0:
+        a1_verdict = "WARN"                        # ratio≥th 이나 일부 메타 결손
+    else:
+        a1_verdict = "PASS"                        # 결손 0
+    # 섹션별 결손 (per_section 파생 — _section 태그는 R2 계측이 심음, 한 커밋 의존)
+    a1_missing_by_section: dict[str, int] = {}
+    for c, g in zip(a1_chunks, a1_grades):
+        if g["grade"] == "missing":
+            _s = c.get("_section", "?")
+            a1_missing_by_section[_s] = a1_missing_by_section.get(_s, 0) + 1
+    axis1 = {"pass_ratio": round(a1_ratio, 3), "n": a1_n,
+             "threshold": A1_THRESHOLD, "verdict": a1_verdict,
+             "grade_dist": a1_dist, "n_missing": a1_dist["missing"],
+             "missing_by_section": a1_missing_by_section}
 
     # axis 2: IMRD section 분량 ±30%
     section_verdicts: dict[str, str] = {}
@@ -436,6 +495,31 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     json_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n[saved] {json_path}", flush=True)
+
+    # ── R2 계측(axis1 재설계): chunks 원본 별도 덤프 (R3 detector 오프라인 튜닝 재료) ──
+    # c_paper_measurement.json 오염 방지 위해 별도 파일. 실체 4필드(authors/year/venue/doi)
+    # + title + backend/section 태그만 추림. axis1 채점 로직 무관 = 순수 additive 계측.
+    chunks_dump: list[dict] = []
+    for r in runs:
+        if r.get("phase") != "measure":
+            continue
+        for c in r.get("chunks", []) or []:
+            chunks_dump.append({
+                "section": c.get("_section"),
+                "backend": c.get("_backend"),
+                "title": c.get("title"),
+                "authors": c.get("authors"),
+                "year": c.get("year"),
+                "venue": c.get("venue"),
+                "doi": c.get("doi"),
+            })
+    dump_path = out_dir / "chunks_raw_dump.json"
+    dump_path.write_text(json.dumps(
+        {"generated_at_utc": summary["generated_at_utc"],
+         "topic": args.topic, "n_chunks": len(chunks_dump),
+         "chunks": chunks_dump}, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[saved] {dump_path} ({len(chunks_dump)} chunks)", flush=True)
+
     print(json.dumps(measurements[-1] if measurements else {}, ensure_ascii=False, indent=2))
     return 0
 
