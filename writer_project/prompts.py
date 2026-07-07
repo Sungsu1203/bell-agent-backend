@@ -438,6 +438,9 @@ def get_paper_section_writer_prompt() -> PromptTemplate:
         [citation 규칙]
         - 본문 인용 표기는 [참고 자료 요약] 항목의 번호를 [[N]] 형식으로만
           사용한다 (예: [[1]], [[2]]).
+        - [[N]] 은 본 section 에 제공된 [참고 자료 요약] K 개 항목의 로컬 번호만
+          사용한다. 이전 section (previous_sections) prose 에 등장하는 인용 번호는
+          재사용하거나 새로 도입하지 않는다.
         - [라벨] 형식의 자체 합성 명칭 금지 (예: [Smith_2024], [marketing_study]).
         - file:// 또는 http:// 로 시작하는 URL 을 본문에 직접 삽입하지 말 것.
         - References section 은 본 prompt 에서 만들지 않는다 (post-process 단계

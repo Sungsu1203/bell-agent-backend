@@ -16,6 +16,7 @@ References footer 는 본 모듈에서 utils.citations.format_apa7() 로 구성�
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Mapping
 
 from langchain_core.output_parsers.string import StrOutputParser
@@ -55,7 +56,13 @@ def write_paper_section(
             line += f"\n    abstract: {snippet}"
         refs_lines.append(line)
     refs_text = "\n".join(refs_lines)
-    prev_text = (previous_sections or "").strip() or "(없음 — 첫 section)"
+    # catch 81: previous_sections 의 글로벌 [[N]] 마커 strip (leak 채널 절단).
+    # writer 가 이전 섹션 글로벌 번호를 복사→재shift 하는 feedback loop 를 여기서
+    # 끊는다. 프롬프트로 나가는 로컬 복사본만 정제 — previous_sections 원본 인자·
+    # measure_paper 의 section_bodies·최종 paper_body 는 전부 불변. prose 는 유지돼
+    # 논리연속성/중복회피/용어일관성 손상 0 (marker 는 이들 어디에도 불요).
+    _stripped = re.sub(r"\[\[\d+\]\]", "", previous_sections or "")
+    prev_text = re.sub(r"[ \t]{2,}", " ", _stripped).strip() or "(없음 — 첫 section)"
 
     chain = prompt | llm | StrOutputParser()
     body = chain.invoke({

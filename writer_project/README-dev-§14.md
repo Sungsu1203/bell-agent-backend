@@ -973,3 +973,33 @@ catch 78 이 (n.d.) 껍데기를 원천 차단한 뒤라 axis1 이 재는 대상
 **status: closed (2026-07-06)** — axis1 regex 포화 → venue OR doi 3등급 실체 판정 재설계 종결.
 remeasure WARN(0.944, 결손 5) = 오프라인 설계 라이브 재현, 포화 회귀 없음. 커밋됨.
 잔존 별 트랙: OA 메타 충전 개선, venue 부정합/predatory 판별.
+
+
+## §paper-writer-2 catch 81 close (2026-07-07) — 한 런 내부 numbering feedback loop 절단 (본문↔참조 오매칭)
+
+catch 80 글로벌 shift 산물이 `previous_sections`로 다음 섹션 writer 프롬프트를 오염 → writer가
+글로벌 `[[N]]`을 복사→재shift 하는 **한 런 내부 feedback loop**(R1 규명). 상세 박제:
+`scripts/output/§paper-writer-1/catch81_R2R3_close_20260707.md` (+ R1 `catch81_numbering_feedback_loop_report_20260707.md`).
+
+### 배선 (leak 채널 절단, 2파일)
+- `agent/paper_section_writer.py:58` — `prev_text`에서 `\[\[\d+\]\]` strip (프롬프트로 나가는 **로컬 복사본만**).
+  `section_bodies`(=previous_sections leak + 최종 paper_body/반환 동일 리스트 공유)는 무손상 → footer 정합 불변.
+  ⚠️ `:58` fallback `or "(없음 — 첫 section)"` 보존 필수(task 원본 누락분). `_CITE_MARKER_RE` 공유는 순환(script→lib)이라 inline만 가능.
+- `prompts.py:439` — [[N]] 로컬-스코프 명확화 1줄(defense-in-depth). `:450`("표기 일관성"=용어/변수 ≠[[N]])은 불변.
+
+### R3 유료 통제런 (references 89 byte-identical = 단일변수 통제) — 4종 PASS
+| 판정 | baseline 004833 | R3 020918 |
+|---|---|---|
+| out-of-range | 9 occ / 8 distinct | **0 / 0** |
+| 2-hop 사슬 | 1 (`[[112]]` 26→59→112) | **0** |
+| footer 정합 | max 112 > 89 | max 82 ≤ 89 |
+| 측정축 | axis1 0.944 WARN / axis3 PASS 1.0 | **identical** |
+
+전 섹션 인용 유지·전량 in-range(가짜-PASS 아님). 인과(R1 §2 writer 실제 복사) 확정.
+관찰: 본문 마커 52→21(생성변동+복사마커 소거, 판정 무위반) / strip 후 구두점 앞 공백 잔재(leak 입력만·무해·미수정).
+
+### 변경 파일 (종결 커밋) — measurement JSON·output 논문 제외(관행)
+- `agent/paper_section_writer.py`, `prompts.py`, `catch81_R2R3_close_20260707.md`, `README-dev-§14.md`(본 엔트리).
+
+**status: closed (2026-07-07)** — leak 채널 strip + 프롬프트 명확화로 절단, 유료 통제런 4종 PASS로 인과 확정.
+re-entry: 마커 수 변동이 인용밀도에 유의미하면 재검토 / 타 토픽·섹션수에서 재출현 시 leak 잔여경로 재진단 / faithfulness는 43 aligned 중 재선정(R1 §4).
