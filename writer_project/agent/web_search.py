@@ -1952,6 +1952,40 @@ def _load_and_hydrate_seeds(section_type: str,
     return out
 
 
+# ── §axis1 OA충전 catch 82: safe-core 미회수 3건 수동 venue override ──────────
+# _extract_venue(safe-core) 로 회수 불가한 3 work 의 venue 를 검증된 확정값으로 채운다.
+# raw_source_name 폴백(garbage) 대신 실게재지를 title+year 로 특정해 주입.
+# ★기존 chunk 의 venue 필드 채움만 — 신규 참조 생성/denominator 변경 없음.
+#   · IEEE SMC(2014): raw_source_name 에 clean conference 명 생존, 구조화 source 없음.
+#   · Cardozo LR(Rothman 2005): raw_source_name 에 실저널 생존, primary=Penn repo.
+#   · 인권과 정의(윤선희 2005): OA 완전결손 → KCI(arti_id ART001008024)로 실게재지 확정.
+_VENUE_OVERRIDES: list[dict] = [
+    {"title": "Trademark retrieval based on phonetic similarity", "year": 2014,
+     "venue": "2014 IEEE International Conference on Systems, Man, and Cybernetics (SMC)"},
+    {"title": "Initial Interest Confusion: Standing at the Crossroads of Trademark Law",
+     "year": 2005, "venue": "Cardozo Law Review"},
+    {"title": "상표의 유사 여부 판단을 위한 일반적 판단기준 및 판단방법의 검토",
+     "year": 2005, "venue": "인권과 정의"},
+]
+
+
+def _norm_ovr_title(t: Optional[str]) -> str:
+    """override 매칭용 title 정규화 (ascii 영숫자+한글 보존, 그 외 공백·소문자)."""
+    return re.sub(r"\s+", " ", re.sub(r"[^0-9a-z가-힣]+", " ", (t or "").lower())).strip()
+
+
+def _apply_venue_overrides(chunks: list[dict]) -> int:
+    """3건 override 를 (norm_title, year) 매칭으로 기존 chunk venue 에 주입. 갱신 수 반환."""
+    idx = {(_norm_ovr_title(o["title"]), o["year"]): o["venue"] for o in _VENUE_OVERRIDES}
+    n = 0
+    for ch in chunks:
+        v = idx.get((_norm_ovr_title(ch.get("title")), ch.get("year")))
+        if v is not None and ch.get("venue") != v:
+            ch["venue"] = v
+            n += 1
+    return n
+
+
 def paper_section_fetch(topic: str, section_type: str) -> list[dict]:
     """paper mode 전용 section-aware fan-out (catch 66: OA primary + SS secondary + vertex filter).
 
@@ -2029,6 +2063,12 @@ def paper_section_fetch(topic: str, section_type: str) -> list[dict]:
         logger.info("[paper_section_fetch] 출구 doi-dedup: %d건 제거 (%d→%d)",
                     _removed, len(all_chunks), len(_deduped))
     all_chunks = _deduped
+
+    # ── catch 82: safe-core 미회수 3건 venue override (기존 필드 채움만, 신규 ref 0) ──
+    _ovr = _apply_venue_overrides(all_chunks)
+    if _ovr:
+        logger.info("[paper_section_fetch] venue override %d건 주입 (section=%s)",
+                    _ovr, section_type)
 
     logger.info("[paper_section_fetch] %s → %d chunks (q=%s)",
                 section_type, len(all_chunks), query[:60])

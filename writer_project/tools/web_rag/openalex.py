@@ -44,6 +44,53 @@ def _strip_doi_prefix(doi: Optional[str]) -> Optional[str]:
     return s or None
 
 
+# ── §axis1 OA충전 catch 82: venue 추출 type-aware fallback ────────────────────
+# 원인(catch 82): 기존 venue = primary_location.source.display_name 단일경로. OA 는
+# primary_location 을 리포지토리 사본(source=None 또는 type=repository)에 걸어두는
+# 경우가 흔해(법학·preprint), 저널이 뒤 location 에 있어도 통째 드롭됨.
+# ("blanket host_venue 오독" 가설 폐기 — 실제 기제 = 신 스키마의 잘못된 단일 위치.)
+# safe-core 회수 정책(R2 오프라인 검증, 60 chunk / garbage 0 / regression 0):
+#   1) primary_location.source (type 이 리포 계열 아닐 때만)
+#   2) locations[] 전체 순회(인덱스 무가정) → type 이 리포 계열 아닌 첫 구조화 source
+#   3) 없으면 primary_location.source 리포명이라도 보존 (arXiv/SSRN = 기존 동작, regression 0)
+#   4) 그것도 없으면 None (책·진짜 결손)
+# ★raw_source_name 폴백 미채택 — filename('...pdf')·vol번호('40')·vendor-id('MODID-...')·
+#   citation-dump 등 garbage 다수(R2 STOP 보고). arXiv 는 표시 유지(OA 에 저널/학회 source
+#   부재 = 데이터 부재, 규범선택 아님).
+_OA_REPO_SOURCE_TYPES = {"repository", "ebook platform"}
+
+
+def _oa_source_name(src: Any) -> Optional[str]:
+    """OA source dict → 비어있지 않은 display_name (아니면 None)."""
+    if isinstance(src, dict):
+        n = src.get("display_name")
+        if isinstance(n, str) and n.strip():
+            return n.strip()
+    return None
+
+
+def _extract_venue(work: Dict[str, Any]) -> Optional[str]:
+    """OA work → venue. primary_location.source 단일경로 대신 type-aware fallback."""
+    pl = work.get("primary_location") or {}
+    ps = pl.get("source")
+    # 1) primary source 가 리포 계열이 아니면 채택
+    if isinstance(ps, dict) and ps.get("type") not in _OA_REPO_SOURCE_TYPES:
+        n = _oa_source_name(ps)
+        if n:
+            return n
+    # 2) locations[] 전체 순회 → 리포 계열 아닌 첫 구조화 source
+    for loc in (work.get("locations") or []):
+        if not isinstance(loc, dict):
+            continue
+        s = loc.get("source")
+        if isinstance(s, dict) and s.get("type") not in _OA_REPO_SOURCE_TYPES:
+            n = _oa_source_name(s)
+            if n:
+                return n
+    # 3) 저널 없음 → primary 리포명 보존(기존 동작 == regression 0) / 4) 없으면 None
+    return _oa_source_name(ps)
+
+
 def _reconstruct_abstract_from_inverted_index(
     inv: Optional[dict],
 ) -> Optional[str]:
@@ -154,9 +201,8 @@ def openalex_search(query: str) -> Dict[str, Any]:
             for a in oa_authorships
             if isinstance(a, dict) and (a.get("author") or {}).get("display_name")
         ]
-        # catch 60-c 정합: host_venue deprecated → primary_location.source.display_name
-        oa_source = pl.get("source") or {}
-        oa_venue = oa_source.get("display_name") if isinstance(oa_source, dict) else None
+        # catch 82: primary_location.source 단일경로 드롭 방지 (type-aware fallback)
+        oa_venue = _extract_venue(work)
         chunks.append({
             "uri": u,
             "title": work.get("title") or "",

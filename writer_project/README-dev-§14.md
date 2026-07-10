@@ -1003,3 +1003,41 @@ catch 80 글로벌 shift 산물이 `previous_sections`로 다음 섹션 writer �
 
 **status: closed (2026-07-07)** — leak 채널 strip + 프롬프트 명확화로 절단, 유료 통제런 4종 PASS로 인과 확정.
 re-entry: 마커 수 변동이 인용밀도에 유의미하면 재검토 / 타 토픽·섹션수에서 재출현 시 leak 잔여경로 재진단 / faithfulness는 43 aligned 중 재선정(R1 §4).
+
+---
+
+## §paper-writer-2 catch 82 close (2026-07-10) — OA venue 단일경로 드롭 → type-aware locations[] fallback (venue 결손 5→0, axis1 WARN→PASS)
+
+한 줄: OA venue를 `primary_location.source` 단일경로로만 읽어, 저널이 뒤 `locations[]`에 있으면 통째 드롭.
+type-aware fallback + 수동 override 3건으로 회수. catch 80 close known divergence "OA 메타 충전 개선"의 직접 후속.
+상세 박제: `scripts/output/§paper-writer-1/catch82_OA충전_R1R2R3_close_20260710.md` (R1 X/Y 판정 / R2 검수표 파트A·B / R3 dry+유료런).
+
+### 배선 (2파일 + override + 박제)
+- `tools/web_rag/openalex.py` — `_extract_venue()` 신설(+52/-3): (1)`primary_location.source`[type≠repo]
+  (2)`locations[]` 순회 첫 저널 source (3)없으면 primary 리포명 보존(regression 0) (4)없으면 None.
+  `:157-159` 인라인 → `_extract_venue(work)` 교체. ★raw_source_name 미채택(filename·vol번호·vendor-id·citation-dump garbage).
+- `agent/web_search.py` — `_VENUE_OVERRIDES` 3건(+40): IEEE SMC / Cardozo Law Review / 인권과 정의(윤선희,
+  KCI arti_id ART001008024). `paper_section_fetch` 출구 1지점. ★기존 work venue 필드 채움만(신규 ref 0).
+
+### 실측 (유료 통제런 2026-07-10, exit 0, vertex off) — 단일변수 통제
+- axis1: 결손 5→**0**, pass_ratio 0.944→**1.0 PASS**(complete 44/partial 45/missing 0).
+- axis2 무이동 / axis3 무이동(학술 100% 89/89, `vertex_web=0`). references **89 불변**(신규 ref 0)=denominator 통제.
+- override 5 chunk 착지 dry 오라클 일치. venue garbage 0.
+- partial 45 잔존 = doi 결손(39) 무접촉(정상). Cortés(책) venue-None 정상(DOI 보유 → partial 등급).
+
+### 반증·정정 박제
+- "blanket host_venue 오독" 가설 **폐기** — 코드는 이미 신 스키마 읽음. 실제 기제 = 신 스키마의 **잘못된 단일 위치**(primary만, locations[] 미순회).
+- arXiv/SSRN 프리프린트 = venue 표시 유지(OA에 저널 source 부재 = 데이터 문제, 규범선택 아님).
+- ★baseline 정정: 77(catch 78 직후)은 stale, catch 74 SS 복구로 현 baseline **89**(OA60+SS29).
+- ★라인 정정: 토픽 .env SKIP_VERTEX_SEARCH 값 = `:22`(:21은 주석). off-by-one 실파일 기준 정정.
+
+### known divergence / 별 트랙 (미착수, 기록만)
+- 윤선희 계열 KCI 커버리지: OA 완전결손. KCI 백엔드는 1건 위한 과투자 → 수동 override로 처리, 백엔드 미착수.
+- IEEE SMC·Cardozo: raw_source_name에만 생존(clean)이나 자동 파싱 garbage 위험 → 수동 override 채택.
+- doi 결손 39건: 별 트랙(venue와 기제 상이). / catch 80 "venue 부정합/predatory"(품질 축) 잔존.
+
+### 변경 파일 (단일 커밋) — measurement JSON·output 논문 제외(관행)
+- `tools/web_rag/openalex.py`, `agent/web_search.py`, `catch82_OA충전_R1R2R3_close_20260710.md`, `README-dev-§14.md`(본 엔트리).
+
+**status: closed (2026-07-10)** — OA venue fallback 배선 + override 3건으로 결손 5→0, axis1 PASS. 단일변수 통제(ref 89 불변·axis2/3 무이동) 확인.
+re-entry: raw_source_name 자동 파싱 필요해지면 guard 재설계(clean conference 화이트리스트) / KCI 커버리지 트랙 착수 시 override 3건 재검토 / 타 토픽서 repo-primary 패턴 재출현 시 REPO_TYPES 보강.
