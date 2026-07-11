@@ -1,25 +1,25 @@
-# RAG Writer Project (Backend)
+# RAG Writer Agent (Backend)
 
 ## Project context
-RAG 기반 광고 에이전시 딜리버리블 생성기. 현재 §12-13 (사용자 검증) 진행 중.
+RAG 기반 딜리버리블 생성기 (LangGraph 멀티에이전트 + FastAPI + ChromaDB + Next.js).
+공통 뿌리에서 두 트랙으로 분화 — 각 트랙 상세는 writer_project/ 문서 참조.
 
-## Source of truth
-**Task queue·박제 메모·의사결정 기록은 `README-dev.md` 참조.**
-- task 번호 체계: `§<섹션>-<항목>` (예: §12-12-1)
-- 작업 시작·완료 시 README-dev.md의 해당 task 섹션 확인 및 갱신
-- 종결된 task는 결론과 re-entry 조건을 명시 후 닫음
+## 두 트랙 (source of truth)
+- 🏢 회사 트랙 — 광고·마케팅 기획서/보고서 (원형 용도)
+  · writer_project/ad/GUARDRAILS.md        = 운영 규칙·상수
+  · writer_project/ad/WORKBOARD.md          = 할일·활성 트랙·결정
+  · writer_project/ad/README-dev.md, -2.md  = 개선 기록(아카이브)
+- 📄 논문 트랙 — 학술자료 수집 → 논문 작성 (확장 용도, 현재 활성)
+  · writer_project/CLAUDE.md                = 공통 운영 규칙·상수 (자동 로드)
+  · writer_project/paper/WORKBOARD.md       = 할일·활성 트랙·결정
+  · writer_project/paper/README-dev-§14.md  = 종결 catch 아카이브
 
-## Current focus (§12-13)
-- 사용자 검증 우선: 일반 LLM Q&A 헬스체크, venfobel 인덱스 직접 QA, end-to-end 리포트 생성
-- 백엔드 최적화(§12-12 큐)는 deprioritized
+## Environment (macOS)
+- 가상환경: `.venv_vertex/bin/python` (repo 루트 기준). vertex 의존성 = requirements.vertex.txt.
+- Provider 토글: `.env.<provider>` 자동 로드 (vertexai / openai).
+- zsh: `§`·`*` 포함 경로는 따옴표로 감쌀 것.
 
-## Environment
-- PowerShell (Vertex): `.venv_vertex` + `LLM_PROVIDER=vertexai`
-- PowerShell (OpenAI): `.venv_openai` + `LLM_PROVIDER=openai`
-- WSL: `python3`
-- Provider 토글은 §12-23 박제 참조 (`.env.<provider>` 자동 로드)
-
-## Subagent usage
+## Subagent usage (user 스코프: ~/.claude/agents/)
 - 모듈/함수 위치 찾기 → file-explorer
 - pytest·평가 로그 요약 → log-summarizer
 - 인덱스 메타데이터·저장된 결과 조회 → index-inspector (read-only, 새 retrieval 호출 금지)
