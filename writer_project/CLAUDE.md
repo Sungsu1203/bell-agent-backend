@@ -82,6 +82,13 @@ Claude Code가 코드 변경·명령을 보고할 때 **항상 두 층으로** �
 - `max_retries=0`, warmup 2런, per-run-timeout `max(300, mean×1.5)`, inter-run-sleep 60s, `PYTHONIOENCODING=utf-8`.
 - provider별 venv·`.env` 분리.
 
+> 공통 표준 상세 → `STANDARDS.md`
+> - ENV 4-layer 로드 순서·override (STANDARDS §1)
+> - 측정 metric·ref source 분류 (STANDARDS §2)
+> - Chroma ns_web reset 정책 (STANDARDS §3)
+> - `_PROTECTED_ENV_KEYS` 5키 (STANDARDS §4)
+> - credential 노출 감사 3-명령 (STANDARDS §5)
+
 ---
 
 ## 7. 방법론 (§-cycle)
