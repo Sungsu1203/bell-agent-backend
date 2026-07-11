@@ -1,5 +1,9 @@
 # CLAUDE.md — bell-agent writer_project 운영 가드레일
 
+> 이 프로젝트 = RAG writer agent 공통 뿌리 + 두 트랙.
+> 📄 논문 트랙 = paper/ (WORKBOARD, README-dev-§14).  🏢 회사 트랙 = ad/ (GUARDRAILS, WORKBOARD, README-dev).
+> 이 파일 = 공통 상수·규칙 + 두 트랙 갈림길.
+
 > 이 파일은 Claude Code가 **세션 시작마다 자동으로 전체를 읽는다**(요청 불필요, /compact 후 재주입).
 > 매 작업 전 여기부터 확인. 규칙은 흩어진 README가 아니라 **이 파일이 단일 진실원(source of truth)**.
 > repo 경로: `/Users/ohsungsu/dev/bell-agent/bell-agent-backend/writer_project/`
@@ -12,8 +16,8 @@
 - **Claude Code(여기)** = 분석 · 실행. **메모리 없음 → 이 파일과 레포 파일만 의존.**
 - 파일 지도:
   - `CLAUDE.md`(이 파일) = 운영 상수·규칙. 자동 로드.
-  - `WORKBOARD.md` = 앞으로 할 일(활성 트랙 · 별 트랙 후보 · 결정 기록). 세션 시작 시 함께 읽을 것.
-  - `README-dev-§14.md` = **종결 catch 아카이브(박제)**. 과거 기록 전용. 새 작업 계획은 여기 넣지 않는다.
+  - `paper/WORKBOARD.md` = 앞으로 할 일(활성 트랙 · 별 트랙 후보 · 결정 기록). 세션 시작 시 함께 읽을 것.
+  - `paper/README-dev-§14.md` = **종결 catch 아카이브(박제)**. 과거 기록 전용. 새 작업 계획은 여기 넣지 않는다.
 
 ---
 
@@ -92,4 +96,4 @@ Claude Code가 코드 변경·명령을 보고할 때 **항상 두 층으로** �
 
 - **references = 89 (OA 60 + SS 29).** ⚠️ 77은 catch 78 직후 stale — 이후 catch 74(SS tail-only 복구)가 늘림. 함정.
 - axis1 = **1.0 PASS** (complete 44 / partial 45 / missing 0).
-- 상세·진행 방향은 `WORKBOARD.md` 참조.
+- 상세·진행 방향은 `paper/WORKBOARD.md` 참조.
