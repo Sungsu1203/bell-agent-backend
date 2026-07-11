@@ -1,3 +1,6 @@
+> 📦 이 파일 = 종결 catch 아카이브(박제 전용).
+> 운영 상수·규칙 → CLAUDE.md / 앞으로 할 일 → WORKBOARD.md.
+
 # §14 — Vertex AI google search 점검·개선
 
 ## §14-1 현황 파악 (완료)
