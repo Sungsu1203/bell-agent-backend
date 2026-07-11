@@ -19,3 +19,4 @@
 
 ## 아카이브
 - README-dev.md, README-dev-2.md = 기존 기획서/보고서 에이전트 개선 기록.
+- README-dev-§14.md = §14 vertex 백엔드 점검·개선 아카이브.

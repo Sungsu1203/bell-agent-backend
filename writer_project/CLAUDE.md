@@ -1,7 +1,7 @@
 # CLAUDE.md — bell-agent writer_project 운영 가드레일
 
 > 이 프로젝트 = RAG writer agent 공통 뿌리 + 두 트랙.
-> 📄 논문 트랙 = paper/ (WORKBOARD, README-dev-§14).  🏢 회사 트랙 = ad/ (GUARDRAILS, WORKBOARD, README-dev).
+> 📄 논문 트랙 = paper/ (WORKBOARD, README-dev-paper).  🏢 회사 트랙 = ad/ (GUARDRAILS, WORKBOARD, README-dev, README-dev-§14).
 > 이 파일 = 공통 상수·규칙 + 두 트랙 갈림길.
 
 > 이 파일은 Claude Code가 **세션 시작마다 자동으로 전체를 읽는다**(요청 불필요, /compact 후 재주입).
@@ -17,7 +17,7 @@
 - 파일 지도:
   - `CLAUDE.md`(이 파일) = 운영 상수·규칙. 자동 로드.
   - `paper/WORKBOARD.md` = 앞으로 할 일(활성 트랙 · 별 트랙 후보 · 결정 기록). 세션 시작 시 함께 읽을 것.
-  - `paper/README-dev-§14.md` = **종결 catch 아카이브(박제)**. 과거 기록 전용. 새 작업 계획은 여기 넣지 않는다.
+  - `paper/README-dev-paper.md` = **종결 catch 아카이브(박제)**. 과거 기록 전용. 새 작업 계획은 여기 넣지 않는다.
 
 ---
 

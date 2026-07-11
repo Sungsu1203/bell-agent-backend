@@ -23,3 +23,4 @@ RAG writer agent의 원형 용도 — 광고대행사 기획서·보고서 생�
 - 이 파일 = 회사 트랙 운영 규칙.
 - ./WORKBOARD.md = 회사 트랙 할일·활성 트랙·결정 기록.
 - ./README-dev.md, ./README-dev-2.md = 회사 트랙 개선 기록(아카이브).
+- ./README-dev-§14.md = §14 vertex 백엔드 점검·개선 아카이브.
