@@ -95,6 +95,13 @@ scripts/diag/
 
 # paper writer 산출물 / 백업 (status 오염 방지)
 scripts/output/
+# catch 83 예외: full abstract dump = faithfulness rank 표준 근거 스냅샷(OA/SS 재조회 비결정적 → 고정)
+# 부모 디렉토리를 단계적으로 traverse 허용 후 특정 파일만 재포함(git 규칙: excluded 디렉토리 하위는 직접 되살릴 수 없음)
+!scripts/output/
+scripts/output/*
+!scripts/output/§paper-writer-1/
+scripts/output/§paper-writer-1/*
+!scripts/output/§paper-writer-1/chunks_full_abstract_dump.json
 *.bak_*
 _refs_venfobel_backup/
 ~$*

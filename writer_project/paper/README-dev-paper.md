@@ -634,3 +634,61 @@ type-aware fallback + 수동 override 3건으로 회수. catch 80 close known di
 
 **status: closed (2026-07-10)** — OA venue fallback 배선 + override 3건으로 결손 5→0, axis1 PASS. 단일변수 통제(ref 89 불변·axis2/3 무이동) 확인.
 re-entry: raw_source_name 자동 파싱 필요해지면 guard 재설계(clean conference 화이트리스트) / KCI 커버리지 트랙 착수 시 override 3건 재검토 / 타 토픽서 repo-primary 패턴 재출현 시 REPO_TYPES 보강.
+
+---
+
+## §paper-writer-2 catch 83 close (2026-07-12) — citation-claim faithfulness rank: pool 재설계 + 마커 2단 교정 + full 근거 재조회 (근거길이 병목 인과입증, Beebe 총론성 미해소)
+
+한 줄: 본문 인용이 근거를 의미상 왜곡 안 했나 = 상위층 품질축. 절대코사인 negative result → **상대 rank** 전환.
+직전 rank 코드의 두 버그(정규식 다중묶음 누락 · pool을 fetch-출처로 오독)를 잡고, 240자 절단을 full로 풀어
+"근거 길이가 rank를 좌우한다"를 **인과로 입증**(표적 [[5]] 0.077→0.615). Beebe 총론성만 미해소=별도 catch 후보.
+박제 산출: `scripts/output/§paper-writer-1/rank_faithfulness_chunks_{raw,full_abstract}_dump.json`(240 vs full 대조).
+
+### 배선 (2파일 신규 + dump + venv)
+- `rank_faithfulness.py`(신규 283L) — 미실행 상태였던 rank 코드를 6종 수정:
+  (1)`_MARK_RE` **2단 교정**(바깥 `[[.*?]]` 덩어리→내부 `\d+`, 다중묶음 포착; 페어추출·문장정제 **두 곳** 다).
+  (2)pool 정의 재설계: `cited["section"]!=sec` misaligned 배제 **폐기** → **P∪{C} 합집합 rank**, m=|합집합|.
+  (3)입력 repoint(20260710 논문 + chunks dump 인자화). (4)Beebe [[58]] 강제편입 특례를 **본 로직에 흡수**(분모 off-by-one 교정).
+  (5)pool **identity dedup**(Beebe 5중 등재 자기복제 코사인 1.0 편향 차단). (6)tie **average-rank**(0.5).
+  +최적화 2건: identity→embedding 캐시(중복 인코딩 제거), 섹션 `sims=emat@q` 1회.
+- `refetch_abstracts.py`(신규 188L) — **order-preserving full backfill + fallback B**: old 89 identity/order 고정,
+  abstract만 full로. fetch 미매칭 시 240 유지(`abstract_source` 태그로 혼재 명시). `_trunc240`→`_keep_abstract` 개명.
+- `chunks_full_abstract_dump.json`(신규, gitignore 예외) — full 65건 전량 업그레이드(fallback 0 → rank pool 100% full).
+- `.venv_emb` 신설(vertex 격리) — e5-large용. **버전 박제**: torch 2.2.2 / transformers 4.40.2 /
+  sentence-transformers 2.7.0 / tokenizers 0.19.1 / safetensors 0.8.0 / numpy 1.26.4.
+
+### 실측 (로컬 e5-large, 유료 0; OA/SS 재조회 $0 vertex off) — 240 vs full 단일변수 대조
+- **표적1 [[5]] "인지과학+상표법" EC→Intro**: 240 pct **0.077**(rank 13/14) → full **0.615**(6/14). **+0.538. 인과 확정.**
+  (같은 문장·pool, abstract만 240→full. 육안: 인지과학 논지 char 567~908, e5 반영권 내.)
+- **표적2 Beebe [[2]] TB/PF**: 240 {0.5~0.909} → full {0.643~0.909, Intro 1.0}. **하위 안 됨. 미달.**
+- **표적3 강제편입**: median 0.88/0.85, min0~max1.0 섞임. **충족**(구조편향 없음).
+- bundle: 단독 median 0.95→**1.0**(주근거), 묶음 0.73→0.69(방증). cited_cos median 0.79 불변(절대 포화 재확인).
+
+### 반증·정정 박제 (★ = 사용자 지정 필수)
+1. **★정규식 착시 계보(항목4)**: 구 `_MARK_RE=\[\[(\d+)\]\]`는 단독만 인식. 실본문은 `[[1], [2], [7]]` 다중묶음 지배
+   (catch 81 후 표기전환). **세 겹 착시** — T3 시뮬이 "PF·EC 인용 0"으로 오판→catch 83(인용소실) 가설. 사용자
+   본문 육안 반증→재계수: 0710 마커 16→**58**(37% 누락), rank도 0706 기준 82중 30건(37%) 흘리던 중이었음.
+   교훈: Y(측정도구 한계)를 경계하자던 트랙이 마커 계수 단계에서 Y에 걸림. **가설 전 계수부터 교정.**
+2. **★over512 가설 반증(항목5)**: "full 2000자 초과→e5 512토큰 절단→rank 하위 몰림" 가설을 **사전 검증항목으로 박음.**
+   결과 반증 — over512(n=10) median **0.8**, 하위 안 몰림. Beebe(2475자) over512인데도 상위. → **abstract chunking 불필요.**
+   Beebe 실패 진범 = 512절단 아닌 **abstract 총론성**(앞 2000자 전부 총론). 검증항목 사전박기가 헛다리를 데이터로 차단.
+3. **★negative result 계보 정정(항목7)**: 직전 절대코사인 실험(negative_result_..._20260706)도 **구 정규식 = 37% 페어
+   누락 상태**에서 측정됐음. 결론(도메인 포화→절대임계 부적합)은 **유효**(rank 전환 정당)하나, 표본이 43이 아닌
+   실제 더 많았을 것 = 기록 정정 필요. **full 파일럿에서도 cited_cos median 0.792 / std 0.033**(240의 0.791/0.037과
+   사실상 동일)로 **도메인 포화 재확인** — 근거를 full로 늘려도 절대 코사인은 여전히 좁은 띠, 결론 재입증됨.
+4. 환경유실 **3사례**(macOS 이전 "코드만 옮기고 환경은 누락"): subagent 3종 / SSL 루트 인증서 / 임베딩 스택.
+5. rank 메커니즘 작동 확정 — 방증·주제이탈 인용을 하위로 정확히 포착(bundle 태그·최저 8건). full이 근거길이 병목 해소.
+
+### known divergence / 별 트랙 (미해소, catch 후보 등록)
+- **★표적2 총론성 = catch 후보**: "총론 문헌 반복인용은 rank로 판별 불가 — 정상 인용 가능성 배제 못 함.
+  원래 발단(Beebe 5회 중복 등재 = 장식 인용 의심) **미해소**. abstract chunking 무효(총론 쪼개도 총론).
+  LLM 직접 정합 판정 등 **rank 밖 축** 필요." → 상위층 faithfulness의 다음 표적.
+- cited_no_abstract 17건(29%) 미개선 — 재조회로 empty 24 못 채움(OA/SS 미보유). 커버리지 한계.
+- `extract_pairs.py:38/:91/:95`에 동일 구 `_MARK_RE` 버그 잔존 — rank는 자체추출로 무관, 재사용 시 교정 필요.
+
+### 변경 파일 (단일 커밋) — measurement/rank JSON·논문 제외(관행), full dump만 gitignore 예외
+- `rank_faithfulness.py`, `refetch_abstracts.py`, `extract_pairs.py`, `emb_cosine.py`(계보 자산 박제),
+  `chunks_full_abstract_dump.json`(표준 근거 스냅샷), `.gitignore`(예외), `README-dev-paper.md`(본 엔트리).
+
+**status: closed (2026-07-12)** — rank 작동 확정(pool 재설계·정규식 교정·full 근거). 근거길이 병목 인과입증(0.077→0.615).
+re-entry: 표적2 총론성 → LLM 정합축 catch 착수 / cited_no_abstract 커버리지 개선 시 KCI·타 백엔드 / e5→BGE-m3 업그레이드는 rank 민감도 낮아 후순위 / 240 잔재 재발 시 abstract_source 태그로 혼재 감사.

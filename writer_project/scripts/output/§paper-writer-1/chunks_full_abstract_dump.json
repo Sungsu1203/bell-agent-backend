@@ -1,0 +1,1255 @@
+{
+  "generated_at_utc": "2026-07-10T13:28:26.171089+00:00",
+  "source": "refetch_abstracts (catch83 ②, order-preserving full backfill + fallback B)",
+  "topic": "consumer perceived trademark similarity and likelihood of confusion",
+  "n_chunks": 89,
+  "aligned_to": "chunks_raw_dump.json (89-chunk order preserved)",
+  "abstract_recovery": {
+    "full": 65,
+    "fallback_240": 0,
+    "empty": 24,
+    "coverage_nonempty": 65,
+    "e5_char_limit": 2000,
+    "over_limit_n": 14
+  },
+  "section_full_ratio": {
+    "Introduction": "11/15",
+    "Theoretical Background": "12/18",
+    "Proposed Framework": "15/20",
+    "Research Design (Proposed)": "13/19",
+    "Expected Contributions": "14/17"
+  },
+  "chunks": [
+    {
+      "section": "Introduction",
+      "backend": "openalex",
+      "title": "Trademarks’ relatedness to product and service innovation: A branding strategy approach",
+      "authors": [
+        "Meindert Flikkema",
+        "Carolina Castaldi",
+        "Ard-Pieter de Man",
+        "Marcel Seip"
+      ],
+      "year": 2019,
+      "venue": "Research Policy",
+      "doi": "10.1016/j.respol.2019.01.018",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Introduction",
+      "backend": "openalex",
+      "title": "Search and Persuasion in Trademark Law",
+      "authors": [
+        "Barton Beebe"
+      ],
+      "year": 2005,
+      "venue": "Michigan Law Review",
+      "doi": null,
+      "abstract": "The consumer, we are led to believe, is the measure of all things in trademark law. Trademarks exist only to the extent that consumers perceive them as designations of source. Infringement occurs only to the extent that consumers perceive one trademark as referring to the source of another. The most \"intellectual\" of the intellectual properties, trademarks are a property purely of consumers' minds. The simple idealist ontology underlying trademark law is largely responsible for the law's characteristic instability. Since 1992, the Supreme Court has considered - and in some cases, reconsidered - seven trademark cases. The Court's copyright cases garner the media and celebrity attention, but it is the trademark cases that most clearly express the unsteady state, the entre deux temps condition, of current American intellectual property law. There is a reason for this. Trademark law is arguably the most difficult of the intellectual property laws to contemplate, and its outcomes when applied to facts are the most difficult to predict. This is because it requires a form of what John Keats called \"negative capability,\" the capability, more specifically, to think through the consumer and see the marketplace only as the consumer sees it. From the beginning, trademark law has sought to resist the negative capability called for by its underlying idealism. It has sought to limit the dependence of the object of the law, the trademark, on the vagaries of the subject of the law, the consumer. In doing so, the law has embraced an \"ideal type\" of the subject. Just as copyright doctrine has based itself upon a largely mythical \"author construct,\" so trademark doctrine has based itself upon a largely mythical \"consumer construct.\" Where the former describes an impossibly romantic producer, however, the latter describes an impossibly utilitarian consumer. Both figures are conceived of as sovereigns, that is to say, as egoists, but where the \"sovereign author\" is inspired, even capricious in her egoism, the \"sovereign consumer\" is a utility maximizing agent of unbounded rational choice. By means of \"a mechanical procedure of search,\" which trademarks are said to facilitate, she satisfies exogenously determined preferences, on which trademarks are said to have no effect. Her psychology is understood to be predictable, administrable, and ultimately ameliorative. The sovereign consumer is the antithesis of and eliminates the need for negative capability.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Introduction",
+      "backend": "openalex",
+      "title": "A Defense of the New Federal Trademark Antidilution Law",
+      "authors": [
+        "Barton Beebe"
+      ],
+      "year": 2006,
+      "venue": "Fordham intellectual property, media & entertainment law journal",
+      "doi": null,
+      "abstract": "A. THE NEW STANDARD FOR FAMOUSNESS 1157 1. The Statutory Language 1157 2. Inherent Distinctiveness and Famousness 1159 3. The Ironies of Anti-Blurring Protection for “Famous” Marks 1161 B. THE NEW BLURRING: GUILT BY “ASSOCIATION” 1165 1. The TDRA’s Four-Part Definition of “Dilution by Blurring” 1165 2. The Blurring Factors 1170 C. “TARNISHMENT” AND DILUTION 1172",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Introduction",
+      "backend": "openalex",
+      "title": "Online Dispute Resolution for Consumers in the European Union",
+      "authors": [
+        "Pablo Cortés"
+      ],
+      "year": 2010,
+      "venue": null,
+      "doi": "10.4324/9780203847756",
+      "abstract": "A PDF version of this book is available for free in open access via www.tandfebooks.com as well as the OAPEN Library platform, www.oapen.org. It has been made available under a Creative Commons Attribution-Non Commercial-No Derivatives 3.0 license and is part of the OAPEN-UK research project. E-commerce offers immense challenges to traditional dispute resolution methods, as it entails parties often located in different parts of the world making contracts with each other at the click of a mouse. The use of traditional litigation for disputes arising in this forum is often inconvenient, impractical, time-consuming and expensive due to the low value of the transactions and the physical distance between the parties. Thus modern legal systems face a crucial choice: either to adopt traditional dispute resolution methods that have served the legal systems well for hundreds of years or to find new methods which are better suited to a world not anchored in territorial borders. Online Dispute Resolution (ODR), originally an off-shoot of Alternative Dispute Resolution (ADR), takes advantage of the speed and convenience of the Internet, becoming the best, and often the only option for enhancing consumer redress and strengthening their trust in e-commerce. This book provides an in-depth account of the potential of ODR for European consumers, offering a comprehensive and up to date analysis of the development of ODR. It considers the current expansion of ODR and evaluates the challenges posed in its growth. The book proposes the creation of legal standards to close the gap between the potential of ODR services and their actual use, arguing that ODR, if it is to realise its full potential in the resolution of e-commerce disputes and in the enforcement of consumer rights, must be grounded firmly on a European regulatory model.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Introduction",
+      "backend": "openalex",
+      "title": "Gone in Sixty Milliseconds: Trademark Law and Cognitive Science",
+      "authors": [
+        "Rebecca Tushnet"
+      ],
+      "year": 2008,
+      "venue": "Texas law review",
+      "doi": null,
+      "abstract": "Trademark dilution is a cause of action for interfering with the uniqueness of a trademark. For example, consumers would probably not think that \"Kodak soap\" was produced by the makers of Kodak cameras, but its presence in the market would diminish the uniqueness of the original Kodak mark. Trademark owners think dilution is harmful but have had difficulty explaining why. Many courts have therefore been reluctant to enforce dilution laws, even while legislatures have enacted more of them over the past half century. Courts and commentators have now begun to use psychological theories, drawing on associationist models of cognition, to explain how a trademark can be harmed by the existence of similar marks even when consumers can readily distinguish the marks from one another and thus are not confused. Though the cognitive theory of dilution is internally consistent and appeals to the authority of science, it does not rest on sufficient empirical evidence to justify its adoption. Moreover, the harms it identifies do not generally come from commercial competitors but from free speech about trademarked products. As a result, even a limited dilution law should be held unconstitutional under current First Amendment commercial-speech doctrine. In the absence of constitutional invalidation, the cognitive explanation of dilution is likely to change the law for the worse. Rather than working like fingerprint evidence--which ideally produces more evidence about already-defined crimes--psychological explanations of dilution are more like economic theories in antitrust, which changed the definition of actionable restraints of trade. Given the empirical and normative flaws in the cognitive theory, using it to fill dilution's theoretical vacuum would be a mistake.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Introduction",
+      "backend": "openalex",
+      "title": "The Rational Basis of Trademark Protection Revisited: Putting the Dilution Doctrine into Context",
+      "authors": [
+        "Mathias Strasser"
+      ],
+      "year": 2016,
+      "venue": "Fordham intellectual property, media & entertainment law journal",
+      "doi": null,
+      "abstract": "The adoption of the Federal Trademark Dilution Act (the “FTDA”) in 1995, which incorporated a federal dilution clause into the Lanham Act, was preceded by a great deal of debate. The question lying at the heart of the discussion was whether the dilution doctrine is consistent with sound trademark policy or whether the far-reaching entitlements that the FTDA affords the owners of famous marks have instead created “dilution” of a kind that Congress may not have envisaged: a blurring of the conceptual boundaries of trademark law. It turns out that this question has important implications on a number of trademark doctrines (such as inherent distinctiveness, functionality, and trade dress). This Article’s thesis is that the dilution doctrine and the traditional tests for trademark infringement have the same rational basis - that they may all be coherently explained on the basis of the functional approach. To prove this the- sis, I will introduce two concepts: the “communication function” and “intrinsic reputation.” On the basis of these concepts, I will argue that trademarks could not fulfill their economic functions if they were not protected against dilution. Hence, I will conclude that the FTDA should be welcomed and that it should be applied to any name or device that is capable of fulfilling the functions for which we consider trademarks beneficial, be it a word, a symbol, or a product configuration. Part I explores the economic functions that trademarks per- form, how they relate to each other and whose interests they serve, arguing first, that trademarks fulfill both a product-identifying function and a communication function, and finally, that some trademarks have an intrinsic reputation. These two concepts suggest a utilitarian justification of the dilution doctrine. Part I also examines the various ways in which the likelihood of confusion test and the dilution doctrine (as well as the so-called identity rule in European trademark regimes) act together to ensure that trademarks can fulfill their economic functions. Part I concludes that the dilution doctrine is as vital to preserving the economic and social benefits that are expected to ensue from trademarks as the traditional tests. Part II examines why the dilution doctrine has sparked so much criticism in academia. My explanation is essentially twofold. First, one’s attitude towards the dilution doctrine depends on one’s understanding of the functional canon of trade- marks. So long as the debate surrounds the issue of trademark functionality, the dilution doctrine will remain controversial. Second, the lack of popularity of the dilution doctrine in the academic world may have to do with the exclusive rights-free competition dichotomy that characterizes intellectual property law in general. Although this dichotomy is sometimes thought to apply to trademarks with particular force, I will argue that it should not. The questions discussed in this Article are not Lanham Act- specific; they are basic questions every modern trademark regime confronts. As a result, it is interesting to see how other jurisdictions address them. A comparative analysis will also complement the historical context in which the dilution doctrine has evolved in the United States. The idea of protecting trademarks in the absence of a likelihood of confusion on the part of consumers began with an article that Frank Schechter wrote for the Harvard Law Review in 1927. Schechter’s views were markedly influenced by the German trademark law of that period.5 As we will see, German trademark law has undergone a number of major changes since 1927, one of the most significant ones involves the impact of European Community (“EC”) law on national law. It may, for this reason alone, be interesting to see how the dilution doctrine, that has remained a debated topic in the United States for almost a century, is construed and applied both in Germany and Europe today.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Introduction",
+      "backend": "openalex",
+      "title": "Rethinking Trademark Fair Use",
+      "authors": [
+        "William McGeveran"
+      ],
+      "year": 2008,
+      "venue": "University of Minnesota Law School Scholarship Repository (University of Minnesota)",
+      "doi": null,
+      "abstract": "The ever-expanding scope and strength of trademark rights has caused justifiable fears of a threat to free expression. Until now, however, concerned scholars generally focused on perfecting the substance of legal rules that balance free speech against other goals. This effort is misplaced because most cases raising these issues in recent years ended in judicial decisions that favored speech. The real danger arises from the procedural structure of trademark law's various fair use doctrines, which generate excessive ambiguity and prolong litigation before ever reaching such positive outcomes. Resulting administrative costs discourage speakers from using trademarks expressively in the first place, creating a classic chilling effect. This Article is the first to analyze these problems with trademark fair use comprehensively and recommend pragmatic reform to address the problems. Instead of adding more bells and whistles to already complex law, we should craft simpler affirmative defenses that reduce uncertainty and allow for quick adjudication. trademark, free speech, First Amendment, intellectual property",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Introduction",
+      "backend": "openalex",
+      "title": "When High-Similarity Copycats Lose and Moderate-Similarity Copycats Gain: The Impact of Comparative Evaluation",
+      "authors": [
+        "Femke van Horen",
+        "Rik Pieters"
+      ],
+      "year": 2011,
+      "venue": "Journal of Marketing Research",
+      "doi": "10.1509/jmr.08.0405",
+      "abstract": "Copycats imitate features of leading brands to free ride on their equity. The prevailing belief is that the more similar copycats are to the leader brand, the more positive their evaluation is, and thus the more they free ride. Three studies demonstrate when the reverse holds true: Moderate-similarity copycats are actually evaluated more positively than high-similarity copycats when evaluation takes place comparatively, such as when the leader brand is present rather than absent. The results demonstrate that blatant copycats can be less and subtle copycats can be more perilous than is commonly believed. This finding has implications for marketing theory and practice and trademark law.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Introduction",
+      "backend": "openalex",
+      "title": "Confusion Over Use: Contextualism in Trademark Law",
+      "authors": [
+        "Mark Weston Janis",
+        "Graeme B. Dinwoodie"
+      ],
+      "year": 2007,
+      "venue": "Iowa law review",
+      "doi": null,
+      "abstract": "This paper tackles an intellectual property theory that many scholars regard as fundamental to future policy debates over the scope of trademark protection: the trademark use theory. We argue that trademark use theory is flawed and should be rejected. The adoption of trademark use theory has immediate practical implications for disputes about the use of trademarks in online advertising, merchandising, and product design, and has long-term consequences for other trademark generally. We critique the theory both descriptively and prescriptively. We argue that trademark use theory over-extends the search costs rationale for the trademark system, and that it unhelpfully elevates formalism over contextual analysis in trademark law rulemaking. The theory seeks determinate trademark rules in order to encourage a climate of certainty for innovators, but the concepts on which it is founded are likely to degenerate. We show that trademark use theorists ignores the multivalence of trademark law, and that adopting trademark use doctrines would result in less transparent trademark decisionmaking. Instead, we propose that trademark law retain its traditional preference for contextual analysis. We show in particular how a contextual analysis would offer an approach to trademark disputes involving online advertising that better captures the potential of trademark law to police new information markets. Our analysis contemplates individualized assessments according to common law standards, but opens up policy space for the development of limited statutory safe harbors for intermediaries such as search engines.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Introduction",
+      "backend": "openalex",
+      "title": "The Birth of the Authornym: Authorship, Pseudonymity, and Trademark Law",
+      "authors": [
+        "Laura A. Heymann"
+      ],
+      "year": 2004,
+      "venue": "Journal of legislation",
+      "doi": null,
+      "abstract": "Consumers in the marketplace of ideas are well acquainted with one aspect of the Foucauldian concept of the “author function”. the way in which an author's name serves to organize both producer inputs-the various works the author wishes to have associated with his name-and consumer inputs-the readers' interpretive reactions to any particular body of work. Indeed, choosing to write under a pseudonym or under one's true name is the way in which an author exerts control over this function by grouping certain works (for example, scholarly pieces) under one name and other works (for example, mystery novels) under a different authorial name, thus segregating readers' responses to each of these bodies of work. Readers, in turn, respond to this decision by mirroring the choices made by the author-continuing, for example, to refer to certain works as being authored by “Mark Twain” even when the author's true name of “Samuel Clemens” is known or accepting that the Nancy Drew series was written by “Carolyn Keene” rather than by a series of different writers over time. Borrowing from postmodern literary theorists Roland Barthes and Michel Foucault, and given that statements of authorship often tell readers very little, if anything, about the identity of the individual who put pen to paper, this Article proposes a separation of statements of authorship-what this Article terms “authornyms”-from facts of authorship. This construct leads to the conclusion that all authornyms are essentially branding choices, even if the brand that is chosen is the author's true name, and therefore that the “author function” is really a “trademark function.” If this is the case, then-as in trademark law-we should seek to preserve the organizational system of the “authornym function” and to minimize the likelihood of reader confusion that occurs when a work is used unlawfully without attribution-in other words, when an author's choice of authornym is not preserved. The Supreme Court's 1995 decision in McIntyre v. Ohio Elections Commission, which granted First Amendment protection to pseudonymous speech, was an inherent acknowledgment of the trademark value that authornyms serve and the importance of controlling the author function by the choice of authornym. But in its decision in Dastar Corp. v. Twentieth Century Fox Film Corp. eight years later, the Supreme Court largely denied authors the ability to compel attribution of their works (and thereby preserve their authornymic choice) through the Lanham Act and thus denied readers the accurate attribution required for organized and efficient literary consumption. This Article contends that only by recognizing the essential pseudonymity of all statements of authorship-in other words, by decoupling the copyright-focused concept of authorship from the trademark-focused statement of authorship (“authornyms”)--can we create room for the values that trademark law can promote in the marketplace of ideas. Reprinted by permission of the publisher.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Introduction",
+      "backend": "semantic_scholar",
+      "title": "Trademark Confusion: a Sociological Analysis of the Influence of Consumer Involvement and Competency Factors",
+      "authors": [
+        "I. Batykov"
+      ],
+      "year": 2020,
+      "venue": "",
+      "doi": "10.24158/spp.2020.10.3",
+      "abstract": "The study on the basis of an empirical research ex-amines the impact of consumer involvement in the category of goods or services, as well as consumer competence on the perception of trademarks simi-larity. The sample of the study was randomly divided into a control group and an experimental group. In the control group, respondents were presented with pairs of obviously dissimilar trademarks, and in the experimental group - pairs of obviously similar ones. The method of data analysis was correlation analysis, the results of which indicate that the over-all influence of factors of involvement and compe-tence, which was found in the study, is very small. The results of the study on the whole allow to state the limited influence of factors of consumer in-volvement and competence on the probability of trademarks confusion - both directly and through the identification of producers. However, at the same time, the very weak influence of involvement and the lack of competence influence on the confu-sion probability found in the study do not mean that these factors do not actually have a strong influence on the confusion of trademarks in the minds of con-sumers. The absence of a statistical relationship may be an impetus for further refining the method-ology and rechecking of the hypothesis in subse-quent empirical studies.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Introduction",
+      "backend": "semantic_scholar",
+      "title": "A CRITICAL ANALYSIS OF THE DOMINANT FEATURE DOCTRINE UNDER INDIAN TRADEMARK ACT, 1999",
+      "authors": [
+        "M. Anita",
+        "Dr H Pathak",
+        "A. S. Chowbe"
+      ],
+      "year": 2024,
+      "venue": "African Journal of Biological Sciences",
+      "doi": "10.48047/afjbs.6.14.2024.6533-6547",
+      "abstract": "The principle of the \"dominant feature\" in trademark law is crucial for determining the likelihood of confusion between competing trademarks. This study delves into the notion of the dominant feature, its utilization in legal proceedings, and its influence on trademark safeguarding. The dominant feature denotes the most conspicuous or salient element of a trademark that predominantly shapes consumer perception. Courts frequently give weight to this aspect when evaluating the deceptive similarity of two marks. Through an examination of pivotal cases and legal provisions, this research aims to offer a thorough comprehension of how the dominant feature doctrine influences the protection of trademark rights, particularly in the realm of consumer confusion. Additionally, the study scrutinizes the interaction between the dominant feature and other elements, including visual, phonetic, and conceptual resemblances, in trademark conflicts. The results underscore the significance of the dominant feature in harmonizing the interests of trademark proprietors with the necessity to avert consumer misrepresentation.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Introduction",
+      "backend": "semantic_scholar",
+      "title": "Trademark parody and the mass media: Going beyond survey evidence in the determination of “a likelihood of confusion”",
+      "authors": [
+        "Lyombe Eko"
+      ],
+      "year": 1998,
+      "venue": "Communication Law and Policy",
+      "doi": "10.1080/10811689809368665",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Introduction",
+      "backend": "semantic_scholar",
+      "title": "The Early Beginnings of the Average Consumer Pre Sabel",
+      "authors": [
+        "Rasmus Dalgaard Laustsen"
+      ],
+      "year": 2019,
+      "venue": "The Average Consumer in Confusion-based Disputes in European Trademark Law and Similar Fictions",
+      "doi": "10.1007/978-3-030-26350-8_8",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Introduction",
+      "backend": "semantic_scholar",
+      "title": "“‘S’ (Sheraton/Soyic Hotel)”",
+      "authors": [
+        "Arts. 7 8 8 Decree Law No. 556 on the Protection of Trademarks"
+      ],
+      "year": 2023,
+      "venue": "IIC - International Review of Intellectual Property and Competition Law",
+      "doi": "10.1007/s40319-023-01333-8",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "openalex",
+      "title": "Measuring Trademark Dilution by Tarnishment",
+      "authors": [
+        "Suneal Bedi",
+        "David J. Reibstein"
+      ],
+      "year": 2019,
+      "venue": "Indiana law journal",
+      "doi": null,
+      "abstract": "The law of trademark tarnishment-a type of trademark dilution-is in disarray. The basic definition is deceptively simple. Trademark tarnishment occurs when a junior mark harms the reputation of a substantially similar existing senior trademark by associating itself with something perverse or deviant. However, it turns out that Congress and the courts disagree over the prima facie evidence necessary to prove its existence. The problem is that federal law and related legal principles are simply ill-equipped to adequately analyze this unique market-driven doctrine. To make matters worse, legal scholars cannot even agree on whether trademark tarnishment can empirically exist in the marketplace. Part of the issue is that there has never been any real attempt to define the phrase “harm to reputation” in the trademark context. Drawing on marketing scholarship and social science methods, this Article provides the first workable framework that courts can use to hear and accurately analyze these cases. It relies on experimental survey methodology to empirically show that tarnishment can exist under certain conditions; the key is increasing the number of exposures to the harmful mark. The Article also introduces extant branding theory as a way to define harm to reputation in the marketplace. This interdisciplinary approach ultimately gives courts a mechanism by which to measure harm to reputation and the tangible impact of tarnishment. In the process, this theory provides litigants with an empirical-based strategy to prove their dilution claims and contributes to the doctrinal justification for trademark dilution laws.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "openalex",
+      "title": "Trademark Dilution: Empirical Measures for an Elusive Concept",
+      "authors": [
+        "Maureen Morrin",
+        "Jacob Jacoby"
+      ],
+      "year": 2000,
+      "venue": "Journal of Public Policy & Marketing",
+      "doi": "10.1509/jppm.19.2.265.17137",
+      "abstract": "Consumer researchers have conceptualized brand name dilution in terms of the potentially damaging effects that a company's own brand extensions can have on beliefs and attitudes toward parent brands. A different form of dilution, trademark dilution, can also occur through the unauthorized use of a mark (e.g., brand, logo) by an entity other than its owner. With passage of the Federal Trademark Dilution Act of 1995, an increasing number of trademark dilution cases are being litigated. A recurring issue in these cases has been how to measure trademark dilution. The authors review the concept of trademark dilution and explore how recognition and recall-based methods can be used for empirically assessing trademark dilution. The authors also investigate the impact of brand familiarity and product category similarity on the extent of trademark dilution and discuss implications, limitations, and areas for further research.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "openalex",
+      "title": "상표의 유사 여부 판단을 위한 일반적 판단기준 및 판단방법의 검토",
+      "authors": [
+        "윤선희"
+      ],
+      "year": 2005,
+      "venue": "인권과 정의",
+      "doi": null,
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "openalex",
+      "title": "The Rational Basis of Trademark Protection Revisited: Putting the Dilution Doctrine into Context",
+      "authors": [
+        "Mathias Strasser"
+      ],
+      "year": 2016,
+      "venue": "Fordham intellectual property, media & entertainment law journal",
+      "doi": null,
+      "abstract": "The adoption of the Federal Trademark Dilution Act (the “FTDA”) in 1995, which incorporated a federal dilution clause into the Lanham Act, was preceded by a great deal of debate. The question lying at the heart of the discussion was whether the dilution doctrine is consistent with sound trademark policy or whether the far-reaching entitlements that the FTDA affords the owners of famous marks have instead created “dilution” of a kind that Congress may not have envisaged: a blurring of the conceptual boundaries of trademark law. It turns out that this question has important implications on a number of trademark doctrines (such as inherent distinctiveness, functionality, and trade dress). This Article’s thesis is that the dilution doctrine and the traditional tests for trademark infringement have the same rational basis - that they may all be coherently explained on the basis of the functional approach. To prove this the- sis, I will introduce two concepts: the “communication function” and “intrinsic reputation.” On the basis of these concepts, I will argue that trademarks could not fulfill their economic functions if they were not protected against dilution. Hence, I will conclude that the FTDA should be welcomed and that it should be applied to any name or device that is capable of fulfilling the functions for which we consider trademarks beneficial, be it a word, a symbol, or a product configuration. Part I explores the economic functions that trademarks per- form, how they relate to each other and whose interests they serve, arguing first, that trademarks fulfill both a product-identifying function and a communication function, and finally, that some trademarks have an intrinsic reputation. These two concepts suggest a utilitarian justification of the dilution doctrine. Part I also examines the various ways in which the likelihood of confusion test and the dilution doctrine (as well as the so-called identity rule in European trademark regimes) act together to ensure that trademarks can fulfill their economic functions. Part I concludes that the dilution doctrine is as vital to preserving the economic and social benefits that are expected to ensue from trademarks as the traditional tests. Part II examines why the dilution doctrine has sparked so much criticism in academia. My explanation is essentially twofold. First, one’s attitude towards the dilution doctrine depends on one’s understanding of the functional canon of trade- marks. So long as the debate surrounds the issue of trademark functionality, the dilution doctrine will remain controversial. Second, the lack of popularity of the dilution doctrine in the academic world may have to do with the exclusive rights-free competition dichotomy that characterizes intellectual property law in general. Although this dichotomy is sometimes thought to apply to trademarks with particular force, I will argue that it should not. The questions discussed in this Article are not Lanham Act- specific; they are basic questions every modern trademark regime confronts. As a result, it is interesting to see how other jurisdictions address them. A comparative analysis will also complement the historical context in which the dilution doctrine has evolved in the United States. The idea of protecting trademarks in the absence of a likelihood of confusion on the part of consumers began with an article that Frank Schechter wrote for the Harvard Law Review in 1927. Schechter’s views were markedly influenced by the German trademark law of that period.5 As we will see, German trademark law has undergone a number of major changes since 1927, one of the most significant ones involves the impact of European Community (“EC”) law on national law. It may, for this reason alone, be interesting to see how the dilution doctrine, that has remained a debated topic in the United States for almost a century, is construed and applied both in Germany and Europe today.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "openalex",
+      "title": "Search and Persuasion in Trademark Law",
+      "authors": [
+        "Barton Beebe"
+      ],
+      "year": 2005,
+      "venue": "Michigan Law Review",
+      "doi": null,
+      "abstract": "The consumer, we are led to believe, is the measure of all things in trademark law. Trademarks exist only to the extent that consumers perceive them as designations of source. Infringement occurs only to the extent that consumers perceive one trademark as referring to the source of another. The most \"intellectual\" of the intellectual properties, trademarks are a property purely of consumers' minds. The simple idealist ontology underlying trademark law is largely responsible for the law's characteristic instability. Since 1992, the Supreme Court has considered - and in some cases, reconsidered - seven trademark cases. The Court's copyright cases garner the media and celebrity attention, but it is the trademark cases that most clearly express the unsteady state, the entre deux temps condition, of current American intellectual property law. There is a reason for this. Trademark law is arguably the most difficult of the intellectual property laws to contemplate, and its outcomes when applied to facts are the most difficult to predict. This is because it requires a form of what John Keats called \"negative capability,\" the capability, more specifically, to think through the consumer and see the marketplace only as the consumer sees it. From the beginning, trademark law has sought to resist the negative capability called for by its underlying idealism. It has sought to limit the dependence of the object of the law, the trademark, on the vagaries of the subject of the law, the consumer. In doing so, the law has embraced an \"ideal type\" of the subject. Just as copyright doctrine has based itself upon a largely mythical \"author construct,\" so trademark doctrine has based itself upon a largely mythical \"consumer construct.\" Where the former describes an impossibly romantic producer, however, the latter describes an impossibly utilitarian consumer. Both figures are conceived of as sovereigns, that is to say, as egoists, but where the \"sovereign author\" is inspired, even capricious in her egoism, the \"sovereign consumer\" is a utility maximizing agent of unbounded rational choice. By means of \"a mechanical procedure of search,\" which trademarks are said to facilitate, she satisfies exogenously determined preferences, on which trademarks are said to have no effect. Her psychology is understood to be predictable, administrable, and ultimately ameliorative. The sovereign consumer is the antithesis of and eliminates the need for negative capability.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "openalex",
+      "title": "A Defense of the New Federal Trademark Antidilution Law",
+      "authors": [
+        "Barton Beebe"
+      ],
+      "year": 2006,
+      "venue": "Fordham intellectual property, media & entertainment law journal",
+      "doi": null,
+      "abstract": "A. THE NEW STANDARD FOR FAMOUSNESS 1157 1. The Statutory Language 1157 2. Inherent Distinctiveness and Famousness 1159 3. The Ironies of Anti-Blurring Protection for “Famous” Marks 1161 B. THE NEW BLURRING: GUILT BY “ASSOCIATION” 1165 1. The TDRA’s Four-Part Definition of “Dilution by Blurring” 1165 2. The Blurring Factors 1170 C. “TARNISHMENT” AND DILUTION 1172",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "openalex",
+      "title": "Initial Interest Confusion: Standing at the Crossroads of Trademark Law",
+      "authors": [
+        "Jennifer E. Rothman"
+      ],
+      "year": 2005,
+      "venue": "Cardozo Law Review",
+      "doi": null,
+      "abstract": "While the benchmark of trademark infringement traditionally has been a demonstration that consumers are likely to be confused by the use of a similar or identical trademark to identify the goods or services of another, a court-created doctrine called initial interest confusion allows liability for trademark infringement solely on the basis that a consumer might initially be interested, attracted, or distracted by a competitor's, or even a non-competitor's, product or service. Initial interest confusion is being used with increasing frequency, especially on the Internet, to shut down speech critical of trademark holders and their products and services, to prevent comparative advertisements and to otherwise limit information and choices available to consumers.Contemporary trademark law is at a crossroads and the initial interest confusion doctrine stands at the center of this intersection. This article uses the troublesome doctrine as a prism to analyze three crucial issues that will decide the future of trademark law: The first is whether it is ever acceptable to trade off of the goodwill established by another. The second is whether trademark protection primarily serves to protect consumers from being duped by unethical competitors, or instead primarily serves to bolster the business of individual trademark holders. Finally, the article considers the fundamental question: are trademarks and trademark infringement actions about protecting property rights or about providing more limited rights akin to tort and unfair competition actions? The answers to these questions lead to the conclusion that the initial interest confusion doctrine must be eliminated and trademark infringement returned to its origins as a narrow cause of action primarily directed at protecting consumers from deceptive business practices.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "openalex",
+      "title": "The Trademark Tower of Babel - Dilution Concepts in International, US and EC Trademark Law",
+      "authors": [
+        "Martin Senftleben"
+      ],
+      "year": 2008,
+      "venue": "VU Research Portal",
+      "doi": null,
+      "abstract": "Dilution is one of the most controversial and complex phenomena which modern trademark law seeks to regulate (section I). Against the background of international, US and EC anti-dilution systems, conceptual inconsistencies can be identified even with regard to basic notions, such as the definition of subject matter eligible for protection (section II) and the preservation of distinctiveness and repute as main purposes of protection (section III). Not surprisingly, these conceptual difficulties have repercussions on the relation between protected subject matter and the purposes of anti-dilution protection (section IV). An attempt to clarify matters, however, sheds light on a further conceptual challenge. On its merits, the unanswered question posed by the dilution doctrine is whether trademark rights should be expanded to property rights in gross (concluding section V).",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "openalex",
+      "title": "Trademarks, Triggers, and Online Search",
+      "authors": [
+        "Stefan Bechtold",
+        "Catherine E. Tucker"
+      ],
+      "year": 2013,
+      "venue": "SSRN Electronic Journal",
+      "doi": "10.2139/ssrn.2266945",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "openalex",
+      "title": "Gone in Sixty Milliseconds: Trademark Law and Cognitive Science",
+      "authors": [
+        "Rebecca Tushnet"
+      ],
+      "year": 2008,
+      "venue": "Texas law review",
+      "doi": null,
+      "abstract": "Trademark dilution is a cause of action for interfering with the uniqueness of a trademark. For example, consumers would probably not think that \"Kodak soap\" was produced by the makers of Kodak cameras, but its presence in the market would diminish the uniqueness of the original Kodak mark. Trademark owners think dilution is harmful but have had difficulty explaining why. Many courts have therefore been reluctant to enforce dilution laws, even while legislatures have enacted more of them over the past half century. Courts and commentators have now begun to use psychological theories, drawing on associationist models of cognition, to explain how a trademark can be harmed by the existence of similar marks even when consumers can readily distinguish the marks from one another and thus are not confused. Though the cognitive theory of dilution is internally consistent and appeals to the authority of science, it does not rest on sufficient empirical evidence to justify its adoption. Moreover, the harms it identifies do not generally come from commercial competitors but from free speech about trademarked products. As a result, even a limited dilution law should be held unconstitutional under current First Amendment commercial-speech doctrine. In the absence of constitutional invalidation, the cognitive explanation of dilution is likely to change the law for the worse. Rather than working like fingerprint evidence--which ideally produces more evidence about already-defined crimes--psychological explanations of dilution are more like economic theories in antitrust, which changed the definition of actionable restraints of trade. Given the empirical and normative flaws in the cognitive theory, using it to fill dilution's theoretical vacuum would be a mistake.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "openalex",
+      "title": "Rethinking Trademark Fair Use",
+      "authors": [
+        "William McGeveran"
+      ],
+      "year": 2008,
+      "venue": "University of Minnesota Law School Scholarship Repository (University of Minnesota)",
+      "doi": null,
+      "abstract": "The ever-expanding scope and strength of trademark rights has caused justifiable fears of a threat to free expression. Until now, however, concerned scholars generally focused on perfecting the substance of legal rules that balance free speech against other goals. This effort is misplaced because most cases raising these issues in recent years ended in judicial decisions that favored speech. The real danger arises from the procedural structure of trademark law's various fair use doctrines, which generate excessive ambiguity and prolong litigation before ever reaching such positive outcomes. Resulting administrative costs discourage speakers from using trademarks expressively in the first place, creating a classic chilling effect. This Article is the first to analyze these problems with trademark fair use comprehensively and recommend pragmatic reform to address the problems. Instead of adding more bells and whistles to already complex law, we should craft simpler affirmative defenses that reduce uncertainty and allow for quick adjudication. trademark, free speech, First Amendment, intellectual property",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "openalex",
+      "title": "Confusion Over Use: Contextualism in Trademark Law",
+      "authors": [
+        "Mark Weston Janis",
+        "Graeme B. Dinwoodie"
+      ],
+      "year": 2007,
+      "venue": "Iowa law review",
+      "doi": null,
+      "abstract": "This paper tackles an intellectual property theory that many scholars regard as fundamental to future policy debates over the scope of trademark protection: the trademark use theory. We argue that trademark use theory is flawed and should be rejected. The adoption of trademark use theory has immediate practical implications for disputes about the use of trademarks in online advertising, merchandising, and product design, and has long-term consequences for other trademark generally. We critique the theory both descriptively and prescriptively. We argue that trademark use theory over-extends the search costs rationale for the trademark system, and that it unhelpfully elevates formalism over contextual analysis in trademark law rulemaking. The theory seeks determinate trademark rules in order to encourage a climate of certainty for innovators, but the concepts on which it is founded are likely to degenerate. We show that trademark use theorists ignores the multivalence of trademark law, and that adopting trademark use doctrines would result in less transparent trademark decisionmaking. Instead, we propose that trademark law retain its traditional preference for contextual analysis. We show in particular how a contextual analysis would offer an approach to trademark disputes involving online advertising that better captures the potential of trademark law to police new information markets. Our analysis contemplates individualized assessments according to common law standards, but opens up policy space for the development of limited statutory safe harbors for intermediaries such as search engines.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "semantic_scholar",
+      "title": "The Theoretical Analysis of Anti-Dilution Doctrine for China’s Well-Known Trademark Protection",
+      "authors": [
+        "Xiaowen Xiao"
+      ],
+      "year": 2020,
+      "venue": "Proceedings of the 2020 International Conference on Social Science, Economics and Education Research (SSEER 2020)",
+      "doi": "10.2991/assehr.k.200801.072",
+      "abstract": "Trademark dilution doctrine embodies the expansion of trademark infringement from the traditional confusion doctrine. It provides a broad protection for the exclusive rights of well-known trademarks. Due to the fact that Chinese scholars have done much theoretical research on dilution doctrine and Chinese courts have applied the anti-dilution doctrine theoretically and practically to make some rulings in the judicial practice of well-known trademark protection, it is suggested that the anti-dilution doctrine should be incorporated",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "semantic_scholar",
+      "title": "The Concept of Doctrine of Dilution and its Effectiveness in Protecting Well-Known Trademarks",
+      "authors": [
+        "Aadith A J"
+      ],
+      "year": 2025,
+      "venue": "International Journal For Multidisciplinary Research",
+      "doi": "10.36948/ijfmr.2025.v07i01.37294",
+      "abstract": "Abstract The doctrine of dilution plays a crucial role in protecting well-known trademarks from unauthorized use that may weaken their distinctiveness or tarnish their reputation. Unlike traditional trademark infringement, which requires a likelihood of consumer confusion, dilution laws safeguard famous marks from losing their uniqueness even when used in non- competing markets. This research paper examines the effectiveness of the doctrine of dilution in safeguarding well-known trademarks in India and globally. The study explores the legal framework governing dilution, focusing on key provisions under the Trade Marks Act, 1999 and international agreements such as the Paris Convention and the TRIPS Agreement. Additionally, significant case laws, including Daimler Benz v. Hybo Hindustan and Bata India Ltd. v. Pyarelal & Co., are analysed to understand how courts have interpreted and enforced dilution laws. Despite the legal mechanisms in place, challenges remain in defining well-known trademarks, proving dilution, and balancing trademark protection with free speech rights. The rise of digital platforms and global commerce has further complicated enforcement, necessitating stronger legal measures. This paper argues that while the doctrine of dilution is a valuable tool, its effectiveness is hindered by ambiguities in legal interpretation and procedural difficulties. To enhance trademark protection, the paper suggests legal reforms, including clearer statutory definitions, improved evidentiary standards, and stronger digital enforcement mechanisms. Strengthening dilution laws will ensure that well-known trademarks retain their distinctiveness and commercial value, benefiting both brand owners and consumers in an increasingly globalized economy.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "semantic_scholar",
+      "title": "The Trademark Use Requirement in Dilution Cases",
+      "authors": [
+        "Stacey L. Dogan",
+        "Mark A. Lemley"
+      ],
+      "year": 2011,
+      "venue": "Santa Clara High Technology Law Journal",
+      "doi": "10.31235/osf.io/gj5nc",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "semantic_scholar",
+      "title": "Doctrine of Dilution Under Law of Trademarks - A Comparative Analysis of Law in United Kingdom and United States of America",
+      "authors": [
+        "N. Goyal",
+        "M. Singh"
+      ],
+      "year": 2011,
+      "venue": "",
+      "doi": "10.2139/SSRN.1756741",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "semantic_scholar",
+      "title": "TPP’s Coup de Grâce : How the Trademark System Prevailed as Geographical Indication System",
+      "authors": [
+        "Danny Friedmann"
+      ],
+      "year": 2017,
+      "venue": "",
+      "doi": "10.1007/978-981-10-6731-0_16",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Theoretical Background",
+      "backend": "semantic_scholar",
+      "title": "Magical Thinking in Trademark Law",
+      "authors": [
+        "Katya Assaf"
+      ],
+      "year": 2012,
+      "venue": "Law &#x0026; Social Inquiry",
+      "doi": "10.1111/j.1747-4469.2011.01271.x",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "openalex",
+      "title": "Multi-faceted assessment of trademark similarity",
+      "authors": [
+        "Rossitza Setchi",
+        "Fatahiyah Mohd Anuar"
+      ],
+      "year": 2016,
+      "venue": "Expert Systems with Applications",
+      "doi": "10.1016/j.eswa.2016.08.028",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "openalex",
+      "title": "Intelligent trademark similarity analysis of image, spelling, and phonetic features using machine learning methodologies",
+      "authors": [
+        "Charles V. Trappey",
+        "Amy J.C. Trappey",
+        "Sam C.-C. Lin"
+      ],
+      "year": 2020,
+      "venue": "Advanced Engineering Informatics",
+      "doi": "10.1016/j.aei.2020.101120",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "openalex",
+      "title": "Automating Abercrombie: Machine-learning trademark distinctiveness",
+      "authors": [
+        "Shivam Adarsh",
+        "Elliott Ash",
+        "Stefan Bechtold",
+        "Barton Beebe",
+        "Jeanne C. Fromer"
+      ],
+      "year": 2024,
+      "venue": "Journal of Empirical Legal Studies",
+      "doi": "10.1111/jels.12398",
+      "abstract": "Abstract Trademark law protects marks to enable firms to signal their products' qualities to consumers. To qualify for protection, a mark must be able to identify and distinguish goods. US courts typically locate a mark on a “spectrum of distinctiveness”-known as the Abercrombie spectrum-that categorizes marks as fanciful, arbitrary, or suggestive, and thus as “inherently distinctive,” or as descriptive or generic, and thus as not inherently distinctive. This article explores whether locating trademarks on the Abercrombie spectrum can be automated using current natural-language processing techniques. Using about 1.5 million US trademark registrations between 2012 and 2019 as well as 2.2 million related USPTO office actions, the article presents a machine-learning model that learns semantic features of trademark applications and predicts whether a mark is inherently distinctive. Our model can predict trademark actions with 86% accuracy overall, and it can identify subsets of trademark applications where it is highly certain in its predictions of distinctiveness. Using an eXplainable AI (XAI) algorithm, we further analyze which features in trademark applications drive our model's predictions. We then explore the practical and normative implications of our approach. On a practical level, we outline a decision-support system that could, as a “robot trademark clerk,” assist trademark experts in their determination of a trademark's distinctiveness. Such a system could also help trademark experts understand which features of a trademark application contribute the most toward a trademark's distinctiveness. On a theoretical level, we discuss the normative limits of the Abercrombie spectrum and propose to move beyond Abercrombie for trademarks whose distinctiveness is uncertain. We discuss how machine-learning projects in the law not only inform us about the aspects of the legal system that may be automated in the future, but also force us to tackle normative tradeoffs that may be invisible otherwise.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "openalex",
+      "title": "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks",
+      "authors": [
+        "Nils Reimers",
+        "Iryna Gurevych"
+      ],
+      "year": 2019,
+      "venue": "TUbilio (Technical University of Darmstadt)",
+      "doi": "10.48550/arxiv.1908.10084",
+      "abstract": "BERT (Devlin et al., 2018) and RoBERTa (Liu et al., 2019) has set a new state-of-the-art performance on sentence-pair regression tasks like semantic textual similarity (STS). However, it requires that both sentences are fed into the network, which causes a massive computational overhead: Finding the most similar pair in a collection of 10,000 sentences requires about 50 million inference computations (~65 hours) with BERT. The construction of BERT makes it unsuitable for semantic similarity search as well as for unsupervised tasks like clustering. In this publication, we present Sentence-BERT (SBERT), a modification of the pretrained BERT network that use siamese and triplet network structures to derive semantically meaningful sentence embeddings that can be compared using cosine-similarity. This reduces the effort for finding the most similar pair from 65 hours with BERT / RoBERTa to about 5 seconds with SBERT, while maintaining the accuracy from BERT. We evaluate SBERT and SRoBERTa on common STS tasks and transfer learning tasks, where it outperforms other state-of-the-art sentence embeddings methods.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "openalex",
+      "title": "Language-agnostic BERT Sentence Embedding",
+      "authors": [
+        "Fangxiaoyu Feng",
+        "Yinfei Yang",
+        "Daniel Cer",
+        "Naveen Arivazhagan",
+        "Wei Wang"
+      ],
+      "year": 2020,
+      "venue": "arXiv (Cornell University)",
+      "doi": "10.48550/arxiv.2007.01852",
+      "abstract": "While BERT is an effective method for learning monolingual sentence embeddings for semantic similarity and embedding based transfer learning (Reimers and Gurevych, 2019), BERT based cross-lingual sentence embeddings have yet to be explored. We systematically investigate methods for learning multilingual sentence embeddings by combining the best methods for learning monolingual and cross-lingual representations including: masked language modeling (MLM), translation language modeling (TLM) (Conneau and Lample, 2019), dual encoder translation ranking (Guo et al., 2018), and additive margin softmax (Yang et al., 2019a). We show that introducing a pre-trained multilingual language model dramatically reduces the amount of parallel training data required to achieve good performance by 80%. Composing the best of these methods produces a model that achieves 83.7% bi-text retrieval accuracy over 112 languages on Tatoeba, well above the 65.5% achieved by Artetxe and Schwenk (2019b), while still performing competitively on monolingual transfer learning benchmarks (Conneau and Kiela, 2018). Parallel data mined from CommonCrawl using our best model is shown to train competitive NMT models for en-zh and en-de. We publicly release our best multilingual sentence embedding model for 109+ languages at https://tfhub.dev/google/LaBSE.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "openalex",
+      "title": "Making Monolingual Sentence Embeddings Multilingual using Knowledge\\n Distillation",
+      "authors": [
+        "Nils Reimers",
+        "Iryna Gurevych"
+      ],
+      "year": 2020,
+      "venue": "arXiv (Cornell University)",
+      "doi": "10.48550/arxiv.2004.09813",
+      "abstract": "We present an easy and efficient method to extend existing sentence embedding\\nmodels to new languages. This allows to create multilingual versions from\\npreviously monolingual models. The training is based on the idea that a\\ntranslated sentence should be mapped to the same location in the vector space\\nas the original sentence. We use the original (monolingual) model to generate\\nsentence embeddings for the source language and then train a new system on\\ntranslated sentences to mimic the original model. Compared to other methods for\\ntraining multilingual sentence embeddings, this approach has several\\nadvantages: It is easy to extend existing models with relatively few samples to\\nnew languages, it is easier to ensure desired properties for the vector space,\\nand the hardware requirements for training is lower. We demonstrate the\\neffectiveness of our approach for 50+ languages from various language families.\\nCode to extend sentence embeddings models to more than 400 languages is\\npublicly available.\\n",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "openalex",
+      "title": "Trademark retrieval based on phonetic similarity",
+      "authors": [
+        "Fatahiyah Mohd Anuar",
+        "Rossitza Setchi",
+        "Yu-Kun Lai"
+      ],
+      "year": 2014,
+      "venue": "2014 IEEE International Conference on Systems, Man, and Cybernetics (SMC)",
+      "doi": "10.1109/smc.2014.6974151",
+      "abstract": "Trademarks are visual symbols with high reputational value, which requires protection. This paper proposes an algorithm to retrieve phonetically similar trademarks that can be used as a means for supporting trademark examination during the registration process. The algorithm employs a phonology based string similarity algorithm together with a typography mapping and token rearrangement to compute a phonetic similarity between trademarks. The trademark phonetic similarity score is then computed from the employed phonetic similarity algorithm. The proposed algorithm advances the state-of-the-art in trademark retrieval by providing a mechanism to compare trademarks with special characters or symbols phonetically. The proposed algorithm is tested on 1,400 trademarks obtained from real court cases between 1999 and 2012. The proposed algorithm improves the R-precision score by 14% and 17% compared with two state-of-the-art methods.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "openalex",
+      "title": "Trademarks’ relatedness to product and service innovation: A branding strategy approach",
+      "authors": [
+        "Meindert Flikkema",
+        "Carolina Castaldi",
+        "Ard-Pieter de Man",
+        "Marcel Seip"
+      ],
+      "year": 2019,
+      "venue": "Research Policy",
+      "doi": "10.1016/j.respol.2019.01.018",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "openalex",
+      "title": "Search and Persuasion in Trademark Law",
+      "authors": [
+        "Barton Beebe"
+      ],
+      "year": 2005,
+      "venue": "Michigan Law Review",
+      "doi": null,
+      "abstract": "The consumer, we are led to believe, is the measure of all things in trademark law. Trademarks exist only to the extent that consumers perceive them as designations of source. Infringement occurs only to the extent that consumers perceive one trademark as referring to the source of another. The most \"intellectual\" of the intellectual properties, trademarks are a property purely of consumers' minds. The simple idealist ontology underlying trademark law is largely responsible for the law's characteristic instability. Since 1992, the Supreme Court has considered - and in some cases, reconsidered - seven trademark cases. The Court's copyright cases garner the media and celebrity attention, but it is the trademark cases that most clearly express the unsteady state, the entre deux temps condition, of current American intellectual property law. There is a reason for this. Trademark law is arguably the most difficult of the intellectual property laws to contemplate, and its outcomes when applied to facts are the most difficult to predict. This is because it requires a form of what John Keats called \"negative capability,\" the capability, more specifically, to think through the consumer and see the marketplace only as the consumer sees it. From the beginning, trademark law has sought to resist the negative capability called for by its underlying idealism. It has sought to limit the dependence of the object of the law, the trademark, on the vagaries of the subject of the law, the consumer. In doing so, the law has embraced an \"ideal type\" of the subject. Just as copyright doctrine has based itself upon a largely mythical \"author construct,\" so trademark doctrine has based itself upon a largely mythical \"consumer construct.\" Where the former describes an impossibly romantic producer, however, the latter describes an impossibly utilitarian consumer. Both figures are conceived of as sovereigns, that is to say, as egoists, but where the \"sovereign author\" is inspired, even capricious in her egoism, the \"sovereign consumer\" is a utility maximizing agent of unbounded rational choice. By means of \"a mechanical procedure of search,\" which trademarks are said to facilitate, she satisfies exogenously determined preferences, on which trademarks are said to have no effect. Her psychology is understood to be predictable, administrable, and ultimately ameliorative. The sovereign consumer is the antithesis of and eliminates the need for negative capability.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "openalex",
+      "title": "A Defense of the New Federal Trademark Antidilution Law",
+      "authors": [
+        "Barton Beebe"
+      ],
+      "year": 2006,
+      "venue": "Fordham intellectual property, media & entertainment law journal",
+      "doi": null,
+      "abstract": "A. THE NEW STANDARD FOR FAMOUSNESS 1157 1. The Statutory Language 1157 2. Inherent Distinctiveness and Famousness 1159 3. The Ironies of Anti-Blurring Protection for “Famous” Marks 1161 B. THE NEW BLURRING: GUILT BY “ASSOCIATION” 1165 1. The TDRA’s Four-Part Definition of “Dilution by Blurring” 1165 2. The Blurring Factors 1170 C. “TARNISHMENT” AND DILUTION 1172",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "openalex",
+      "title": "The Rational Basis of Trademark Protection Revisited: Putting the Dilution Doctrine into Context",
+      "authors": [
+        "Mathias Strasser"
+      ],
+      "year": 2016,
+      "venue": "Fordham intellectual property, media & entertainment law journal",
+      "doi": null,
+      "abstract": "The adoption of the Federal Trademark Dilution Act (the “FTDA”) in 1995, which incorporated a federal dilution clause into the Lanham Act, was preceded by a great deal of debate. The question lying at the heart of the discussion was whether the dilution doctrine is consistent with sound trademark policy or whether the far-reaching entitlements that the FTDA affords the owners of famous marks have instead created “dilution” of a kind that Congress may not have envisaged: a blurring of the conceptual boundaries of trademark law. It turns out that this question has important implications on a number of trademark doctrines (such as inherent distinctiveness, functionality, and trade dress). This Article’s thesis is that the dilution doctrine and the traditional tests for trademark infringement have the same rational basis - that they may all be coherently explained on the basis of the functional approach. To prove this the- sis, I will introduce two concepts: the “communication function” and “intrinsic reputation.” On the basis of these concepts, I will argue that trademarks could not fulfill their economic functions if they were not protected against dilution. Hence, I will conclude that the FTDA should be welcomed and that it should be applied to any name or device that is capable of fulfilling the functions for which we consider trademarks beneficial, be it a word, a symbol, or a product configuration. Part I explores the economic functions that trademarks per- form, how they relate to each other and whose interests they serve, arguing first, that trademarks fulfill both a product-identifying function and a communication function, and finally, that some trademarks have an intrinsic reputation. These two concepts suggest a utilitarian justification of the dilution doctrine. Part I also examines the various ways in which the likelihood of confusion test and the dilution doctrine (as well as the so-called identity rule in European trademark regimes) act together to ensure that trademarks can fulfill their economic functions. Part I concludes that the dilution doctrine is as vital to preserving the economic and social benefits that are expected to ensue from trademarks as the traditional tests. Part II examines why the dilution doctrine has sparked so much criticism in academia. My explanation is essentially twofold. First, one’s attitude towards the dilution doctrine depends on one’s understanding of the functional canon of trade- marks. So long as the debate surrounds the issue of trademark functionality, the dilution doctrine will remain controversial. Second, the lack of popularity of the dilution doctrine in the academic world may have to do with the exclusive rights-free competition dichotomy that characterizes intellectual property law in general. Although this dichotomy is sometimes thought to apply to trademarks with particular force, I will argue that it should not. The questions discussed in this Article are not Lanham Act- specific; they are basic questions every modern trademark regime confronts. As a result, it is interesting to see how other jurisdictions address them. A comparative analysis will also complement the historical context in which the dilution doctrine has evolved in the United States. The idea of protecting trademarks in the absence of a likelihood of confusion on the part of consumers began with an article that Frank Schechter wrote for the Harvard Law Review in 1927. Schechter’s views were markedly influenced by the German trademark law of that period.5 As we will see, German trademark law has undergone a number of major changes since 1927, one of the most significant ones involves the impact of European Community (“EC”) law on national law. It may, for this reason alone, be interesting to see how the dilution doctrine, that has remained a debated topic in the United States for almost a century, is construed and applied both in Germany and Europe today.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "openalex",
+      "title": "Initial Interest Confusion: Standing at the Crossroads of Trademark Law",
+      "authors": [
+        "Jennifer E. Rothman"
+      ],
+      "year": 2005,
+      "venue": "Cardozo Law Review",
+      "doi": null,
+      "abstract": "While the benchmark of trademark infringement traditionally has been a demonstration that consumers are likely to be confused by the use of a similar or identical trademark to identify the goods or services of another, a court-created doctrine called initial interest confusion allows liability for trademark infringement solely on the basis that a consumer might initially be interested, attracted, or distracted by a competitor's, or even a non-competitor's, product or service. Initial interest confusion is being used with increasing frequency, especially on the Internet, to shut down speech critical of trademark holders and their products and services, to prevent comparative advertisements and to otherwise limit information and choices available to consumers.Contemporary trademark law is at a crossroads and the initial interest confusion doctrine stands at the center of this intersection. This article uses the troublesome doctrine as a prism to analyze three crucial issues that will decide the future of trademark law: The first is whether it is ever acceptable to trade off of the goodwill established by another. The second is whether trademark protection primarily serves to protect consumers from being duped by unethical competitors, or instead primarily serves to bolster the business of individual trademark holders. Finally, the article considers the fundamental question: are trademarks and trademark infringement actions about protecting property rights or about providing more limited rights akin to tort and unfair competition actions? The answers to these questions lead to the conclusion that the initial interest confusion doctrine must be eliminated and trademark infringement returned to its origins as a narrow cause of action primarily directed at protecting consumers from deceptive business practices.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "openalex",
+      "title": "The Trademark Tower of Babel - Dilution Concepts in International, US and EC Trademark Law",
+      "authors": [
+        "Martin Senftleben"
+      ],
+      "year": 2008,
+      "venue": "VU Research Portal",
+      "doi": null,
+      "abstract": "Dilution is one of the most controversial and complex phenomena which modern trademark law seeks to regulate (section I). Against the background of international, US and EC anti-dilution systems, conceptual inconsistencies can be identified even with regard to basic notions, such as the definition of subject matter eligible for protection (section II) and the preservation of distinctiveness and repute as main purposes of protection (section III). Not surprisingly, these conceptual difficulties have repercussions on the relation between protected subject matter and the purposes of anti-dilution protection (section IV). An attempt to clarify matters, however, sheds light on a further conceptual challenge. On its merits, the unanswered question posed by the dilution doctrine is whether trademark rights should be expanded to property rights in gross (concluding section V).",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "openalex",
+      "title": "Trademarks, Triggers, and Online Search",
+      "authors": [
+        "Stefan Bechtold",
+        "Catherine E. Tucker"
+      ],
+      "year": 2013,
+      "venue": "SSRN Electronic Journal",
+      "doi": "10.2139/ssrn.2266945",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "openalex",
+      "title": "Gone in Sixty Milliseconds: Trademark Law and Cognitive Science",
+      "authors": [
+        "Rebecca Tushnet"
+      ],
+      "year": 2008,
+      "venue": "Texas law review",
+      "doi": null,
+      "abstract": "Trademark dilution is a cause of action for interfering with the uniqueness of a trademark. For example, consumers would probably not think that \"Kodak soap\" was produced by the makers of Kodak cameras, but its presence in the market would diminish the uniqueness of the original Kodak mark. Trademark owners think dilution is harmful but have had difficulty explaining why. Many courts have therefore been reluctant to enforce dilution laws, even while legislatures have enacted more of them over the past half century. Courts and commentators have now begun to use psychological theories, drawing on associationist models of cognition, to explain how a trademark can be harmed by the existence of similar marks even when consumers can readily distinguish the marks from one another and thus are not confused. Though the cognitive theory of dilution is internally consistent and appeals to the authority of science, it does not rest on sufficient empirical evidence to justify its adoption. Moreover, the harms it identifies do not generally come from commercial competitors but from free speech about trademarked products. As a result, even a limited dilution law should be held unconstitutional under current First Amendment commercial-speech doctrine. In the absence of constitutional invalidation, the cognitive explanation of dilution is likely to change the law for the worse. Rather than working like fingerprint evidence--which ideally produces more evidence about already-defined crimes--psychological explanations of dilution are more like economic theories in antitrust, which changed the definition of actionable restraints of trade. Given the empirical and normative flaws in the cognitive theory, using it to fill dilution's theoretical vacuum would be a mistake.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "openalex",
+      "title": "Rethinking Trademark Fair Use",
+      "authors": [
+        "William McGeveran"
+      ],
+      "year": 2008,
+      "venue": "University of Minnesota Law School Scholarship Repository (University of Minnesota)",
+      "doi": null,
+      "abstract": "The ever-expanding scope and strength of trademark rights has caused justifiable fears of a threat to free expression. Until now, however, concerned scholars generally focused on perfecting the substance of legal rules that balance free speech against other goals. This effort is misplaced because most cases raising these issues in recent years ended in judicial decisions that favored speech. The real danger arises from the procedural structure of trademark law's various fair use doctrines, which generate excessive ambiguity and prolong litigation before ever reaching such positive outcomes. Resulting administrative costs discourage speakers from using trademarks expressively in the first place, creating a classic chilling effect. This Article is the first to analyze these problems with trademark fair use comprehensively and recommend pragmatic reform to address the problems. Instead of adding more bells and whistles to already complex law, we should craft simpler affirmative defenses that reduce uncertainty and allow for quick adjudication. trademark, free speech, First Amendment, intellectual property",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "semantic_scholar",
+      "title": "Consumer Confusion: The Sole Focus of Trademark Law",
+      "authors": [
+        "Qiqi Lou"
+      ],
+      "year": 2024,
+      "venue": "Lecture Notes in Education Psychology and Public Media",
+      "doi": "10.54254/2753-7048/69/20240157",
+      "abstract": "Abstract: In recent years, the expansion of the global marketplace, driven by the digital revolution, has led to a growing complexity in trademark disputes. The balance between protecting intellectual property and preventing consumer confusion has become increasingly delicate. Traditionally, trademark law was designed primarily to prevent consumer confusion and ensure fair competition. However, with the introduction of the dilution concept, this focus has shifted, resulting in expanded trademark rights that can inhibit innovation and free competition. This paper revisits the original intent of trademark law, advocating for a refocus on consumer confusion as the core principle. Through an examination of legislative intent, theoretical underpinnings, and case law, this paper demonstrates the need to reorient trademark protections to ensure they serve the broader goal of market fairness and economic development. This research highlights that excessive protection of trademark rights can lead to monopolistic practices, which ultimately harm both consumers and market competition. It contributes to the ongoing discussion about how to balance trademark rights with consumer protection, aiming to guide future legal reforms that foster both innovation and competition.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "semantic_scholar",
+      "title": "The Artistic Use Defence in Trademark Dilution Cases - Hermès’ Legal Setback in Its Attempt to Prevent Others from Using Its Iconic Birkin Handbag",
+      "authors": [
+        "Ines Duhanic"
+      ],
+      "year": 2024,
+      "venue": "GRUR International",
+      "doi": "10.1093/grurint/ikae012",
+      "abstract": "This opinion explores what constitutes a trademark parody in an artistic context and when it crosses the line of trademark infringement in dilution cases which occur beyond the traditional trademark protection from the likelihood of confusion. This is shown by analysing the latest two decisions regarding trademark parody handed down by the German Frankfurt am Main Regional Court in a case in which Hermès has suffered a setback in its attempt to prevent a fashion label from using its iconic Birkin handbag at the Berlin fashion show in 2023. While parody is considered a protected form of speech or artistic expression, no clear-cut legal rule separates a legitimate parody from an infringing use, in particular in cases of so-called mixed expressions where the reference to the protected trademark is not closely tied to commercial use but still happens outside of a purely artistic context. Compared to the statutory copyright’s flexible fair use defence, there is simply too little case law available to draw on in trademark dilution law. The few rigid defences German courts have cobbled together in trademark cases illustrate that trademark could benefit from a clearer identification of use categories. The following analysis of these decisions aims at highlighting that urgent trademark reforms are necessary in the area of art-related fair use defences. Furthermore, the following analysis will illustrate how big corporations like Hermès can fail when attempting to use trademark rights to control the meaning not only of wealth and exclusivity but also of conspicuous consumption and the equally conspicuous display of wealth, status and power in male-dominated domains.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "semantic_scholar",
+      "title": "The Theoretical Analysis of Anti-Dilution Doctrine for China’s Well-Known Trademark Protection",
+      "authors": [
+        "Xiaowen Xiao"
+      ],
+      "year": 2020,
+      "venue": "Proceedings of the 2020 International Conference on Social Science, Economics and Education Research (SSEER 2020)",
+      "doi": "10.2991/assehr.k.200801.072",
+      "abstract": "Trademark dilution doctrine embodies the expansion of trademark infringement from the traditional confusion doctrine. It provides a broad protection for the exclusive rights of well-known trademarks. Due to the fact that Chinese scholars have done much theoretical research on dilution doctrine and Chinese courts have applied the anti-dilution doctrine theoretically and practically to make some rulings in the judicial practice of well-known trademark protection, it is suggested that the anti-dilution doctrine should be incorporated",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Proposed Framework",
+      "backend": "semantic_scholar",
+      "title": "Taiwan IP Court decisions tend to treat likelihood of confusion and likelihood of dilution as mutually interchangeable",
+      "authors": [
+        "Kung-chung Liu",
+        "Fa-Chang Cheng"
+      ],
+      "year": 2019,
+      "venue": "Annotated Leading Trademark Cases in Major Asian Jurisdictions",
+      "doi": "10.4324/9780429316395-22",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "openalex",
+      "title": "SemEval-2017 Task 1: Semantic Textual Similarity - Multilingual and Cross-lingual Focused Evaluation",
+      "authors": [
+        "Daniel Cer",
+        "Mona Diab",
+        "Eneko Agirre",
+        "Iñigo López-Gazpio",
+        "Lucia Specia"
+      ],
+      "year": 2017,
+      "venue": "HAL (Le Centre pour la Communication Scientifique Directe)",
+      "doi": "10.48550/arxiv.1708.00055",
+      "abstract": "Semantic Textual Similarity (STS) measures the meaning similarity of sentences. Applications include machine translation (MT), summarization, generation, question answering (QA), short answer grading, semantic search, dialog and conversational systems. The STS shared task is a venue for assessing the current state-of-the-art. The 2017 task focuses on multilingual and cross-lingual pairs with one sub-track exploring MT quality estimation (MTQE) data. The task obtained strong participation from 31 teams, with 17 participating in all language tracks. We summarize performance and review a selection of well performing methods. Analysis highlights common errors, providing insight into the limitations of existing models. To support ongoing work on semantic representations, the STS Benchmark is introduced as a new shared training and evaluation set carefully selected from the corpus of English STS shared task data (2012-2017).",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "openalex",
+      "title": "Testing for Trademark Dilution in Court and the Lab",
+      "authors": [
+        "Barton Beebe",
+        "Roy Germano",
+        "Christopher Jon Sprigman",
+        "Joel H. Steckel"
+      ],
+      "year": 2019,
+      "venue": "The University of Chicago Law Review",
+      "doi": null,
+      "abstract": "Federal courts are currently split, even within particular districts, on the basic question of what a plaintiff must show to establish that a defendant’s conduct constitutes trademark dilution by blurring. Federal trademark law defines “dilution by blurring” as “association arising from the similarity between a mark or trade name and a famous mark that impairs the distinctiveness of the famous mark.” In construing this statutory language, a majority of courts have held that to establish blurring, a plaintiff need only show that consumers associate the defendant’s mark with the plaintiff’s famous mark. These courts appear to assume that to the extent that there is consumer association, this association alone will “impair[ ] the distinctiveness” of the famous mark. A minority of courts have held that the plaintiff must show both consumer association and that the consumer association “impairs the distinctiveness” of the famous mark. In this Article, we make three contributions to the current debate over what must be shown to establish dilution by blurring. First, we report the results of a set of experiments that reveal that the majority approach is fundamentally deficient. These experiments demonstrate that even when consumers associate a junior mark with a famous senior mark, this association does not necessarily result in any impairment of the ability of the senior mark to identify its source and associations. Second, we set forth a new method for determining when association is likely to lead to impairment. This method, which we term the “association strength test,” evaluates changes in how strongly survey respondents associate a mark with its source or attributes upon exposure to a diluting stimulus. Third, we evaluate the current state of the art in trademark dilution survey methodology: response time surveys. These surveys purportedly show both consumer association and impairment. Through a set of experiments, we demonstrate that these surveys currently use the wrong control and are invalid. In light of our findings, we reflect more generally on the question of whether dilution by blurring ever occurs and on how the blurring cause of action may be reconfigured to better comport with courts’ intuitions about the true nature of the harm that the cause of action seeks to address.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "openalex",
+      "title": "Legal Judgment Prediction using Natural Language Processing and Machine Learning Methods: A Systematic Literature Review",
+      "authors": [
+        "Nasa Zata Dina",
+        "Sri Devi Ravana",
+        "Norisma Idris"
+      ],
+      "year": 2025,
+      "venue": "SAGE Open",
+      "doi": "10.1177/21582440251329663",
+      "abstract": "Legal Judgment Prediction (LJP) study is experiencing a growing need for automating legal judgment process to predict court decisions. In this context, the present paper provides a systematic literature review of previous LJP study, implementing machine learning (ML) as decision-making and natural language processing (NLP) to extract information from legal judgment documents. Relevant articles were found in reputable indexing databases through the search strategy, with the outcomes filtered by applying inclusion and exclusion criteria. Furthermore, six research questions were constructed to observe the datasets, topics/trends, NLP and ML methods, evaluation methods, and challenges. The LJP topic included three topics which were charge, law article, and term-of-penalty prediction. There were 21 NLP methods applied, emphasizing the highest implementation of Term Frequency-Inverse Document Frequency (TF-IDF) while the most implemented ML method was Support Vector Machine (SVM). Accuracy was the most used metric as an evaluation method. Additionally, this work emphasizes the importance of LJP and the potential use of NLP and ML. This study urges further investigation into NLP and ML, as well as practical uses of LJP. Low classification performance, low quantity of data, imbalanced dataset, data accessibility, data labeling, extraction of semantic information from natural language, expert involvement, generalizability issue, and multilingual datasets represent a few of the major problems that LJP faces, and the study is significant because it clarifies some of the major issues that LJP faces. Among those problems, low amounts of dataset and low classification performance were regarded as the most challenging tasks to deal with.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "openalex",
+      "title": "Trademarks’ relatedness to product and service innovation: A branding strategy approach",
+      "authors": [
+        "Meindert Flikkema",
+        "Carolina Castaldi",
+        "Ard-Pieter de Man",
+        "Marcel Seip"
+      ],
+      "year": 2019,
+      "venue": "Research Policy",
+      "doi": "10.1016/j.respol.2019.01.018",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "openalex",
+      "title": "Search and Persuasion in Trademark Law",
+      "authors": [
+        "Barton Beebe"
+      ],
+      "year": 2005,
+      "venue": "Michigan Law Review",
+      "doi": null,
+      "abstract": "The consumer, we are led to believe, is the measure of all things in trademark law. Trademarks exist only to the extent that consumers perceive them as designations of source. Infringement occurs only to the extent that consumers perceive one trademark as referring to the source of another. The most \"intellectual\" of the intellectual properties, trademarks are a property purely of consumers' minds. The simple idealist ontology underlying trademark law is largely responsible for the law's characteristic instability. Since 1992, the Supreme Court has considered - and in some cases, reconsidered - seven trademark cases. The Court's copyright cases garner the media and celebrity attention, but it is the trademark cases that most clearly express the unsteady state, the entre deux temps condition, of current American intellectual property law. There is a reason for this. Trademark law is arguably the most difficult of the intellectual property laws to contemplate, and its outcomes when applied to facts are the most difficult to predict. This is because it requires a form of what John Keats called \"negative capability,\" the capability, more specifically, to think through the consumer and see the marketplace only as the consumer sees it. From the beginning, trademark law has sought to resist the negative capability called for by its underlying idealism. It has sought to limit the dependence of the object of the law, the trademark, on the vagaries of the subject of the law, the consumer. In doing so, the law has embraced an \"ideal type\" of the subject. Just as copyright doctrine has based itself upon a largely mythical \"author construct,\" so trademark doctrine has based itself upon a largely mythical \"consumer construct.\" Where the former describes an impossibly romantic producer, however, the latter describes an impossibly utilitarian consumer. Both figures are conceived of as sovereigns, that is to say, as egoists, but where the \"sovereign author\" is inspired, even capricious in her egoism, the \"sovereign consumer\" is a utility maximizing agent of unbounded rational choice. By means of \"a mechanical procedure of search,\" which trademarks are said to facilitate, she satisfies exogenously determined preferences, on which trademarks are said to have no effect. Her psychology is understood to be predictable, administrable, and ultimately ameliorative. The sovereign consumer is the antithesis of and eliminates the need for negative capability.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "openalex",
+      "title": "A Defense of the New Federal Trademark Antidilution Law",
+      "authors": [
+        "Barton Beebe"
+      ],
+      "year": 2006,
+      "venue": "Fordham intellectual property, media & entertainment law journal",
+      "doi": null,
+      "abstract": "A. THE NEW STANDARD FOR FAMOUSNESS 1157 1. The Statutory Language 1157 2. Inherent Distinctiveness and Famousness 1159 3. The Ironies of Anti-Blurring Protection for “Famous” Marks 1161 B. THE NEW BLURRING: GUILT BY “ASSOCIATION” 1165 1. The TDRA’s Four-Part Definition of “Dilution by Blurring” 1165 2. The Blurring Factors 1170 C. “TARNISHMENT” AND DILUTION 1172",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "openalex",
+      "title": "Trademarks, Triggers, and Online Search",
+      "authors": [
+        "Stefan Bechtold",
+        "Catherine E. Tucker"
+      ],
+      "year": 2013,
+      "venue": "SSRN Electronic Journal",
+      "doi": "10.2139/ssrn.2266945",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "openalex",
+      "title": "Gone in Sixty Milliseconds: Trademark Law and Cognitive Science",
+      "authors": [
+        "Rebecca Tushnet"
+      ],
+      "year": 2008,
+      "venue": "Texas law review",
+      "doi": null,
+      "abstract": "Trademark dilution is a cause of action for interfering with the uniqueness of a trademark. For example, consumers would probably not think that \"Kodak soap\" was produced by the makers of Kodak cameras, but its presence in the market would diminish the uniqueness of the original Kodak mark. Trademark owners think dilution is harmful but have had difficulty explaining why. Many courts have therefore been reluctant to enforce dilution laws, even while legislatures have enacted more of them over the past half century. Courts and commentators have now begun to use psychological theories, drawing on associationist models of cognition, to explain how a trademark can be harmed by the existence of similar marks even when consumers can readily distinguish the marks from one another and thus are not confused. Though the cognitive theory of dilution is internally consistent and appeals to the authority of science, it does not rest on sufficient empirical evidence to justify its adoption. Moreover, the harms it identifies do not generally come from commercial competitors but from free speech about trademarked products. As a result, even a limited dilution law should be held unconstitutional under current First Amendment commercial-speech doctrine. In the absence of constitutional invalidation, the cognitive explanation of dilution is likely to change the law for the worse. Rather than working like fingerprint evidence--which ideally produces more evidence about already-defined crimes--psychological explanations of dilution are more like economic theories in antitrust, which changed the definition of actionable restraints of trade. Given the empirical and normative flaws in the cognitive theory, using it to fill dilution's theoretical vacuum would be a mistake.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "openalex",
+      "title": "The Rational Basis of Trademark Protection Revisited: Putting the Dilution Doctrine into Context",
+      "authors": [
+        "Mathias Strasser"
+      ],
+      "year": 2016,
+      "venue": "Fordham intellectual property, media & entertainment law journal",
+      "doi": null,
+      "abstract": "The adoption of the Federal Trademark Dilution Act (the “FTDA”) in 1995, which incorporated a federal dilution clause into the Lanham Act, was preceded by a great deal of debate. The question lying at the heart of the discussion was whether the dilution doctrine is consistent with sound trademark policy or whether the far-reaching entitlements that the FTDA affords the owners of famous marks have instead created “dilution” of a kind that Congress may not have envisaged: a blurring of the conceptual boundaries of trademark law. It turns out that this question has important implications on a number of trademark doctrines (such as inherent distinctiveness, functionality, and trade dress). This Article’s thesis is that the dilution doctrine and the traditional tests for trademark infringement have the same rational basis - that they may all be coherently explained on the basis of the functional approach. To prove this the- sis, I will introduce two concepts: the “communication function” and “intrinsic reputation.” On the basis of these concepts, I will argue that trademarks could not fulfill their economic functions if they were not protected against dilution. Hence, I will conclude that the FTDA should be welcomed and that it should be applied to any name or device that is capable of fulfilling the functions for which we consider trademarks beneficial, be it a word, a symbol, or a product configuration. Part I explores the economic functions that trademarks per- form, how they relate to each other and whose interests they serve, arguing first, that trademarks fulfill both a product-identifying function and a communication function, and finally, that some trademarks have an intrinsic reputation. These two concepts suggest a utilitarian justification of the dilution doctrine. Part I also examines the various ways in which the likelihood of confusion test and the dilution doctrine (as well as the so-called identity rule in European trademark regimes) act together to ensure that trademarks can fulfill their economic functions. Part I concludes that the dilution doctrine is as vital to preserving the economic and social benefits that are expected to ensue from trademarks as the traditional tests. Part II examines why the dilution doctrine has sparked so much criticism in academia. My explanation is essentially twofold. First, one’s attitude towards the dilution doctrine depends on one’s understanding of the functional canon of trade- marks. So long as the debate surrounds the issue of trademark functionality, the dilution doctrine will remain controversial. Second, the lack of popularity of the dilution doctrine in the academic world may have to do with the exclusive rights-free competition dichotomy that characterizes intellectual property law in general. Although this dichotomy is sometimes thought to apply to trademarks with particular force, I will argue that it should not. The questions discussed in this Article are not Lanham Act- specific; they are basic questions every modern trademark regime confronts. As a result, it is interesting to see how other jurisdictions address them. A comparative analysis will also complement the historical context in which the dilution doctrine has evolved in the United States. The idea of protecting trademarks in the absence of a likelihood of confusion on the part of consumers began with an article that Frank Schechter wrote for the Harvard Law Review in 1927. Schechter’s views were markedly influenced by the German trademark law of that period.5 As we will see, German trademark law has undergone a number of major changes since 1927, one of the most significant ones involves the impact of European Community (“EC”) law on national law. It may, for this reason alone, be interesting to see how the dilution doctrine, that has remained a debated topic in the United States for almost a century, is construed and applied both in Germany and Europe today.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "openalex",
+      "title": "Rethinking Trademark Fair Use",
+      "authors": [
+        "William McGeveran"
+      ],
+      "year": 2008,
+      "venue": "University of Minnesota Law School Scholarship Repository (University of Minnesota)",
+      "doi": null,
+      "abstract": "The ever-expanding scope and strength of trademark rights has caused justifiable fears of a threat to free expression. Until now, however, concerned scholars generally focused on perfecting the substance of legal rules that balance free speech against other goals. This effort is misplaced because most cases raising these issues in recent years ended in judicial decisions that favored speech. The real danger arises from the procedural structure of trademark law's various fair use doctrines, which generate excessive ambiguity and prolong litigation before ever reaching such positive outcomes. Resulting administrative costs discourage speakers from using trademarks expressively in the first place, creating a classic chilling effect. This Article is the first to analyze these problems with trademark fair use comprehensively and recommend pragmatic reform to address the problems. Instead of adding more bells and whistles to already complex law, we should craft simpler affirmative defenses that reduce uncertainty and allow for quick adjudication. trademark, free speech, First Amendment, intellectual property",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "openalex",
+      "title": "When High-Similarity Copycats Lose and Moderate-Similarity Copycats Gain: The Impact of Comparative Evaluation",
+      "authors": [
+        "Femke van Horen",
+        "Rik Pieters"
+      ],
+      "year": 2011,
+      "venue": "Journal of Marketing Research",
+      "doi": "10.1509/jmr.08.0405",
+      "abstract": "Copycats imitate features of leading brands to free ride on their equity. The prevailing belief is that the more similar copycats are to the leader brand, the more positive their evaluation is, and thus the more they free ride. Three studies demonstrate when the reverse holds true: Moderate-similarity copycats are actually evaluated more positively than high-similarity copycats when evaluation takes place comparatively, such as when the leader brand is present rather than absent. The results demonstrate that blatant copycats can be less and subtle copycats can be more perilous than is commonly believed. This finding has implications for marketing theory and practice and trademark law.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "openalex",
+      "title": "Confusion Over Use: Contextualism in Trademark Law",
+      "authors": [
+        "Mark Weston Janis",
+        "Graeme B. Dinwoodie"
+      ],
+      "year": 2007,
+      "venue": "Iowa law review",
+      "doi": null,
+      "abstract": "This paper tackles an intellectual property theory that many scholars regard as fundamental to future policy debates over the scope of trademark protection: the trademark use theory. We argue that trademark use theory is flawed and should be rejected. The adoption of trademark use theory has immediate practical implications for disputes about the use of trademarks in online advertising, merchandising, and product design, and has long-term consequences for other trademark generally. We critique the theory both descriptively and prescriptively. We argue that trademark use theory over-extends the search costs rationale for the trademark system, and that it unhelpfully elevates formalism over contextual analysis in trademark law rulemaking. The theory seeks determinate trademark rules in order to encourage a climate of certainty for innovators, but the concepts on which it is founded are likely to degenerate. We show that trademark use theorists ignores the multivalence of trademark law, and that adopting trademark use doctrines would result in less transparent trademark decisionmaking. Instead, we propose that trademark law retain its traditional preference for contextual analysis. We show in particular how a contextual analysis would offer an approach to trademark disputes involving online advertising that better captures the potential of trademark law to police new information markets. Our analysis contemplates individualized assessments according to common law standards, but opens up policy space for the development of limited statutory safe harbors for intermediaries such as search engines.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "openalex",
+      "title": "The Trademark Tower of Babel - Dilution Concepts in International, US and EC Trademark Law",
+      "authors": [
+        "Martin Senftleben"
+      ],
+      "year": 2008,
+      "venue": "VU Research Portal",
+      "doi": null,
+      "abstract": "Dilution is one of the most controversial and complex phenomena which modern trademark law seeks to regulate (section I). Against the background of international, US and EC anti-dilution systems, conceptual inconsistencies can be identified even with regard to basic notions, such as the definition of subject matter eligible for protection (section II) and the preservation of distinctiveness and repute as main purposes of protection (section III). Not surprisingly, these conceptual difficulties have repercussions on the relation between protected subject matter and the purposes of anti-dilution protection (section IV). An attempt to clarify matters, however, sheds light on a further conceptual challenge. On its merits, the unanswered question posed by the dilution doctrine is whether trademark rights should be expanded to property rights in gross (concluding section V).",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "semantic_scholar",
+      "title": "David Takes on Goliath: An Analysis of Survey Evidence in a Trademark Dispute",
+      "authors": [
+        "Philip Gendall",
+        "J. Hoek"
+      ],
+      "year": 2003,
+      "venue": "International Journal of Market Research",
+      "doi": "10.1177/147078530304500102",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "semantic_scholar",
+      "title": "Measuring Sponsorship Materiality",
+      "authors": [
+        "M. Kugler"
+      ],
+      "year": 2016,
+      "venue": "",
+      "doi": "10.2139/SSRN.2628522",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "semantic_scholar",
+      "title": "Survey Evidence in Trademark Law: Use and Evidential Value in the United States and Turkey",
+      "authors": [
+        "Yasin Dinçer",
+        "Muhammed Yakup Altun"
+      ],
+      "year": 2024,
+      "venue": "Necmettin Erbakan Universitesi Hukuk Fakultesi Dergisi, Necmettin Erbakan University",
+      "doi": "10.51120/neuhfd.2024.140",
+      "abstract": "Surveys are important tools for evaluating public perception of trademarks. However, they carry various criteria to ensure methodological accuracy and their admissibility as evidence. These criteria include the proper formulation of questions, appropriate selection of the relevant public, and meticulous execution of the survey process. Additionally, supplementary measures should be established concerning the interpretation of survey data into a report. In American trademark law, surveys play a critical role, especially in determining likelihood of confusion, distinctiveness, genericness, and dilution claims. American courts, under the Lanham Act and the Federal Rules of Evidence, prescribe strict standards for the admissibility of survey evidence as expert testimony. In contrast, the use of survey evidence in Turkish trademark law is more limited compared to American law. In Turkish law, surveys can be used in disputes involving distinctiveness, determination of well-known status, and likelihood of confusion. Courts should prioritize surveys that focus directly on the views of the relevant public over expert reports based solely on the subjective assessment of an individual or a panel in trademark disputes. Particularly, greater emphasis should be placed on the survey method as evidence, which is frequently utilized and standardized in trademark and competition law in the United States, Germany, and Switzerland. The primary aim of this study is to examine the methodological criteria that surveys must possess in trademark law, their areas of use, and their evidential value. In this context, comparative legal research will be used as the main data collection method; guidelines and decisions of international and national institutions, court decisions, and opinions in the doctrine will be consulted.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "semantic_scholar",
+      "title": "An Empirical Study on the Effect of Consumer Confusion on Online Conformity Consumption in E-commerce",
+      "authors": [
+        "Hanyang Luo",
+        "Xiangning Shi",
+        "Jiaming Chen",
+        "Hao He",
+        "Yuexin Luo"
+      ],
+      "year": 2024,
+      "venue": "2024 IEEE 4th International Conference on Information Technology, Big Data and Artificial Intelligence (ICIBA)",
+      "doi": "10.1109/ICIBA62489.2024.10869287",
+      "abstract": "In e-commerce, consumers often become confused when faced with massive, similar, and vague information, resulting in shopping delays, giving up, or following the crowd for consumption. What is the impact mechanism of online consumer confusion on their conformity consumption? Conducting in-depth research on it undoubtedly has important theoretical significance and practical value. On the basis of reviewing relevant literature on consumer confusion, cognitive dissonance, and conformity consumption, this study constructs a research model and proposes research hypotheses. Then, data was collected through a questionnaire survey and analyzed for reliability and validity using SPSS software. Model validation and hypothesis testing were conducted using LISREL structural equation modeling software. The research results indicate that consumer overload confusion has a significant positive impact on their cognitive dissonance, which in turn leads to their conformist consumption behavior. However, the impact of consumers' similarity confusion and ambiguity confusion on their cognitive dissonance is not significant. Interestingly, further analysis of moderating effects found that, compared to males, the impact of female consumers’ similarity confusion and ambiguity confusion on cognitive dissonance is relatively weak. This significant gender difference partially explains the insignificant impact of similarity confusion and ambiguity confusion on cognitive dissonance mentioned above. These research results contain rich theoretical and practical implications.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "semantic_scholar",
+      "title": "Reexamine the appropriate role of “Trademark use” in trademark infringement judgement: an empirical study of trademark infringement cases in China",
+      "authors": [
+        "Haining Zhang",
+        "Lihong Cui"
+      ],
+      "year": 2023,
+      "venue": "Asian Journal of Technology Innovation",
+      "doi": "10.1080/19761597.2022.2042704",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Research Design (Proposed)",
+      "backend": "semantic_scholar",
+      "title": "Survey evidence in China's trademark lawsuits: an empirical study",
+      "authors": [
+        "Qiang-nan Zhan"
+      ],
+      "year": 2017,
+      "venue": "Queen Mary Journal of Intellectual Property",
+      "doi": "10.4337/QMJIP.2017.03.03",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Expected Contributions",
+      "backend": "openalex",
+      "title": "Search and Persuasion in Trademark Law",
+      "authors": [
+        "Barton Beebe"
+      ],
+      "year": 2005,
+      "venue": "Michigan Law Review",
+      "doi": null,
+      "abstract": "The consumer, we are led to believe, is the measure of all things in trademark law. Trademarks exist only to the extent that consumers perceive them as designations of source. Infringement occurs only to the extent that consumers perceive one trademark as referring to the source of another. The most \"intellectual\" of the intellectual properties, trademarks are a property purely of consumers' minds. The simple idealist ontology underlying trademark law is largely responsible for the law's characteristic instability. Since 1992, the Supreme Court has considered - and in some cases, reconsidered - seven trademark cases. The Court's copyright cases garner the media and celebrity attention, but it is the trademark cases that most clearly express the unsteady state, the entre deux temps condition, of current American intellectual property law. There is a reason for this. Trademark law is arguably the most difficult of the intellectual property laws to contemplate, and its outcomes when applied to facts are the most difficult to predict. This is because it requires a form of what John Keats called \"negative capability,\" the capability, more specifically, to think through the consumer and see the marketplace only as the consumer sees it. From the beginning, trademark law has sought to resist the negative capability called for by its underlying idealism. It has sought to limit the dependence of the object of the law, the trademark, on the vagaries of the subject of the law, the consumer. In doing so, the law has embraced an \"ideal type\" of the subject. Just as copyright doctrine has based itself upon a largely mythical \"author construct,\" so trademark doctrine has based itself upon a largely mythical \"consumer construct.\" Where the former describes an impossibly romantic producer, however, the latter describes an impossibly utilitarian consumer. Both figures are conceived of as sovereigns, that is to say, as egoists, but where the \"sovereign author\" is inspired, even capricious in her egoism, the \"sovereign consumer\" is a utility maximizing agent of unbounded rational choice. By means of \"a mechanical procedure of search,\" which trademarks are said to facilitate, she satisfies exogenously determined preferences, on which trademarks are said to have no effect. Her psychology is understood to be predictable, administrable, and ultimately ameliorative. The sovereign consumer is the antithesis of and eliminates the need for negative capability.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Expected Contributions",
+      "backend": "openalex",
+      "title": "Trademarks’ relatedness to product and service innovation: A branding strategy approach",
+      "authors": [
+        "Meindert Flikkema",
+        "Carolina Castaldi",
+        "Ard-Pieter de Man",
+        "Marcel Seip"
+      ],
+      "year": 2019,
+      "venue": "Research Policy",
+      "doi": "10.1016/j.respol.2019.01.018",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Expected Contributions",
+      "backend": "openalex",
+      "title": "A Defense of the New Federal Trademark Antidilution Law",
+      "authors": [
+        "Barton Beebe"
+      ],
+      "year": 2006,
+      "venue": "Fordham intellectual property, media & entertainment law journal",
+      "doi": null,
+      "abstract": "A. THE NEW STANDARD FOR FAMOUSNESS 1157 1. The Statutory Language 1157 2. Inherent Distinctiveness and Famousness 1159 3. The Ironies of Anti-Blurring Protection for “Famous” Marks 1161 B. THE NEW BLURRING: GUILT BY “ASSOCIATION” 1165 1. The TDRA’s Four-Part Definition of “Dilution by Blurring” 1165 2. The Blurring Factors 1170 C. “TARNISHMENT” AND DILUTION 1172",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Expected Contributions",
+      "backend": "openalex",
+      "title": "The Rational Basis of Trademark Protection Revisited: Putting the Dilution Doctrine into Context",
+      "authors": [
+        "Mathias Strasser"
+      ],
+      "year": 2016,
+      "venue": "Fordham intellectual property, media & entertainment law journal",
+      "doi": null,
+      "abstract": "The adoption of the Federal Trademark Dilution Act (the “FTDA”) in 1995, which incorporated a federal dilution clause into the Lanham Act, was preceded by a great deal of debate. The question lying at the heart of the discussion was whether the dilution doctrine is consistent with sound trademark policy or whether the far-reaching entitlements that the FTDA affords the owners of famous marks have instead created “dilution” of a kind that Congress may not have envisaged: a blurring of the conceptual boundaries of trademark law. It turns out that this question has important implications on a number of trademark doctrines (such as inherent distinctiveness, functionality, and trade dress). This Article’s thesis is that the dilution doctrine and the traditional tests for trademark infringement have the same rational basis - that they may all be coherently explained on the basis of the functional approach. To prove this the- sis, I will introduce two concepts: the “communication function” and “intrinsic reputation.” On the basis of these concepts, I will argue that trademarks could not fulfill their economic functions if they were not protected against dilution. Hence, I will conclude that the FTDA should be welcomed and that it should be applied to any name or device that is capable of fulfilling the functions for which we consider trademarks beneficial, be it a word, a symbol, or a product configuration. Part I explores the economic functions that trademarks per- form, how they relate to each other and whose interests they serve, arguing first, that trademarks fulfill both a product-identifying function and a communication function, and finally, that some trademarks have an intrinsic reputation. These two concepts suggest a utilitarian justification of the dilution doctrine. Part I also examines the various ways in which the likelihood of confusion test and the dilution doctrine (as well as the so-called identity rule in European trademark regimes) act together to ensure that trademarks can fulfill their economic functions. Part I concludes that the dilution doctrine is as vital to preserving the economic and social benefits that are expected to ensue from trademarks as the traditional tests. Part II examines why the dilution doctrine has sparked so much criticism in academia. My explanation is essentially twofold. First, one’s attitude towards the dilution doctrine depends on one’s understanding of the functional canon of trade- marks. So long as the debate surrounds the issue of trademark functionality, the dilution doctrine will remain controversial. Second, the lack of popularity of the dilution doctrine in the academic world may have to do with the exclusive rights-free competition dichotomy that characterizes intellectual property law in general. Although this dichotomy is sometimes thought to apply to trademarks with particular force, I will argue that it should not. The questions discussed in this Article are not Lanham Act- specific; they are basic questions every modern trademark regime confronts. As a result, it is interesting to see how other jurisdictions address them. A comparative analysis will also complement the historical context in which the dilution doctrine has evolved in the United States. The idea of protecting trademarks in the absence of a likelihood of confusion on the part of consumers began with an article that Frank Schechter wrote for the Harvard Law Review in 1927. Schechter’s views were markedly influenced by the German trademark law of that period.5 As we will see, German trademark law has undergone a number of major changes since 1927, one of the most significant ones involves the impact of European Community (“EC”) law on national law. It may, for this reason alone, be interesting to see how the dilution doctrine, that has remained a debated topic in the United States for almost a century, is construed and applied both in Germany and Europe today.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Expected Contributions",
+      "backend": "openalex",
+      "title": "Gone in Sixty Milliseconds: Trademark Law and Cognitive Science",
+      "authors": [
+        "Rebecca Tushnet"
+      ],
+      "year": 2008,
+      "venue": "Texas law review",
+      "doi": null,
+      "abstract": "Trademark dilution is a cause of action for interfering with the uniqueness of a trademark. For example, consumers would probably not think that \"Kodak soap\" was produced by the makers of Kodak cameras, but its presence in the market would diminish the uniqueness of the original Kodak mark. Trademark owners think dilution is harmful but have had difficulty explaining why. Many courts have therefore been reluctant to enforce dilution laws, even while legislatures have enacted more of them over the past half century. Courts and commentators have now begun to use psychological theories, drawing on associationist models of cognition, to explain how a trademark can be harmed by the existence of similar marks even when consumers can readily distinguish the marks from one another and thus are not confused. Though the cognitive theory of dilution is internally consistent and appeals to the authority of science, it does not rest on sufficient empirical evidence to justify its adoption. Moreover, the harms it identifies do not generally come from commercial competitors but from free speech about trademarked products. As a result, even a limited dilution law should be held unconstitutional under current First Amendment commercial-speech doctrine. In the absence of constitutional invalidation, the cognitive explanation of dilution is likely to change the law for the worse. Rather than working like fingerprint evidence--which ideally produces more evidence about already-defined crimes--psychological explanations of dilution are more like economic theories in antitrust, which changed the definition of actionable restraints of trade. Given the empirical and normative flaws in the cognitive theory, using it to fill dilution's theoretical vacuum would be a mistake.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Expected Contributions",
+      "backend": "openalex",
+      "title": "Initial Interest Confusion: Standing at the Crossroads of Trademark Law",
+      "authors": [
+        "Jennifer E. Rothman"
+      ],
+      "year": 2005,
+      "venue": "Cardozo Law Review",
+      "doi": null,
+      "abstract": "While the benchmark of trademark infringement traditionally has been a demonstration that consumers are likely to be confused by the use of a similar or identical trademark to identify the goods or services of another, a court-created doctrine called initial interest confusion allows liability for trademark infringement solely on the basis that a consumer might initially be interested, attracted, or distracted by a competitor's, or even a non-competitor's, product or service. Initial interest confusion is being used with increasing frequency, especially on the Internet, to shut down speech critical of trademark holders and their products and services, to prevent comparative advertisements and to otherwise limit information and choices available to consumers.Contemporary trademark law is at a crossroads and the initial interest confusion doctrine stands at the center of this intersection. This article uses the troublesome doctrine as a prism to analyze three crucial issues that will decide the future of trademark law: The first is whether it is ever acceptable to trade off of the goodwill established by another. The second is whether trademark protection primarily serves to protect consumers from being duped by unethical competitors, or instead primarily serves to bolster the business of individual trademark holders. Finally, the article considers the fundamental question: are trademarks and trademark infringement actions about protecting property rights or about providing more limited rights akin to tort and unfair competition actions? The answers to these questions lead to the conclusion that the initial interest confusion doctrine must be eliminated and trademark infringement returned to its origins as a narrow cause of action primarily directed at protecting consumers from deceptive business practices.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Expected Contributions",
+      "backend": "openalex",
+      "title": "Trademarks, Triggers, and Online Search",
+      "authors": [
+        "Stefan Bechtold",
+        "Catherine E. Tucker"
+      ],
+      "year": 2013,
+      "venue": "SSRN Electronic Journal",
+      "doi": "10.2139/ssrn.2266945",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    },
+    {
+      "section": "Expected Contributions",
+      "backend": "openalex",
+      "title": "The Trademark Tower of Babel - Dilution Concepts in International, US and EC Trademark Law",
+      "authors": [
+        "Martin Senftleben"
+      ],
+      "year": 2008,
+      "venue": "VU Research Portal",
+      "doi": null,
+      "abstract": "Dilution is one of the most controversial and complex phenomena which modern trademark law seeks to regulate (section I). Against the background of international, US and EC anti-dilution systems, conceptual inconsistencies can be identified even with regard to basic notions, such as the definition of subject matter eligible for protection (section II) and the preservation of distinctiveness and repute as main purposes of protection (section III). Not surprisingly, these conceptual difficulties have repercussions on the relation between protected subject matter and the purposes of anti-dilution protection (section IV). An attempt to clarify matters, however, sheds light on a further conceptual challenge. On its merits, the unanswered question posed by the dilution doctrine is whether trademark rights should be expanded to property rights in gross (concluding section V).",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Expected Contributions",
+      "backend": "openalex",
+      "title": "The Birth of the Authornym: Authorship, Pseudonymity, and Trademark Law",
+      "authors": [
+        "Laura A. Heymann"
+      ],
+      "year": 2004,
+      "venue": "Journal of legislation",
+      "doi": null,
+      "abstract": "Consumers in the marketplace of ideas are well acquainted with one aspect of the Foucauldian concept of the “author function”. the way in which an author's name serves to organize both producer inputs-the various works the author wishes to have associated with his name-and consumer inputs-the readers' interpretive reactions to any particular body of work. Indeed, choosing to write under a pseudonym or under one's true name is the way in which an author exerts control over this function by grouping certain works (for example, scholarly pieces) under one name and other works (for example, mystery novels) under a different authorial name, thus segregating readers' responses to each of these bodies of work. Readers, in turn, respond to this decision by mirroring the choices made by the author-continuing, for example, to refer to certain works as being authored by “Mark Twain” even when the author's true name of “Samuel Clemens” is known or accepting that the Nancy Drew series was written by “Carolyn Keene” rather than by a series of different writers over time. Borrowing from postmodern literary theorists Roland Barthes and Michel Foucault, and given that statements of authorship often tell readers very little, if anything, about the identity of the individual who put pen to paper, this Article proposes a separation of statements of authorship-what this Article terms “authornyms”-from facts of authorship. This construct leads to the conclusion that all authornyms are essentially branding choices, even if the brand that is chosen is the author's true name, and therefore that the “author function” is really a “trademark function.” If this is the case, then-as in trademark law-we should seek to preserve the organizational system of the “authornym function” and to minimize the likelihood of reader confusion that occurs when a work is used unlawfully without attribution-in other words, when an author's choice of authornym is not preserved. The Supreme Court's 1995 decision in McIntyre v. Ohio Elections Commission, which granted First Amendment protection to pseudonymous speech, was an inherent acknowledgment of the trademark value that authornyms serve and the importance of controlling the author function by the choice of authornym. But in its decision in Dastar Corp. v. Twentieth Century Fox Film Corp. eight years later, the Supreme Court largely denied authors the ability to compel attribution of their works (and thereby preserve their authornymic choice) through the Lanham Act and thus denied readers the accurate attribution required for organized and efficient literary consumption. This Article contends that only by recognizing the essential pseudonymity of all statements of authorship-in other words, by decoupling the copyright-focused concept of authorship from the trademark-focused statement of authorship (“authornyms”)--can we create room for the values that trademark law can promote in the marketplace of ideas. Reprinted by permission of the publisher.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Expected Contributions",
+      "backend": "semantic_scholar",
+      "title": "Cavities in Law Regarding Consumer Protection Due to Non-Similar Trademark Similarities",
+      "authors": [
+        "Ida Apriyani",
+        "Hono Sejati",
+        "Naya Amin Zaini"
+      ],
+      "year": 2024,
+      "venue": "Devotion : Journal of Research and Community Service",
+      "doi": "10.59188/devotion.v5i11.20686",
+      "abstract": "Consumer protection is an important aspect of intellectual property law, particularly in the context of non-similar trademark similarities. This study aims to identify legal gaps that arise due to the lack of clear regulations concerning trademarks that are not of the same type. In this research, the research method used is the statutory approach, also known as normative legal research. In the first subsection, various forms of legal gaps are outlined, including difficulties in determining the level of similarity between trademarks in different categories and the impact this has on consumers' rights to receive quality products. This study also discusses the consequences arising from these legal gaps, such as confusion among consumers and the potential for deception by irresponsible business actors. Additionally, the study suggests remedial measures, including the need for regulatory revisions and strengthening law enforcement, to ensure more effective protection for consumers. It is hoped that the results of this research can contribute to the development of better legal policies for consumer and trademark protection in Indonesia.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Expected Contributions",
+      "backend": "semantic_scholar",
+      "title": "Trademark Licensing and Consumer Protection: Navigating Legal Challenges under the Consumer Protection Act, 2019",
+      "authors": [
+        "R. Kaur",
+        "KB Asthana"
+      ],
+      "year": 2025,
+      "venue": "International Research Journal of Multidisciplinary Scope",
+      "doi": "10.47857/irjms.2025.v06i04.07632",
+      "abstract": "The interplay between trademark licensing and consumer protection under the Consumer Protection Act, 2019 (CPA 2019) presents practical and doctrinal challenges. This study evaluates how licensing arrangements, while enabling brand expansion, can compromise consumer rights if quality control is inadequate. The CPA 2019 emphasises transparency, accountability, and consumer welfare, creating obligations for manufacturers and product sellers and defining exposure for licensors where their control over design, labelling, advertising, or warranties is material. Using statutory analysis, case law, and regulatory guidance, we examine the risks of consumer confusion, deceptive advertising, and liability allocation in licensing relationships. Landmark Indian decisions (e.g., Hawkins Cookers; Gujarat Bottling) insist on a continuing connection between the proprietor and the goods. We also outline governance measures-contractual quality standards, audit and approval rights, recall coordination, and e-commerce oversight- and map the role of the Central Consumer Protection Authority (CCPA). By identifying gaps and proposing implementable controls, we show how licensors can integrate compliance into licensing frameworks so that brand growth does not come at the expense of consumer protection and brand equity.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Expected Contributions",
+      "backend": "semantic_scholar",
+      "title": "The Role and Significance of Trademark Law in Brand Value Protection",
+      "authors": [
+        "Jin Peng"
+      ],
+      "year": 2025,
+      "venue": "Lecture Notes in Education Psychology and Public Media",
+      "doi": "10.54254/2753-7048/2025.20552",
+      "abstract": "A trademark, serving as a legal entity, is a distinct sign that enables to differentiation of a companys goods or services and provide information to the consumer about the source and quality of the product or service as well as guarantee their quality. This academic paper endeavors to probe into the role that trademark law undertakes in the protection and building of brands. The research is carried out by employing a doctrinal research methodology, with the study founded upon an in-depth analysis of the legal instruments that govern trademark law, along with case law and relevant academic literature. Additionally, it scrutinizes a spectrum of issues, namely cross-border infringement, counterfeiting in e-commerce sites, and new technologies. As explained in the research, trademark law is critical to brand differentiation, competitive advantage, and even revenue for firms. However, inconsistent enforcement, changes in market characteristics constitute some of the challenges experienced. As for the conclusion, the study calls for the alignment of international trademark laws and the subsequent approaches to digital markets to guarantee effective brand security.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Expected Contributions",
+      "backend": "semantic_scholar",
+      "title": "Complaints Regarding Trademark Crimes Against Trademark Holders and Consumer Protection",
+      "authors": [
+        "Devica Rully Masrur",
+        "Ira Irawati",
+        "Antonius Alexander Tigor"
+      ],
+      "year": 2025,
+      "venue": "Jurnal Pembangunan Hukum Indonesia",
+      "doi": "10.14710/jphi.v7i3.492-513",
+      "abstract": "The background of this paper is the existence of illegal trademark infringement according to the Trademark and Geographical Indications Law on registered trademarks by other parties, especially for the same or similar goods or services that have the potential to mislead consumers. Referring to this, trademark crimes can only be reported as absolute offenses that can only be reported by trademark holders. The purpose of this study is to examine the mechanism of absolute offenses in the enforcement of trademark criminal law in Indonesia based on the Trademark and Geographical Indications Law, as well as its implications for the protection of trademark holders and consumers. This research is normative legal research with a legislative approach. The results of the study state that the initiation of criminal proceedings is entirely through the mechanism of absolute complaint offenses. However, these absolute complaint offenses have the potential to hinder the enforcement of trademark infringement laws, because the provisions of complaint offenses in trademark crimes are also not in line with the objectives of consumer protection as stipulated in the Consumer Protection Law. The conclusion obtained from this study is based on the theory of Roscoe Pound's balance and Pancasila Prismatics, it is necessary to re-arrange the absolute complaint offense from trademark crimes to relative complaint offenses. Thus, consumers as parties who are directly harmed by the circulation of counterfeit goods have the legitimacy to file a criminal trademark complaint",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Expected Contributions",
+      "backend": "semantic_scholar",
+      "title": "Synergy of Trademark Protection and Consumer Rights: A Legal Analysis on the Prevention of Product Counterfeiting",
+      "authors": [
+        "Hulman Panjaitan",
+        "Andrew Bethlen",
+        "Paltiada Saragi",
+        "Tomson Situmeang",
+        "D. K. Harjono",
+        "M. Soerjadjanegara",
+        "A. H. M. Kamal",
+        "S. Suwarno"
+      ],
+      "year": 2025,
+      "venue": "Jurnal Hukum Dan Keadilan",
+      "doi": "10.61942/jhk.v2i5.420",
+      "abstract": ": This study examines legal protection for consumers in cases of product counterfeiting through the perspectives of consumer protection law and trademark law. The phenomenon of product counterfeiting is increasingly prevalent in Indonesia, causing harm not only to original producers but also endangering consumers as the most vulnerable party. This research employs a normative juridical method with a statute approach and a conceptual approach. Data sources consist of primary legal materials in the form of relevant laws and regulations, as well as secondary legal materials such as literature, journals, and expert opinions. The analysis is conducted qualitatively, emphasizing legal interpretation of applicable norms. The findings indicate that consumers are highly vulnerable in cases of product counterfeiting due to limited access to information, knowledge asymmetry, and the difficulty of distinguishing between genuine and counterfeit products. Legal protection can be pursued through two pathways: prevention and enforcement. Preventive legal strategies include strengthening regulations, integrated supervision, and consumer education. Meanwhile, enforcement is carried out through both criminal and civil legal actions against counterfeiters. Furthermore, the synergy between trademark protection and consumer protection serves as a crucial pillar in preventing counterfeiting practices, as both complement each other in ensuring justice, legal certainty, and utility. This study underscores the importance of the involvement of all stakeholders government, producers, consumers, and law enforcement authorities in establishing a layered protection system. Thus, the ultimate goal of consumer protection is not only to provide legal certainty but also to foster a fair and healthy trading environment.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Expected Contributions",
+      "backend": "semantic_scholar",
+      "title": "Consumer Confusion: The Sole Focus of Trademark Law",
+      "authors": [
+        "Qiqi Lou"
+      ],
+      "year": 2024,
+      "venue": "Lecture Notes in Education Psychology and Public Media",
+      "doi": "10.54254/2753-7048/69/20240157",
+      "abstract": "Abstract: In recent years, the expansion of the global marketplace, driven by the digital revolution, has led to a growing complexity in trademark disputes. The balance between protecting intellectual property and preventing consumer confusion has become increasingly delicate. Traditionally, trademark law was designed primarily to prevent consumer confusion and ensure fair competition. However, with the introduction of the dilution concept, this focus has shifted, resulting in expanded trademark rights that can inhibit innovation and free competition. This paper revisits the original intent of trademark law, advocating for a refocus on consumer confusion as the core principle. Through an examination of legislative intent, theoretical underpinnings, and case law, this paper demonstrates the need to reorient trademark protections to ensure they serve the broader goal of market fairness and economic development. This research highlights that excessive protection of trademark rights can lead to monopolistic practices, which ultimately harm both consumers and market competition. It contributes to the ongoing discussion about how to balance trademark rights with consumer protection, aiming to guide future legal reforms that foster both innovation and competition.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Expected Contributions",
+      "backend": "semantic_scholar",
+      "title": "Dupe Culture in Intellectual Property Law: Between Consumer Expression and Trademark Infringement",
+      "authors": [
+        "Naila Aulia Rahmah Virhanida",
+        "Nazwa Rahmannina Rustandi",
+        "Putri Nur Wisudawati",
+        "Nesya Salwa Nurfadhilah"
+      ],
+      "year": 2025,
+      "venue": "VARIA HUKUM",
+      "doi": "10.15575/vh.v7i2.46633",
+      "abstract": "The phenomenon of dupe culture-the trend of purchasing imitation products-has emerged as a growing consumer behaviour, particularly among younger, urban popular­tions seeking access to premium lifestyles at affordable prices. While economically viewed as a form of market inclusivity, this practice presents complex legal dilemmas, especially in the realm of Intellectual Property Rights (IPR) and trademark protection. This article critically examines how dupe culture operates within the blurred lines between inspired innovation and trademark infringement, and how Indonesian regulations respond to this challenge. Employing a normative and comparative legal approach, the study analyses regulatory gaps in trademark law and evaluates potential solutions, including ethical dupe certification, industry licensing collaborations, and consumer education. The findings suggest that an adaptive, participatory legal framework grounded in public literacy is essential to restructure duplicative practices in a way that safeguards creators' rights without stifling market dynamics. Consequently, dupe culture should not be viewed solely as a threat, but as an opportunity for IPR reform and the strengthening of the national creative industry ecosystem.",
+      "abstract_source": "full"
+    },
+    {
+      "section": "Expected Contributions",
+      "backend": "semantic_scholar",
+      "title": "Consumer Protection Against Confusion in The Trademark Law",
+      "authors": [
+        "Aleksandra Nowak-Gruca"
+      ],
+      "year": 2018,
+      "venue": "",
+      "doi": "10.19044/elp.v5no1a1",
+      "abstract": "",
+      "abstract_source": "truncated_240"
+    }
+  ]
+}
