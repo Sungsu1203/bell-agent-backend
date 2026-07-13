@@ -16,6 +16,7 @@ References footer 는 본 모듈에서 utils.citations.format_apa7() 로 구성�
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any, Mapping
 
@@ -64,7 +65,17 @@ def write_paper_section(
     _stripped = re.sub(r"\[\[\d+\]\]", "", previous_sections or "")
     prev_text = re.sub(r"[ \t]{2,}", " ", _stripped).strip() or "(없음 — 첫 section)"
 
-    chain = prompt | llm | StrOutputParser()
+    # 재현성 측정 스캐폴드(조건부): WRITER_SEED 설정 시에만 temp=0 + seed 를 bind 해
+    # 생성을 결정론화(측정 통제). 미설정 = 프로덕션 원래 동작(get_llm 기본 temp=0.3, bind
+    # 없음) 그대로 — 프로덕션 불변. ctor 인자는 싱글턴 캐시에 먹혀 무시되므로 bind 로 호출별
+    # override(planner.py:104 명문화). vertex/gemini 검증됨.
+    _env_seed = os.environ.get("WRITER_SEED")
+    if _env_seed is not None:
+        llm_writer = llm.bind(temperature=0, seed=int(_env_seed))
+        logger.info("[paper_section_writer] bind temperature=0 seed=%d section=%s", int(_env_seed), section_type)
+    else:
+        llm_writer = llm
+    chain = prompt | llm_writer | StrOutputParser()
     body = chain.invoke({
         "topic_title": topic,
         "target_title": target_title,

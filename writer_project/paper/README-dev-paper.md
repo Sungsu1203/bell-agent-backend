@@ -692,3 +692,75 @@ re-entry: raw_source_name 자동 파싱 필요해지면 guard 재설계(clean co
 
 **status: closed (2026-07-12)** — rank 작동 확정(pool 재설계·정규식 교정·full 근거). 근거길이 병목 인과입증(0.077→0.615).
 re-entry: 표적2 총론성 → LLM 정합축 catch 착수 / cited_no_abstract 커버리지 개선 시 KCI·타 백엔드 / e5→BGE-m3 업그레이드는 rank 민감도 낮아 후순위 / 240 잔재 재발 시 abstract_source 태그로 혼재 감사.
+
+## §paper-writer-2 catch 84 close (2026-07-14) — [[N]] 마커 형식 불일치: 상류(프롬프트) 표준화로 종결
+
+한 줄: writer 가 [[N]] 복수 인용 형식을 자작(`[[1], [5]]` / `[[1], [[2]]` / `[[1].`),
+파이프라인은 정본 `[[N]]` 전제 → shift/strip 오매핑 → 산출물 오염 + citation 측정 무효.
+하류 정규식 4연패 후 **프롬프트 형식 명시(상류)**로 종결.
+
+### 원인
+- 프롬프트 `[citation 규칙]` 에 복수 인용·구두점·malformed 규정 부재 → writer 형식 자유해석.
+  (예시 `(예: [[1]], [[2]])` 를 "쉼표로 묶어라"로 오해.)
+- 하류 shift(`measure_paper.py:225`)·strip(`paper_section_writer.py:65`)·extract 전부 `\[\[(\d+)\]\]` 정본 전제.
+  → 로컬 번호 묶음이 shift 안 됨 → 뒤 섹션 인용이 footer 오정렬(산출물 오염).
+
+### ⚠️ 하류 정규식으로 고치지 말 것 (4연패 기록)
+- `\[\[.*?\]\]`("rank_faithfulness.py:45 검증본")조차 malformed `[[N].`(단일 닫힘) 앞에서
+  **over-match → 그 사이 prose 를 통째 삭제**(육안 확인 — run_before_H 에서 문장 소실).
+- catch 84 시도 계보: (1)strict 미탐(catch 83) → (2)`[[a],[b]]` 오탐 → (3)변종 `[[a],[[b]]` 미탐
+  → (4)`.*?` over-strip. **정규식은 사양(spec) 확정 후.**
+- **정본은 프롬프트가 강제한다(상류).** 하류는 `\[\[(\d+)\]\]` 유지(원복 완료).
+
+### 해결: prompts.py `[citation 규칙]` 명시
+- 복수 = 독립 토큰 띄어 나열 `[[1]] [[2]] [[3]]`. 묶음·혼합·닫힘누락 금지(구체 예시 명시).
+- 마커는 문장부호 앞. 각 마커 `[[` 열고 `]]` 닫기.
+- 검증: 재생성 후 **육안 전수**(`[` 문자 전부 컨텍스트 덤프) → 정본 외 **0오염** 확인.
+
+### ⭐ 파생 1 — §paper-writer-2 다양성 트랙 **전제 무효화**
+- self-pool 앵커링 진단(EC/PF 0% = writer 가 자기 pool 무시)은 **shift 버그의 측정 아티팩트**였음.
+  정상 shift 시 self-pool **구조적 100%**(writer 는 자기 섹션 로컬 refs 만 받고, "이전 섹션 번호
+  재사용 금지" 프롬프트 명시 → 원리상 항상 ~100%). writer 는 줄곧 자기 pool 인용.
+- → 앵커링(a) 문제 **부재**. 축약 설계(B-1/B-2) **폐기**(없는 병에 대한 처방).
+- 오염 제거 후 실측 다양성(run_newbase/run_objstab): 고유 48~53 / 상위5 집중도 23~29% /
+  미사용 40~46% = **양호**. (미사용은 retrieval 품질 별 트랙으로 이관.)
+
+### ⭐ 파생 2 — objective 안정화 (신 트랙)
+- objective→perceived 코어가 **무처방 시 flatten**(프롬프트 미세 변화에 붕괴: run_before_H 44 vs
+  run_newbase 7). temp=0 단일점의 프롬프트 민감성.
+- **objective 유지 지시 1줄이 유일 안정책** — H4-H6 매개 복원, objective 43 유지.
+  산출물: `archive/run_objstab_20260714.md`(안정) vs `archive/run_newbase_20260714.md`(flatten 대조).
+- **폐기 처방**: (A) 억압형(objective 43→18) / full abstract(44→8).
+  ⚠️ **full abstract 는 rank 트랙 전용. writer 에 넣지 말 것**(생성 회귀 + Vertex 429 리스크).
+
+### ⭐ 방법론 교훈 (반복 확인)
+1. **정규식 4연패의 공통 원인 = writer 가 무엇을 쓰는지 모른 채 패턴 설계.**
+   → 형태 전수 조사(육안) 먼저. 정규식은 사양 확정 뒤에.
+2. **카운트 검증은 over-strip 을 못 잡는다. 육안이 잡았다.**
+   (prose 삭제가 정규식 카운트에는 안 보임 — 잔여 브래킷 수만으론 통과.)
+3. **하류에서 퍼내지 말고 상류에서 잠근다.**
+   writer 는 표기 지시를 잘 따른다(번호 지시·마커 형식 모두 1회 성공).
+4. **측정기가 고장 난 채로 처방을 비교하면 비교 결과가 전부 무효.**
+   → 처방 실험 전에 측정기부터 검증할 것.
+
+### 무효 / 유효 결론 구분
+| 구분 | 결론 | 근거 |
+|---|---|---|
+| ❌ 무효 (citation 기반, shift 오염) | (A) 효과 +9 / 번호지시 다양성 20→28 / full abstract 28→25 / self-pool 전 수치 / 미사용률 69%·72% / 집중도 47→38→52% | shift 버그가 로컬 인용을 오매핑 → citation 지표 전부 신뢰 불가 |
+| ✅ 유효 (prose 기반, 마커 무관) | objective: (A) 43→18 붕괴 / full 44→8 붕괴 / 짝 처방 44→67 강화 · 모형 구조 판정 전부 · H 구조 | 단어수·문면 기반, [[N]] shift 와 독립 |
+
+### catch 85 (paper_section_writer.py:65 prev strip 묶음 미처리) — 상류 표준화로 자동 해소
+- 원래 문제: strip 이 변종 마커 `[[a], [[b]]` 를 부분만 지워 previous_sections 에 잔해 누출.
+- ⚠️ **별도 수정 불요.** 상류(프롬프트)가 정본 `[[N]]` 을 강제하므로 변종이 애초에 생성되지 않는다.
+  → `:65` 의 원래 정규식 `\[\[\d+\]\]` 로 충분.
+- ⚠️ **`:65` 를 `\[\[.*?\]\]` 로 "고치지 말 것"** — malformed `[[N].` 앞에서 over-match →
+  prev 의 prose 문장을 통째로 삭제한다(육안 확인됨. run_before_H 에서 문장 소실).
+- status: 상류 표준화에 흡수됨. 별도 트랙 불요.
+
+### 배선 (커밋 대상)
+- `prompts.py` — `[citation 규칙]` 마커 형식 명시 + `[작성 원칙]` 번호 지시 + objective 유지 지시.
+- `agent/paper_section_writer.py` — WRITER_SEED **조건부** bind(측정 시 temp=0+seed, 미설정 시 프로덕션 temp=0.3 불변).
+- 하류 정규식 5곳(`measure_paper:225`·`extract_pairs:38`·`chunk_summary:29`·`refs:357`·`paper_section_writer:65`) = `\[\[(\d+)\]\]` **원복 유지**(수정 금지).
+
+**status: closed (2026-07-14)** — 마커 오염 상류 표준화로 종결, 다양성 트랙 전제 무효화, objective 안정화 신 트랙 개시.
+re-entry: objective 안정 baseline(run_objstab) 확정 후 다음 품질축 / 미사용 retrieval 품질 별 트랙 / full abstract writer 주입 금지 재확인.
