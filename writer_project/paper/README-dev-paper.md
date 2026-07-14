@@ -764,3 +764,49 @@ re-entry: 표적2 총론성 → LLM 정합축 catch 착수 / cited_no_abstract �
 
 **status: closed (2026-07-14)** — 마커 오염 상류 표준화로 종결, 다양성 트랙 전제 무효화, objective 안정화 신 트랙 개시.
 re-entry: objective 안정 baseline(run_objstab) 확정 후 다음 품질축 / 미사용 retrieval 품질 별 트랙 / full abstract writer 주입 금지 재확인.
+
+## §paper-writer-2 core_thesis 파라미터화 (2026-07-14) — 논문별 핵심 논지를 topics/*.env 로 주입
+
+한 줄: objective 유지 지시의 trademark 특정 문안("objective vs perceived")을 `{core_thesis}`
+placeholder 로 빼고 `topics/<slug>.env` 의 `CORE_THESIS` 로 주입. 하드코딩 부채 → 논문별 설정.
+
+### 【1】 배선·검증
+- `prompts.py` [작성 원칙]: `- 논지가 {core_thesis}의 대조 위에 서 있다면, 그 대조 구조를 …
+  이미 세운 대조를 이어간다.` (input_variables 7→8).
+- `topics/*.env`: `CORE_THESIS=objective(객관적) 유사성과 perceived(지각된) 유사성` (⚠️ "의 대조"
+  제외 — template 이 담는다).
+- `agent/paper_section_writer.py`: `write_paper_section(core_thesis="")` 시그니처+invoke, LangGraph
+  래퍼 `state.get`. `measure_paper.py`·`diversity_rewrite.py`: `os.environ.get("CORE_THESIS", "")` 전달.
+- config 로더 `core/config.py:130 _apply_topic_preset` 가 writer 경로에서 **이미 작동**(신 인프라 0).
+- paper writer = **프로덕션 그래프 미배선**(연구 전용) → 파라미터화가 프로덕션에 안 번짐.
+- ⭐ **검증 = 유료 0.** 치환 후 최종 렌더 문자열이 inline 커밋본과 **5섹션 byte-identical**(SHA-256
+  대조, run_objstab 실제 입력 재구성). temp=0+seed 결정론(Phase 1-b 입증)상 출력 동일 보장 → 유료 런 불요.
+
+### 【2】 ⭐ 발견 — 핵심어 반복이 효과 강도를 만든다
+동일 개념 호명·동일 위치, "대조" 반복 횟수만 변경 → objective 안정화가 무너진다:
+| 문안 | "대조" 횟수 | objective 단독 | 모형 | 산출물 |
+|---|---|---|---|---|
+| run_objstab (특정 inline) | 3회 | 43 | H4-H6 objective→perceived 매개 ✅ | run_objstab_20260714.md |
+| run_paramz (초안2, 넓게) | 1회 | 15 | flatten ❌ | (지시대명사 2개 변경만으로 붕괴) |
+| run_generic (범용 문안) | 0회 | 11 | flatten ❌ | Phase 3 |
+| run_newbase (무처방) | — | 7 | flatten | run_newbase_20260714.md |
+
+→ **반복은 수식이 아니라 부품이다.** 지시대명사 2개("그 대조 구조"→"그 구조", "이미 세운 대조"→
+"이미 세운 것")만 바꿔도 objective 43→15, 매개 소실.
+- 병기 교훈: **구체적이면 먹고 추상적이면 안 먹는다.** (번호 지시·마커 형식·objective 호명 = 구체 →
+  성공 / (A) 억압형·"이론 모형 유지" 범용 = 추상 → 실패.) 이제 **+ 구체적 호명의 반복도 강도에 기여.**
+
+### 【3】 ⚠️ 잔존 부채 — 대조형 논지 전용
+- template 에 "대조"가 하드코딩됨. 비대조형 논문(매개형·통합형)에선 비문:
+  `CORE_THESIS="A가 B를 매개하는 구조"` → "매개하는 구조**의 대조** 위에" ❌.
+- 그때 template 문안을 조정해야 하는데, **문안 변경은 효과를 죽일 수 있다**(초안 2 전례: 지시대명사
+  2개 변경으로 objective 43→15). → **반드시 검증 런을 돌릴 것.** "의미가 같으니 괜찮겠지" 금지.
+- 부채는 줄었다(trademark 제거) 남았다("대조" 잔류). ⭐ **모르고 남기는 부채 ≠ 알고 남기는 부채.**
+  이 노트가 그 차이다.
+
+### 별 트랙 (catch 후보 등록)
+- **topic 소스 이원화**: `measure_paper.py:434 --topic`(CLI, 기본값 "consumer behavior in influencer
+  marketing" 광고 유물 footgun) ↔ `TOPIC_TITLE/QUERY`(env). topic 은 fetch query seed(:254)이기도
+  하므로, env 통일 시 fetch query 변경 → pool 재생성·검증 필요(유료). core_thesis 와 분리 처리.
+
+**status: closed (2026-07-14)** — core_thesis 파라미터화 커밋(byte-identical 검증, 유료 0). 대조형 전용 부채 명시.

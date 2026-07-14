@@ -271,6 +271,7 @@ def _run_one_paper(topic: str, sections: list[str]) -> dict:
             outline=outline,
             references_chunks=chunks,
             previous_sections="\n\n".join(section_bodies),
+            core_thesis=os.environ.get("CORE_THESIS", ""),
         )
         stage_times[f"write_{section}"] = round(time.monotonic() - tw, 2)
         # catch 80: 로컬 [[N]] → 글로벌 [[N+offset]] (footer 정합). offset==0 이면 no-op.

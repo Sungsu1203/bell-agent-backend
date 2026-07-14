@@ -36,6 +36,7 @@ def write_paper_section(
     outline: str,
     references_chunks: list[dict],
     previous_sections: str = "",
+    core_thesis: str = "",
 ) -> str:
     """1 section LLM 호출 → 본문 markdown 반환 ([[N]] marker 포함).
 
@@ -83,6 +84,7 @@ def write_paper_section(
         "outline": outline,
         "previous_sections": prev_text,
         "references": refs_text,
+        "core_thesis": core_thesis,
         "messages": "",
     })
     logger.info("[paper_section_writer] %s done (len=%d)", section_type, len(body or ""))
@@ -126,5 +128,6 @@ def paper_section_writer(state: Mapping[str, Any]) -> dict:
         outline=state.get("outline", "") or "",
         references_chunks=list(state.get("references_chunks") or []),
         previous_sections=state.get("previous_sections", "") or "",
+        core_thesis=state.get("core_thesis", "") or "",
     )
     return {"section_body": body}
