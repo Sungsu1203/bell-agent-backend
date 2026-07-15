@@ -2,7 +2,7 @@
 
 > 활성 트랙·후보·결정 기록만. **종결된 catch는 여기 아님 → `README-dev-§14.md`(아카이브)로.**
 > 운영 상수·규칙(토픽/venv/커밋/vertex)은 `CLAUDE.md`.
-> 최종 업데이트: 2026-07-12
+> 최종 업데이트: 2026-07-15
 
 ---
 
@@ -11,6 +11,8 @@
 axis1 = **1.0 PASS** (complete 44 / partial 45 / missing 0). references **89** (OA 60 + SS 29).
 **catch 83(faithfulness rank: pool 재설계 P∪{C}·마커 2단 교정·full 근거 재조회) 종결·push `5de31128`.**
 rank 작동 확정(표적 [[5]] 240 pct 0.077→full 0.615, 근거길이 병목 인과입증). 아카이브 = `README-dev-paper.md`.
+**topic-unify Phase 1(CLI→env `TOPIC_QUERY` 단일 진실, influencer footgun 제거) 종결·push `82257557`.**
+catch 86(writer temp=0.3 비결정론 → 렌더 byte 회귀검증 대신 입력 불변 증명) 박제.
 
 ---
 
@@ -64,6 +66,12 @@ rank 작동 확정(표적 [[5]] 240 pct 0.077→full 0.615, 근거길이 병목 
 4. **paper↔레거시 vertex 게이팅 통합** — paper 경로 flat flag vs 레거시 catch-43 language routing 이원화.
    현재 무해. 통합 필요 시 catch 후보.
 
+5. **topic-unify Phase 2** (Phase 1 종결 후속) — Phase 1(CLI→env `TOPIC_QUERY` 단일 진실) 완결(커밋 `82257557`, push).
+   - **Phase 2a** (유료·회귀 트랙): writer `{topic_title}` wart 분리. fetch 는 쿼리형, writer 는 제목형이어야 하나
+     현재 한 문자열이 겸함(`measure_paper.py:254` fetch ↔ `:268`→`paper_section_writer.py:81` writer). 분리 시 생성 회귀 위험.
+   - **Phase 2b** (유료 트랙): retrieval 개선. Phase 1 은 문자열 통일만(`perception of`→`perceived`). 질의 최적화는
+     fetch query 변경 → pool 재생성·검증 필요. catch 86(seed 없는 렌더 byte 대조 금지) 유의.
+
 ---
 
 ## 🧹 정리 잔무 (무비용, 다음 세션 시작 시 처리)
@@ -71,3 +79,4 @@ rank 작동 확정(표적 [[5]] 240 pct 0.077→full 0.615, 근거길이 병목 
 - [ ] `NEXT_SESSION_20260710_axis1-OA충전-close.md` → archive/삭제 (convention: 일회성).
 - [ ] baseline **89**·라인 `:22` 정정이 `CLAUDE.md`·아카이브에 반영됐는지 확인(stale 77 재유입 방지).
 - [ ] KCI 커버리지(윤선희 계열): 결손 누적 시에만 별 트랙 재검토. 현재 1건 = 수동 override로 처리 완료, 착수 안 함.
+- [ ] `measure_paper.py` abstract-dump hunk(`@@ -505/-513`, `_abs_snip` 3줄) → §citation-claim-faithfulness 트랙으로 분리 커밋. 현재 worktree unstaged 보존(topic-unify Phase 1 커밋서 제외됨).

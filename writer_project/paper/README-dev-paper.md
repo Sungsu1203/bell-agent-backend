@@ -810,3 +810,30 @@ placeholder 로 빼고 `topics/<slug>.env` 의 `CORE_THESIS` 로 주입. 하드�
   하므로, env 통일 시 fetch query 변경 → pool 재생성·검증 필요(유료). core_thesis 와 분리 처리.
 
 **status: closed (2026-07-14)** — core_thesis 파라미터화 커밋(byte-identical 검증, 유료 0). 대조형 전용 부채 명시.
+
+## §paper-writer-2 catch 86 (2026-07-15) — writer 경로 temp=0.3 비결정론: 렌더 byte-identical 회귀검증 불성립
+
+한 줄: writer LLM 은 `WRITER_SEED` 미설정 시 temp=0.3(비결정론)로 돌아, 산출물 SHA-256 대조는
+코드 변경과 무관하게 오탐할 수 있다. topic-unify Phase 1 은 렌더 byte 대조 대신 **writer 입력 불변**
+(SHA/git-stat) 정적 증명으로 회귀 0 을 세웠다.
+
+### 원인
+- `agent/paper_section_writer.py:73-78`: `WRITER_SEED` 설정 시에만 `temp=0+seed` bind, 미설정 시
+  프로덕션 기본 `get_llm()` temp=0.3(비결정론) fallback.
+- `archive/run_objstab_20260714.md` 도 seed 없이 생성 → 재생성본과 byte 대조 시 코드 무관 변동 발생 가능
+  = SHA 불일치가 회귀 신호인지 seed 노이즈인지 분간 불가.
+
+### 대체 검증 (topic-unify Phase 1 적용)
+- 렌더 byte 대조 대신 **writer 입력 6종 불변** 정적 증명: topic 문자열(pool `d["topic"]` == 새 default
+  SHA-256 일치)·pool chunks(mtime·git diff 불변, 재-fetch 0)·`prompts.py`·`paper_section_writer.py`·
+  `web_search.py`(git diff 공백)·`CORE_THESIS`(env 불변). 입력 경로가 안 움직이면 산출 분포 불변 → 회귀 0.
+- 이 방식은 실경험 SHA 대조보다 **견고**: seed 부재·temp=0.3 노이즈에 영향받지 않는다.
+
+### ⚠️ 근원 — core_thesis 논법을 writer 에 복사 금지
+- core_thesis 검증(temp=0+seed, 결정론 context)은 "입력 동일 → 출력 byte 동일" 이 성립.
+- 일반 writer 경로(temp=0.3, seed 無)는 **"입력 불변 → 분포 불변"까지만** 성립(byte 동일 아님).
+- temp 비대칭(core_thesis 검증 = seed 有 ↔ 기본 writer = seed 無)을 무시하고 byte-identical 논법을
+  그대로 옮기면 오검증. writer 산출물 회귀 판정은 **입력 불변 정적 증명**으로 한다.
+
+**status: noted (2026-07-15)** — topic-unify Phase 1 회귀검증 방법 확정(커밋 `82257557`, push 완료).
+향후 writer 산출물 회귀는 seed 고정 없이는 byte 대조 금지, 입력 불변 증명 우선.
