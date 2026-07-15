@@ -433,7 +433,7 @@ def _save_md_docx(result: dict, output_dir: Path, ts: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description="§paper-writer-1 measure driver")
     parser.add_argument("--topic", type=str,
-                        default="consumer behavior in influencer marketing")
+                        default=os.environ.get("TOPIC_QUERY"))
     parser.add_argument("--sections", type=str, nargs="+",
                         default=["Introduction", "Theoretical Background",
                                  "Proposed Framework", "Research Design (Proposed)",
@@ -447,6 +447,13 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true",
                         help="Stage 2 (env dump) 까지만 print 후 exit. API 비용 0.")
     args = parser.parse_args()
+
+    # topic 미정 무음-폴백 박멸: CLI --topic 없음 + env TOPIC_QUERY 없음이면 즉시 에러.
+    # 현재 _force_driver_env_override(:131)가 import-time 에 TOPIC_SLUG 를 하드코딩 →
+    # config 프리셋(:169)이 TOPIC_QUERY 를 항상 주입하므로 이 가지는 현재 도달 불가.
+    # TOPIC_SLUG 동적화/하드코딩 청산 시 살아나는 무음-폴백 안전망이다. 삭제 금지.
+    if not args.topic:
+        parser.error("--topic 없음 + env TOPIC_QUERY 없음 — topic 미정")
 
     # Stage 2: config 확정 + env dump
     _stage(2, 14, "config 확정 + env dump")

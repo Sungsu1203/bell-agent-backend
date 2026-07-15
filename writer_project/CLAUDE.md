@@ -28,6 +28,8 @@
 - **env 파일 = `topics/academic-trademark-similarity-consumer.env`**
 - ⚠️ **코드/스크립트 기본값이 `influencer marketing`으로 박혀 있다.** 그대로 두면 엉뚱한 토픽으로 측정·커밋.
   → 어떤 측정/fetch를 돌리기 전에 토픽 slug와 로드되는 .env가 **위 값인지 눈으로 확인**하고 시작.
+- **§paper topic 단일 진실 = `topics/<slug>.env` 의 `TOPIC_QUERY` (fetch+writer 공유 소스).**
+  `measure_paper.py --topic` default 가 이 값을 읽는다(생략 시 자동 주입). 위 §1 정본 문자열과 byte 동기 유지.
 
 ---
 
