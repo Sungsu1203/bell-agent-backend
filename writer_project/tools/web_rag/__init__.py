@@ -92,13 +92,36 @@ def ensure_vector_store_cleared_once(*args, **kwargs):
     from .ingest import ensure_vector_store_cleared_once as _fn
     return _call_maybe_tool(_fn, *args, **kwargs)
 
-def _default_chroma_dir(*args, **kwargs):
+def default_chroma_dir(*args, **kwargs):
     from .ingest import _default_chroma_dir as _fn
     return _call_maybe_tool(_fn, *args, **kwargs)
+
+
+# 하위 호환 별칭 — 기존 소비자를 한 번에 고치지 않아도 되게 유지.
+# 신규 코드는 default_chroma_dir 사용. 밑줄판 제거는 소비자 전환 완료 후 별도 커밋.
+_default_chroma_dir = default_chroma_dir
+
+
+# ── §academic 학술 백엔드 (2026-07-25 A9) ──
+# 주의: OA/SS는 현재 평범한 함수라 _call_maybe_tool이 인자를 그대로 통과시킨다.
+#       향후 @tool 데코레이터를 붙이면 invoke 분기가 살아나 kwargs가
+#       {"query": ...}로 정규화되므로 호출 규약이 바뀐다.
+def openalex_search(*args, **kwargs):
+    from .openalex import openalex_search as _fn
+    return _call_maybe_tool(_fn, *args, **kwargs)
+
+
+def semantic_scholar_search(*args, **kwargs):
+    from .semantic_scholar import semantic_scholar_search as _fn
+    return _call_maybe_tool(_fn, *args, **kwargs)
+
+
 __all__ = [
     "web_search", "web_results_to_documents", "web_page_json_to_documents",
     "documents_to_chroma", "add_web_pages_json_to_chroma", "retrieve",
-    "clear_vector_store", "ensure_vector_store_cleared_once", "_default_chroma_dir",
+    "clear_vector_store", "ensure_vector_store_cleared_once",
+    "default_chroma_dir", "_default_chroma_dir",
+    "openalex_search", "semantic_scholar_search",
 ]
 
 import logging
