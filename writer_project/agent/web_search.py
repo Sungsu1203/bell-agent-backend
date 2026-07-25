@@ -879,8 +879,7 @@ def web_search_agent(state: State):
                         and _q_lang != "ko"):
                     try:
                         from concurrent.futures import ThreadPoolExecutor, as_completed
-                        from tools.web_rag.semantic_scholar import semantic_scholar_search
-                        from tools.web_rag.openalex import openalex_search
+                        from tools.web_rag import semantic_scholar_search, openalex_search
                         scholarly_backends = {
                             "semantic_scholar": semantic_scholar_search,
                             "openalex": openalex_search,
