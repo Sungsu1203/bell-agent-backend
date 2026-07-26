@@ -326,8 +326,10 @@ README §4 규칙:
 
 | 구분 | 사례 |
 |---|---|
-| ✅ 준수 | `vector_search.py:35, 66` — `from tools.web_rag import retrieve` |
-| ❌ 내부 모듈 직접 | `web_search.py:29/30/43`, `vector_search.py:48/120/121`, `settings_gatekeep.py:24`, `debug_docid.py:1` |
+| ✅ 준수 | `vector_search.py:35` — `from tools.web_rag import (...)` 묶음 import |
+| ⚠️ 중복 | `vector_search.py:66` — `retrieve` 재import. `:35`에 이미 포함. 동작 무해, 정리 대상 |
+| ❌ 내부 모듈 직접 | `web_search.py:29/30/43` |
+| ~~❌ 오분류~~ → ✅ 해소 | `settings_gatekeep.py:24`·`vector_search.py:48` — `normalize_url` 정의는 `tools/web_rag/utils.py:1199` **단일 지점**. `rag_utils`에 없음 → 위반 아님, README §4 서술 오류였음 (`b6fc2e41` 정정). `debug_docid.py:1`은 구/신 docid 비교 시뮬레이터 = 정당한 예외 |
 | ❌❌ **비공개 함수 직접** | `_default_chroma_dir` ← agent 4파일(`research_planner:25`/`research_synthesizer:22`/`supervisor:34`/`web_search:46`) + `tools/diagnose_*` 4 + `scripts/_phase_b_*` 2 = **총 11파일 / 진입 경로 3종** ✅ (기존 "5곳"은 과소집계) |
 | ~~❌ 신규 백엔드 우회~~ → ✅ 해소 | `web_search.py:882` 파사드 경유 전환 완료 (A9-③). paper 블록 `:1829`/`:1994~1995`는 A8 대기 |
 
@@ -348,23 +350,18 @@ README §4 규칙:
   `:894` 백엔드별 `except`가 잡음 (이전엔 fan-out 통째 스킵). **정상 경로 동일, 실패 모드만 변경**
 - **stale 물증** ✅ 파사드 커밋 이력 2건·최종 2026-03 → 백엔드 수정 6~7월. "확장이 규칙을 못 따라잡음" 확정
 
-**잔여** — ② 소비자 11파일 전환(별칭이 받쳐 급하지 않음) / **규칙 3분류 명문화**(진짜 위반 · 정당한 예외[tests·diagnose] · 의도적 회피[`_phase_b_clear_ns.py:52` 주석에 사유 명시]) → A11과 묶을 것
+**잔여** — ② 소비자 11파일 전환(별칭이 받쳐 급하지 않음) / **✅ 규칙 3분류 명문화 완료 (2026-07-26, `b6fc2e41`)** — `ad/README-dev.md` §4 재작성. (a) 교체 대상 / (b) 정당한 예외 / (c) 의도적 회피 + "확장 시 규칙"(파사드 등록 선행, PEP 562 금지 사유) 신설. 부수 정정 2건: 공개 API 목록 8→11개, `rag_utils` "URL 정규화 단일 구현" 서술 오류.
 
 ### ⚠️ ENV 규칙 위반 (기존 발견과 연결)
 
 README §2 규칙: "다른 모듈에서 `os.getenv` 직접 호출 금지 → `core.config CFG` 사용"
 - `tools/web_rag/vertex_search.py:112` — `os.getenv("LLM_MODEL")` 직접 (§14-3 발견)
 - `core/topic.py:140~143` — 런타임에 `os.environ` 동적 변경 (`MIRROR_STATE_TO_ENV`)
+- `utils/rag_utils.py:542~555` — `_truthy` / `_get_bool` env 파싱 **별도 구현**. catch 71(`_env_flag` truthy 파싱 함정, "false"를 True로 읽음)과 같은 계열 → A10 진입 시 `core.config`와 파싱 규칙 일치 여부 확인 필요
 
-### README-dev.md stale 목록 (읽을 때 주의)
+### ~~README-dev.md stale 목록~~ → ✅ A11 완료 (2026-07-26, `310c4a80`)
 
-| 항목 | README | 실제 |
-|---|---|---|
-| 경로 | `D:\GPT_AGENT\` | macOS `~/dev/bell-agent/` |
-| 노드 토글 | 5개 | **9개** (`SECTION_WRITER`·`PLANNER`·`SYNTH`·`SUPERVISOR` 누락) |
-| `agent/` | 9개 | +`paper_section_writer.py`, +`export/` |
-| `vertex_search.py` | "Vertex AI Vector Search 시도 흔적" | §14에서 본격 배선. 웹 검색(grounding)용 |
-| 폴더 | `chapters/` `safe_code/` `state/` | **현재 없음** → `report_builder` 폴백 체인의 `chapters`는 유물 |
+경로(`D:\GPT_AGENT\` → `~/dev/bell-agent/bell-agent-backend/`) · 없어진 폴더 3종 · 노드 토글 5→9 · vertex 주석 · venv 목록 실측 반영. **명세표 자체에 오류 3건 있었음** — ① 정정 경로가 `~/dev/bell-agent/`로 한 단계 짧았고 ② 토글 축약 표기(`PLANNER`/`SYNTH`)가 실제 env 이름(`ENABLE_RESEARCH_PLANNER`/`ENABLE_RESEARCH_SYNTHESIZER`)과 달라 `graph.py:26~34` 재실측 필요 ③ "`agent/` 목록 누락"은 오판 — `export/` 5파일은 README `:1439~1446`에 표로 문서화돼 있음, 누락된 건 `:65` 트리 그림뿐. 미반영 1건: `paper_section_writer.py` 언급 0건 — 다만 본 문서가 `ad/` 전용이므로 paper 파일 부재는 누락이 아닌 범위 밖일 수 있음, 판단 보류.
 
 ---
 
@@ -380,9 +377,9 @@ README §2 규칙: "다른 모듈에서 `os.getenv` 직접 호출 금지 → `co
 | A6 | writer_project/.gitignore 1~9줄 = `chap14-6`, `chap14_8` 등 **타 프로젝트 화석** (현 repo에 미존재). `*.pptx` 중복 | 삭제 |
 | A7 | 구조 파악용 텍스트 파일 6종 누적 (`folder_tree.txt`, `structure*.txt`, `repo_tree.txt`, `gpt_agent_full_structure.txt`) | 정리 |
 | A8 | `agent/web_search.py` 트랙 분리 — **난이도 낮음**. 경계 주석(`:1693`) 아래를 통째로 `paper_search.py`로 분리하고 import 2줄 수정이면 됨. 공개 함수 2개·호출처 2곳뿐. 공유 헬퍼(`:55~173`) 처리 방식만 결정 필요 | 후보 |
-| A9 | **파사드 규칙 위반** — README §4는 `tools/web_rag/__init__.py`만 쓰라는데 내부 모듈·비공개 함수(`_default_chroma_dir`) 직접 import가 광범위. §academic 신규 백엔드(OA/SS)가 파사드를 우회. **"구조가 얽혀 보이는" 체감의 실제 원인** | ✅ 완료 (2026-07-25) — 잔여: ② 소비자 11파일 전환 · 규칙 3분류 명문화(A11과 묶음) |
+| A9 | **파사드 규칙 위반** — README §4는 `tools/web_rag/__init__.py`만 쓰라는데 내부 모듈·비공개 함수(`_default_chroma_dir`) 직접 import가 광범위. §academic 신규 백엔드(OA/SS)가 파사드를 우회. **"구조가 얽혀 보이는" 체감의 실제 원인** | ✅ 완료 (2026-07-25) — 잔여: ② 소비자 11파일 전환 · 규칙 3분류 명문화는 2026-07-26 `b6fc2e41` 완료 |
 | A10 | `os.getenv`/`os.environ` 직접 호출 금지 규칙(README §2) 위반 3건 — `tools/web_rag/vertex_search.py:112`(`LLM_MODEL`), `tools/web_rag/ingest_vector.py:1603`(`RAG_DISTANCE_THRESHOLD`), `core/topic.py:140~143`(런타임 `os.environ` 변경). ⚠️ topic.py가 런타임에 env를 바꾸는 상태에서 직접 읽기가 섞이면 **읽는 시점에 따라 값이 달라짐** — `_RUN_LOCK`이 필요한 이유와 같은 뿌리 | 정리 |
-| A11 | `ad/README-dev.md` stale — 윈도우 경로, 노드 토글 5개(실제 9개), `agent/` 목록 누락, 없어진 폴더(`chapters/` `safe_code/` `state/`) 기재 | 갱신 |
+| A11 | `ad/README-dev.md` stale — 윈도우 경로, 노드 토글 5개(실제 9개), 없어진 폴더(`chapters/` `safe_code/` `state/`) 기재, vertex 주석·venv 목록 | ✅ 완료 (2026-07-26, `310c4a80`) — 명세표 자체 오류 3건 발견, 상세는 3층 참조. 미반영: `paper_section_writer.py` (범위 밖 가능성, 판단 보류) |
 
 **해제된 우려**: catch 74/78이 ad에 영향을 줬을 가능성 → diff 확인 결과 **paper 구간(1962~1990)만 수정, ad 경로 무접촉** ✅ 기각.
 
