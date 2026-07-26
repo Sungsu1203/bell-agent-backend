@@ -1,92 +1,86 @@
-﻿chap14_8/refs - origin/
-chap14-6/refs - origin/
-chap14-6-legacy/docu/
+﻿# ══════════════════════════════════════════════════════════
+# writer_project/.gitignore
+# 최종 재작성: 2026-07-26 (A5 · A6)
+#
+# ■ 루트 .gitignore 가 이미 담당 — 여기 다시 쓰지 말 것
+#   .DS_Store / .vscode/ / .idea/ / __pycache__ / *.pyc
+#   .venv*/ / venv*/ / .env / *.bak / *.tmp / *.broken
+#   logs/ / **/logs/ / data/ / reports/(루트 **/reports/**)
+#   *structure.txt / folder_tree.txt / env_text.txt
+#   Vector DB 8종 (chroma.sqlite3 · *.parquet · *.bin · index_metadata.pickle)
+#
+# ■ 수정 후 재검증 (셋 다)
+#   git check-ignore -v --no-index <경로>
+#       → 어느 파일 몇 번째 줄이 이겼는지. --no-index 없으면 tracked 는 조회 생략됨
+#   git ls-files "writer_project/*" | git check-ignore --stdin --no-index
+#       → 추적 중인데 규칙상 무시 대상 (= 위반). 0 이어야 정상
+#   git ls-files | wc -l
+#       → 편집 전후 불변. .gitignore 는 tracked 에 영향 없음. 2026-07-26 기준 265
+#
+# ■ 디렉토리 통째 차단(`foo/`) 사용 조건
+#   excluded 디렉토리 하위는 negation 으로 되살릴 수 없음 (git 규칙).
+#   → 박제·예외가 생길 수 있는 경로에는 쓰지 말 것. 확장자 + 이름 패턴으로.
+#   A2 실증: `scripts/output/` 통째 차단이 !c_ab_results.json 을 무력화시켰음.
+#   아래 outlines/ research/ sections/ resources/ 는 "예외 없음" 전제로 유지.
+#   예외가 필요해지는 순간 즉시 패턴 방식으로 전환할 것.
+# ══════════════════════════════════════════════════════════
+
+# ─── 미디어 ───
+# ※ A6 화석 블록(:1~9)에 섞여 있었으나 패턴 자체는 유효 판단 → 존치.
+#    출처 커밋 미확인. 불필요 확인되면 삭제 가능.
 *.mp4
 *.mov
 *.avi
 *.pptx
-chap14-6/refs/
-*.pptx
 
-# ─── 환경변수/시크릿 (절대 커밋 금지) ───
-.env
+# ─── 환경변수 / 시크릿 (절대 커밋 금지) ───
+# .env 는 루트 담당. 아래는 루트가 못 잡는 것만.
 *.env.local
+# 루트 :22 는 writer_project/ 바로 아래만 앵커링 → 하위 경로는 여기가 담당
+service_account*.json
 
 # ─── 작업 산출물 (AI 생성 결과) ───
+# 2026-05-01 신설(56939790). 그 이전 유입분 8건은 2026-07-26 추적 해제 완료.
 outlines/
 research/
 sections/
-reports/
+# resources/ — 루트는 json 만 잡음(**/resources/**/*.json). 비-json 은 여기가 담당
 resources/
 
-# ─── 데이터/캐시 ───
-data/chroma_store/
-data/.cache/
-**/__pycache__/
-*.pyc
+# ─── 데이터 / 캐시 ───
+# data/ 는 루트 .gitignore:27 이 담당.
+#   2026-07-26 실측: git check-ignore -v --no-index writer_project/data/probe.json
+#                    → .gitignore:27:data/
+# ⚠️ 여기서 data/chroma_store/ 처럼 좁히려 해도 부모가 excluded 라 평가 자체가 안 됨.
+#    다시 쓰지 말 것.
+# ※ chroma_store = web_search→vector_search 임베딩. topic slug별 로컬/웹/베이스.
+#    재인덱싱은 유료이고 로컬 NS 는 refs/ 백업 없이 복구 불가 → git 아닌 백업 규율 대상.
 .pytest_cache/
 
-# ─── IDE/에디터 ───
-.vscode/
-.idea/
+# ─── IDE / 에디터 ───
 *.swp
-.DS_Store
 desktop.ini
 
-# ─── 가상환경 ───
-.venv/
-.venv_vertex/
-venv/
-
-# ─── 임시/메모 ───
+# ─── 임시 / 메모 ───
 개선 작업/
-*.bak
 *.backup
-*.tmp
+*.bak_*
 
 # ─── 실행 스크립트 ───
 *.local.bat
-# Backup/broken file patterns
-*.broken
 *.orig
 *.old
 
-# ── Secrets / credentials ────────────────────────────────
-service_account*.json
-
-# ── Logs ────────────────────────────────────────────────
-logs/
-**/logs/
-
-# ── Vector DB 산출물 (추가) ──────────────────────────────
-**/chroma.sqlite3
-**/chroma-collections.parquet
-**/chroma-embeddings.parquet
-**/data_level*.bin
-**/header.bin
-**/length.bin
-**/link_lists.bin
-**/index_metadata.pickle
-
-# ── Structure files ──────────────────────────────────────
-*structure.txt
-folder_tree.txt
-env_text.txt
-# ── Topic env files (NDA / client assets, since 2026-05-13) ──
+# ─── Topic env (NDA / 클라이언트 자산, since 2026-05-13) ───
 topics/*.env
 !topics/_template.env.example
 # §academic-1: academic 모드 토픽은 학술 lit-review (NDA 아님) — 추적 허용
 !topics/academic-*.env
 
-# ── §14-2 dump outputs ───────────────────────────────────
+# ─── §14-2 dump outputs ───
 # 차단: raw 측정 결과(json/log/ndjson/patch) + 논문 산출물(docx, paper_*.md)
 # 추적: .md 박제 (summary·audit·negative result 등)
-#
-# ⚠️ 디렉토리 통째 차단(`scripts/output/`) 금지 — A2에서 폐기.
-#    excluded 디렉토리 하위는 negation 으로 직접 되살릴 수 없어(git 규칙)
-#    경로마다 단계적 traverse 가 필요하고, 한 갈래만 뚫으면 나머지가 조용히 죽음.
-#    실제로 `!scripts/output/**/c_ab_results.json` 예외가 이 방식으로 무력화돼 있었음.
-#    .md 확장자로는 박제와 산출물이 구분 안 되므로 이름 패턴(`paper_*`)으로 거른다.
+# ※ .md 확장자로는 박제와 산출물이 구분 안 되므로 이름 패턴(paper_*)으로 거른다.
 scripts/output/**/*.json
 scripts/output/**/*.log
 scripts/output/**/*.ndjson
@@ -96,13 +90,19 @@ scripts/output/**/*.docx
 scripts/output/**/paper_*.md
 # §academic-4: c_ab_results.json 박제 (raw 측정 결과 재현성 근거)
 !scripts/output/**/c_ab_results.json
-# catch 83: full abstract dump = faithfulness rank 표준 근거 스냅샷
-#           (OA/SS 재조회 비결정적 → 고정)
+# catch 83 (faithfulness rank 표준 근거 스냅샷 — OA/SS 재조회 비결정적이라 고정)
 !scripts/output/§paper-writer-1/chunks_full_abstract_dump.json
 
+# ─── 세션 인계 메모 / 런 산출물 아카이브 ───
+# NEXT_SESSION_*.md 는 설계상 일회성 untracked 산출물.
+# run_*.md 는 파이프라인 논문 산출물 (위 paper_*.md 와 같은 범주, 이름 규칙만 다름).
+# ⚠️ 디렉토리 통째 차단(archive/) 안 씀 — 나중에 박제할 게 생기면 negation 이 먹혀야 함.
+#    규칙에 없는 새 파일이 ?? 로 뜨는 건 의도된 설계. 그때마다 분류 판단을 강제한다.
+archive/NEXT_SESSION_*.md
+archive/run_*.md
+
+# ─── 기타 ───
 # §14-8: diag local 스크립트 (박제 자산 아님 — local only, git 이력 0건 확인 2026-07-26)
 scripts/diag/
-
-*.bak_*
 _refs_venfobel_backup/
 ~$*
