@@ -79,29 +79,30 @@ topics/*.env
 !topics/academic-*.env
 
 # ── §14-2 dump outputs ───────────────────────────────────
-# Raw 측정 결과 (json/log/ndjson) 차단. nested 경로 포함.
-# .md 박제 (summary 등) 는 차단 대상 아님 — 자동 추적.
+# 차단: raw 측정 결과(json/log/ndjson/patch) + 논문 산출물(docx, paper_*.md)
+# 추적: .md 박제 (summary·audit·negative result 등)
+#
+# ⚠️ 디렉토리 통째 차단(`scripts/output/`) 금지 — A2에서 폐기.
+#    excluded 디렉토리 하위는 negation 으로 직접 되살릴 수 없어(git 규칙)
+#    경로마다 단계적 traverse 가 필요하고, 한 갈래만 뚫으면 나머지가 조용히 죽음.
+#    실제로 `!scripts/output/**/c_ab_results.json` 예외가 이 방식으로 무력화돼 있었음.
+#    .md 확장자로는 박제와 산출물이 구분 안 되므로 이름 패턴(`paper_*`)으로 거른다.
 scripts/output/**/*.json
 scripts/output/**/*.log
 scripts/output/**/*.ndjson
 scripts/output/**/*.console.log
-# §academic-4 Phase 4 cycle close — c_ab_results.json 영역 박제 negation (raw 측정 결과 박제 정합, reproducibility 영역)
-!scripts/output/**/c_ab_results.json
-# §14-3 G4-2: patch 산출물 ignore (재생성 가능 — git format-patch -1 <hash>)
 scripts/output/**/*.patch
+scripts/output/**/*.docx
+scripts/output/**/paper_*.md
+# §academic-4: c_ab_results.json 박제 (raw 측정 결과 재현성 근거)
+!scripts/output/**/c_ab_results.json
+# catch 83: full abstract dump = faithfulness rank 표준 근거 스냅샷
+#           (OA/SS 재조회 비결정적 → 고정)
+!scripts/output/§paper-writer-1/chunks_full_abstract_dump.json
 
-# §14-8: diag local 스크립트 (박제 자산 아님 — local only)
+# §14-8: diag local 스크립트 (박제 자산 아님 — local only, git 이력 0건 확인 2026-07-26)
 scripts/diag/
 
-# paper writer 산출물 / 백업 (status 오염 방지)
-scripts/output/
-# catch 83 예외: full abstract dump = faithfulness rank 표준 근거 스냅샷(OA/SS 재조회 비결정적 → 고정)
-# 부모 디렉토리를 단계적으로 traverse 허용 후 특정 파일만 재포함(git 규칙: excluded 디렉토리 하위는 직접 되살릴 수 없음)
-!scripts/output/
-scripts/output/*
-!scripts/output/§paper-writer-1/
-scripts/output/§paper-writer-1/*
-!scripts/output/§paper-writer-1/chunks_full_abstract_dump.json
 *.bak_*
 _refs_venfobel_backup/
 ~$*
