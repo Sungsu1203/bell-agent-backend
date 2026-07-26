@@ -51,7 +51,7 @@
 
 ## 1) 폴더 구조 & 의존 규칙
 ```
-D:\GPT_AGENT\writer_project
+~/dev/bell-agent/bell-agent-backend/writer_project
 │
 ├─ app.py                    # FastAPI 서버 진입점 (StreamingResponse 기반)
 ├─ graph.py                  # LangGraph 그래프 정의 (StateGraph 노드 토글)
@@ -94,7 +94,7 @@ D:\GPT_AGENT\writer_project
 │   │   ├─ ingest_config.py          # ENV 헬퍼 (_cfg_str/_cfg_int/_cfg_bool)
 │   │   ├─ search.py                 # 웹 검색 백엔드 (Naver, Tavily 등)
 │   │   ├─ utils.py                  # URL 정규화, 텍스트 가드 (_looks_like_*)
-│   │   └─ vertex_search.py          # ⚠ Vertex AI Vector Search 시도 흔적
+│   │   └─ vertex_search.py          # Vertex AI grounded search (§14 배선, SKIP_VERTEX_SEARCH 토글)
 │   ├─ local_rag.py              # 로컬 파일(.pdf/.pptx/.xlsx) 인제스트
 │   ├─ topic_config.py           # 토픽별 설정 로더 (도메인 가중치, XLSX 키워드)
 │   ├─ metrics.py                # 메트릭 수집
@@ -131,11 +131,10 @@ D:\GPT_AGENT\writer_project
 ├─ refs/                     # 회사 자료 (xlsx/pptx/docx) — 로컬 RAG 소스
 ├─ local/                    # 토픽별 로컬 자료 (md 등)
 ├─ reports/, outlines/       # 산출물
-├─ chapters/, sections/      # 챕터/섹션별 작업물
+├─ sections/                 # 섹션별 작업물
 ├─ content/                  # 콘텐츠 빌드 모듈 (api 등)
 ├─ research/                 # 리서치 산출물
-├─ resources/, safe_code/    # 보조 자료/안전 코드 보관
-├─ state/                    # 세션 상태 직렬화
+├─ resources/                # 검색/보조 자료 보관
 └─ logs/                     # 로그 파일
 
 ```
@@ -164,10 +163,12 @@ utils → tools → agent
 - `GOOGLE_APPLICATION_CREDENTIALS`
 - `ALLOW_DUMMY_EMBEDDINGS` (기본 0; opt-in 시 더미 폴백 허용 — 프로덕션 비권장)
 
-**노드 토글** (`graph.py`에서 사용)
+**노드 토글** (`graph.py:26~34`에서 사용, 전부 기본값 `True`)
 - `ENABLE_COMMUNICATOR`, `ENABLE_CONTENT_STRATEGIST`
 - `ENABLE_VECTOR_SEARCH`, `ENABLE_WEB_SEARCH`
-- `ENABLE_CHAPTER_WRITER`
+- `ENABLE_CHAPTER_WRITER`, `ENABLE_SECTION_WRITER`
+- `ENABLE_RESEARCH_PLANNER`, `ENABLE_RESEARCH_SYNTHESIZER`
+- `ENABLE_SUPERVISOR`
 
 **RAG 청킹/검색**
 - `RAG_CHUNK_CHARS=2400`, `RAG_CHUNK_OVERLAP=150`
@@ -1401,7 +1402,7 @@ $PSDefaultParameterValues['Set-Content:Encoding'] = 'UTF8'
 $PSDefaultParameterValues['Add-Content:Encoding'] = 'UTF8'
 ```
 
-**가상환경 다중 존재**: 프로젝트 루트(`D:\GPT_AGENT`)에 `.venv_lcl`, `.venv_vertex`, `venv` 세 개의 가상환경이 있음. 현재는 `.venv_vertex`(Vertex AI 통합용) 사용 중.
+**가상환경 다중 존재**: 리포 루트(`~/dev/bell-agent/bell-agent-backend`)에 `.venv_emb`, `.venv_vertex` 두 개의 가상환경이 있음. 현재는 `.venv_vertex`(Vertex AI 통합용) 사용 중.
 
 **`tools/web_rag/vertex_search.py`**: Vertex AI **grounded search** 모듈. 현재 `SKIP_VERTEX_SEARCH=1`로 비활성. dead code 아님 — 토글 끄고 보존된 기능.
 
