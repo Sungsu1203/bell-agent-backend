@@ -236,21 +236,72 @@ URL/web.json/refs    →   ingest_docs           →   ingest_vector
 
 ---
 
-## 4) 공개 API(파사드)만 사용
+## 4) 공개 API(파사드) 사용 규칙
 
-- **`tools/web_rag/__init__.py`**: 외부에서는 이 파사드만 사용
+- **`tools/web_rag/__init__.py`**: 외부에서는 이 파사드를 통해 사용 (`__all__` 기준)
   - `web_search()` — 웹 검색 (Naver/Tavily 등 백엔드 통합)
   - `retrieve()` — 벡터 검색 (Chroma 컬렉션 RAG 검색)
   - `web_results_to_documents()`, `web_page_json_to_documents()`
   - `documents_to_chroma()`, `add_web_pages_json_to_chroma()`
   - `clear_vector_store()`, `ensure_vector_store_cleared_once()`
+  - `openalex_search()`, `semantic_scholar_search()` — 학술 백엔드 (A9 등록)
+  - `default_chroma_dir()` — Chroma 기본 경로
+  - ※ `_default_chroma_dir` 는 전환용 별칭 (`default_chroma_dir` 와 동일 객체, `is` True).
+    신규 코드 사용 금지, 소비자 전환 완료 후 제거 예정.
 - **`tools/topic_config.py`**: 토픽별 설정
   - `get_domain_bonus_groups()`, `get_xlsx_keyword_groups()`
-- **`utils/rag_utils.py`**: URL 정규화·디듀프·`merge_refs()` 단일 구현
+- **`utils/rag_utils.py`**: `merge_refs()` 단일 구현 + 문서 병합용 디듀프
+- **`tools/web_rag/utils.py`**: URL 정규화(`normalize_url`) 정규 경로
+  - `rag_utils._norm_url_for_key` 는 디듀프 키 생성 전용이며 범용 정규화가 아님. 혼동 주의.
 - **`utils/writer_scheduler.py`**: `schedule_writer_if_needed()` 단일 진입
 - 라우팅 분기는 **`core/routers.py`**에서만
 
-내부 모듈 (`tools/web_rag/ingest*.py`)을 직접 import하지 마세요. 파사드를 통해서만.
+### 내부 모듈 직접 import — 3분류
+
+기본은 금지. 단 아래 (b)·(c)는 규칙이 인정하는 정당한 경로다.
+
+**(a) 교체 대상** — 파사드에 공개 이름이 있는데 서브모듈을 직접 가져가는 경우
+
+| 위치 | 상태 |
+|---|---|
+| `agent/web_search.py` ad 트랙 (OA/SS) | ✅ A9-③ 완료 |
+| `agent/web_search.py` `ingest` 3항목 | 미처리. 최상단 import 라 교체 시 `ingest.py` 지연 로드 효과 발생 → **별도 커밋** |
+| `agent/web_search.py` paper 블록 3건 | **보류 / A8 귀속.** `paper_search.py` 분리와 동시 처리. **개별 교체 금지** |
+
+paper 블록 개별 교체를 금지하는 이유: 파사드 전환은 실패 지점을 메인 스레드에서 워커 스레드로
+이동시켜 백엔드 부분 성공을 가능하게 한다(A9 부수 효과). 정상 경로는 동일하나 실패 모드가
+바뀌므로 실동작 회귀 확인이 필요하고, 이는 유료 API 호출을 수반한다. A8 트랙에서 함께 처리한다.
+
+**(b) 정당한 예외** — 내부 동작 자체가 검증·관찰 대상
+
+- `tests/` — 내부 동작을 검증하는 게 목적
+- `diagnose_*` 4종 — `_get_vs` / `_get_embeddings` 등 엔진 내장을 뜯는 게 목적
+- `smoke/` — `_strip_doi_prefix` 등 밑줄 헬퍼 단위 검증
+- `debug_docid.py` — 구/신 docid 구조 비교 시뮬레이터. `_normalize_canonical_url` 직접 사용이 목적
+
+**(c) 의도적 회피** — 건드리지 말 것
+
+- `scripts/_phase_b_clear_ns.py` — `_default_chroma_dir` 만 사용(Chroma 객체 미생성).
+  파사드 경유로 바꾸면 `ingest.py` 까지 딸려 로드되어 의도가 깨짐
+- `agent/vector_search.py` optional binding 블록 — 있으면 쓰고 없으면 넘어가는 방어 패턴.
+  파사드 경유는 이 선택성을 없앰
+
+### 확장 시 규칙
+
+새 백엔드는 **소비자 코드보다 먼저** `tools/web_rag/__init__.py` 에 래퍼를 등록한다.
+
+- 래퍼는 함수 내부 지연 import 패턴 유지
+  (`def f(*a, **kw): from .모듈 import f as _fn; return _call_maybe_tool(_fn, *a, **kw)`)
+- 최상단 실제 import 는 `TYPE_CHECKING` 블록에만 둘 것
+- 기준: **파사드를 여는 것만으로 어떤 모듈도 env 를 읽지 않아야 한다**
+  (`import tools.web_rag` 직후 `sys.modules` 에 파사드 하나뿐인 상태가 정상)
+- ⚠️ PEP 562 모듈 `__getattr__` 도입 금지 — `core/routers.py` 가
+  `from tools.web_rag import ingest_docs` 로 서브모듈을 가져간다.
+  모듈 `__getattr__` 이 `AttributeError` 아닌 것을 던지면 이 줄이 깨짐
+
+이 절차 누락이 A9 발생 원인이다. OA/SS 확장 시 파사드 등록을 건너뛰어 소비자가 서브모듈을
+직접 가져갔고, 파사드는 2026-03 이후 갱신이 멈춰 있었다. 규칙이 틀린 게 아니라 확장이
+규칙을 따라잡지 못한 사례.
 
 ---
 
@@ -374,7 +425,7 @@ python tools\diagnose_chunks_deep.py
 ## 11) PR 운영 순서(권장)
 
 1. **config 통합 & import 규칙 강제** (`core.config` 외 `os.getenv` 금지)
-2. **`tools/web_rag` 파사드 사용** & 내부 모듈 직접 import 제거
+2. **`tools/web_rag` 파사드 사용** & 내부 모듈 직접 import 정리 (§4 (a) 기준, (b)·(c) 제외).
 3. **`utils/rag_utils` 통합** (정규화/디듀프/merge_refs 단일 구현)
 4. **`writer_scheduler` 단일화** (`schedule_writer_if_needed`만 사용)
 5. **routers 가드 정리 & 순환 제거**
