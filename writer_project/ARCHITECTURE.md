@@ -370,7 +370,7 @@ README §2 규칙: "다른 모듈에서 `os.getenv` 직접 호출 금지 → `co
 | # | 항목 | 상태 |
 |---|---|---|
 | A1 | **`refs/` 13개 tracked** — 종근당 실물 자료(광고비 xlsx·팩트북 PDF)가 git 이력에 존재. `.gitignore`에 `refs/` 규칙 없음. `topics/*.env`는 "NDA/client assets"로 막았으면서 refs/는 누락 | 부분 처리 — 로컬 삭제 완료(백업 보유). git 이력 세탁은 미결, 단독 트랙 |
-| A2 | **`scripts/output/` 규칙 위반 5건** — `c_paper_measurement.json`, `smoke_*.log` 2건, `paper_…influencer_marketing….docx/.md`. 원인 = ignore 규칙(§14-2)보다 **먼저 추적 시작**된 파일. `git rm --cached`로 해소 | 정리 대상 |
+| A2 | **`scripts/output/` 규칙 위반 5건** — `c_paper_measurement.json`, `smoke_*.log` 2건, `paper_…influencer_marketing….docx/.md`. 원인 = ignore 규칙(§14-2)보다 **먼저 추적 시작**된 파일. `git rm --cached`로 해소 | ✅ 완료 (2026-07-26) — .gitignore 규칙 재작성 + rm --cached 5건. 진단이 지목한 5건은 정확했으나 **규칙 자체가 자기모순** 상태였음: `scripts/output/` 디렉토리 통째 차단이 앞선 negation 설계를 덮어 `c_ab_results.json` 박제 예외와 `.md` 요약 추적이 죽어 있었음. 확장자+이름패턴 방식으로 전환 |
 | A3 | **CLAUDE.md §8 시간 모순** — "77은 catch 78 직후 stale, 이후 catch 74가 늘림"이라 서술. 실제 git 날짜는 catch 74(7/4) → catch 78(7/5) **역순**. 77은 catch 74 적용 후 잰 값이며 커밋 메시지상 원인은 **SS 429 flaky**. catch 번호 ≠ 시간순 | ⚠️ 정정 필요 |
 | A4 | `agent/web_search.py`에 CRLF(`^M`) 혼입 — 2026-07 추가분만 윈도우식 줄바꿈 | 청소 — A9-③ 편집으로 추가 오염 없음 확인 ✅ |
 | A5 | `.gitignore` 이원화 — 루트/writer_project 중복 다수. 특히 **`data/`**: 루트는 통째 무시, writer_project는 하위 2개만 의도 → 루트가 이겨 의도와 실제 불일치 | 정리 |
