@@ -746,13 +746,9 @@ def vector_search_agent(state: State):
         want_include = _cfg_bool("CHROMA_INCLUDE_BASE", False)
         if callable(_has_any_docs):
             has_base = bool(_has_any_docs(ns, persist_dir))
-            if not has_base and not want_include:
-                include_base = False
-                chroma["include_base"] = False
-                logger.debug("[vector_search] base empty & CHROMA_INCLUDE_BASE=0 → include_base=False (ns=%s)", ns)
-            else:
-                logger.debug("[vector_search] base %s, CHROMA_INCLUDE_BASE=%s → include_base=%s",
-                             "present" if has_base else "empty", want_include, include_base)
+
+            logger.debug("[vector_search] base %s, CHROMA_INCLUDE_BASE=%s → include_base=%s",
+                        "present" if has_base else "empty", want_include, include_base)
     except Exception as e:
         logger.debug("[vector_search] base presence check skipped: %s | include_base=%s", e, include_base)
 
@@ -783,11 +779,6 @@ def vector_search_agent(state: State):
             if ns_loc and _loc_cnt <= 0:
                 logger.info("[vector_search] local ns empty → skip local retrieve (ns=%s)", ns_loc)
                 ns_loc = ""
-            # base가 비면 include_base는 끔(아래 로직과 일관)
-            # base=0이어도 사용자가 CHROMA_INCLUDE_BASE=1이면 유지
-            if _base_cnt <= 0 and not _cfg_bool("CHROMA_INCLUDE_BASE", False):
-                include_base = False
-                chroma["include_base"] = False
         except Exception as e:
             logger.debug("[vector_search] ns count check skipped: %s", e)
 
