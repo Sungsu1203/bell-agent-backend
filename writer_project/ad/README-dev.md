@@ -183,7 +183,7 @@ utils → tools → agent
 
 **웹 PDF (보수적)** vs **로컬 PDF (적극적)**
 - 웹: `WEB_PDF_MAX_PAGES=5`, `WEB_PDF_MAX_CHARS=10000`
-- 로컬: `LOCAL_RAG_PDF_MAX_PAGES=50`, `LOCAL_RAG_MIN_CHARS`
+- 로컬: `LOCAL_RAG_PDF_MAX_PAGES=50`
 - 의도된 분업: 웹은 잘 모르는 출처 보수적, 로컬은 회사 신뢰 자료
 
 **도메인 필터** (`settings_gatekeep.py` + `tools/web_rag/utils.py`)
