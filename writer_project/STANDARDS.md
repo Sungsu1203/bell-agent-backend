@@ -111,7 +111,7 @@ _PROTECTED_ENV_KEYS = (
 - **의미**: snapshot 값이 str이면 restore(driver 명시 intent 보호), `None`이면 skip(.env 값 허용 = hot-reload 의도 보존).
 - **시점**: `reload_config_inplace()`의 `load_dotenv(override=True)` **직전** snapshot, **직후 + `_apply_provider_overlay`/`_apply_topic_preset` 직전** restore.
 - → overlay·preset이 driver-restored `LLM_PROVIDER`/`TOPIC_SLUG` 기반으로 정상 분기.
-- patch 위치: `core/config.py reload_config_inplace` (L660 부근).
+- patch 위치: `core/config.py reload_config_inplace` (L667).
 
 > 원본: `scripts/output/§14-8/B-3_audit.md` (§3-2 `_PROTECTED_ENV_KEYS` 확정 부분)
 
