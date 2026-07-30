@@ -76,9 +76,8 @@
 | 2 | 로컬 260 vs 웹 1,800 격차 | 로컬 쪽 레버는 `local_rag._type_chunk_params`. 미조사 |
 | 3 | `_cfg_int` 키 17개 — 대부분 CFG 미선언 추정 | 필요해지면 `git grep -n "_cfg_int" -- "tools/web_rag/ingest_vector.py"` 1회로 명단 확보 가능 |
 | 4 | CRLF 전 줄 파일 2건 (`agent/vector_search.py` 1568 / `tools/local_rag.py` 1656) | `.gitattributes` 명문화 + **단독 커밋.** 기능 변경과 절대 미혼합 |
-| 5 | `env_raw.txt` git tracked — `.env`의 오래된 사본 | STANDARDS §5.1 3-명령(읽기 전용)으로 위험도 판정 |
-| 6 | `scripts/output/*` gitignore 미적용 (CLAUDE.md §4는 ignore라 서술, 실제는 관행만) | `.gitignore` 1줄 or 문서 정정 |
-| 7 | `MIRROR_STATE_TO_ENV` 상태 미확인 | 켜져 있으면 런타임 state가 env를 덮음 → 설정 스냅샷에 시점 표기 필요 |
+| 5 | `scripts/output/*` gitignore 미적용 (CLAUDE.md §4는 ignore라 서술, 실제는 관행만) | `.gitignore` 1줄 or 문서 정정 |
+| 6 | `MIRROR_STATE_TO_ENV` 상태 미확인 | 켜져 있으면 런타임 state가 env를 덮음 → 설정 스냅샷에 시점 표기 필요 |
 
 ---
 
@@ -92,6 +91,8 @@
 - **설정값 확인은 `repr()`** — `'0'`(문자열, 위험) vs `False`(정상).
 - **부재 판정(0건) 전에** 검색어가 실제 키 이름인지, 명령이 실제로 실행됐는지 역확인.
 - 동명 심볼이 흔한 레포다. 만나면 정의 위치를 먼저 확정.
+- **`.env` 키를 추가·삭제하면 `env_raw.txt`도 같은 커밋에서.** 값은 동기화 대상 아님(템플릿).
+  단, 안전 스위치 계열은 값도 맞춘다. `.env`는 untracked라 명단의 git 기록은 `env_raw.txt`가 유일.
 
 ---
 
@@ -104,4 +105,5 @@
 | 2026-07-30 | `RAG_CHUNK_CHARS` CFG 필드 추가 (기본 2400 유지 = 동작 변화 0) | — |
 | 2026-07-30 | `.env` 2줄: `ALLOW_GLOBAL_CLEAR` 1→0, `MAX_CHUNKS_PER_DOC` 주석 (동작 변화 0) | 없음(untracked) |
 | 2026-07-30 | STANDARDS §1.3 0단 추가 + CLAUDE 파일지도 + OBSERVED 신설 | `47bafc58` |
+| 2026-07-30 | `env_raw.txt` 고아 키 3건 삭제 — `.env`와 키 명단 재일치(133→130). 자격증명 3키 플레이스홀더/빈값 재확인 | (동기화 커밋) |
 > ⚠️ `.env`는 untracked. `.env` 변경은 이 표에만 남는다 — 만졌으면 같은 커밋에 한 행.
