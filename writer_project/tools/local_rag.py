@@ -509,7 +509,7 @@ def _read_docx(path: str) -> str:
 def _read_pdf_pages(path: str, max_pages: Optional[int] = None) -> List[str]:
     """
     PDF 페이지 텍스트를 페이지별 리스트로 반환.
-    max_pages 지정 없으면 ENV/CFG의 LOCAL_RAG_PDF_MAX_PAGES(기본 30) 사용.
+    max_pages 지정 없으면 ENV/CFG의 LOCAL_RAG_PDF_MAX_PAGES(기본 50) 사용.
     """
     if not PdfReader:
         raise RuntimeError("PyPDF2 미설치")
