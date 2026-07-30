@@ -54,7 +54,10 @@
 ## 4. 커밋/푸시 범위 (엄수)
 
 - **커밋 대상 = 수정된 `.py` 코드 파일 + `README-dev-§14.md`(+ `WORKBOARD.md`/`CLAUDE.md` 변경분) 만.**
-- **제외** = measurement JSON, output 논문, `scripts/output/*` 덤프 (gitignore/관행).
+- **제외** = `scripts/output/**`의 원자료. `.gitignore:84~90`이 확장자로 차단 (`*.json` `*.log` `*.ndjson` `*.console.log` `*.patch` `*.docx` `paper_*.md`).
+- **포함** = `scripts/output/`의 분석·판정 `.md` (현재 66건 tracked). 덤프 보관처가 아니라 **결론 문서 보관처**다.
+- **예외 복원** = 박제의 재현성 근거는 `.gitignore`에 `!`로 되살린다 (현재 2건, `:92`·`:94`). 새로 추가할 때도 `!` 한 줄 + 이유 주석을 같이.
+- NEXT_SESSION 메모는 일회용 → 커밋 안 함 (관행).
 - repo private → NDA push hold **해제됨. push 가능.**
 - 커밋 전 `git status`/`git diff --stat`로 대상이 위 범위인지 확인.
 

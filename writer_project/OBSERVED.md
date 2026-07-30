@@ -76,8 +76,7 @@
 | 2 | 로컬 260 vs 웹 1,800 격차 | 로컬 쪽 레버는 `local_rag._type_chunk_params`. 미조사 |
 | 3 | `_cfg_int` 키 17개 — 대부분 CFG 미선언 추정 | 필요해지면 `git grep -n "_cfg_int" -- "tools/web_rag/ingest_vector.py"` 1회로 명단 확보 가능 |
 | 4 | CRLF 전 줄 파일 2건 (`agent/vector_search.py` 1568 / `tools/local_rag.py` 1656) | `.gitattributes` 명문화 + **단독 커밋.** 기능 변경과 절대 미혼합 |
-| 5 | `scripts/output/*` gitignore 미적용 (CLAUDE.md §4는 ignore라 서술, 실제는 관행만) | `.gitignore` 1줄 or 문서 정정 |
-| 6 | `MIRROR_STATE_TO_ENV` 상태 미확인 | 켜져 있으면 런타임 state가 env를 덮음 → 설정 스냅샷에 시점 표기 필요 |
+| 5 | `MIRROR_STATE_TO_ENV` 상태 미확인 | 켜져 있으면 런타임 state가 env를 덮음 → 설정 스냅샷에 시점 표기 필요 |
 
 ---
 
@@ -94,7 +93,7 @@
 - **`.env` 키를 추가·삭제하면 `env_raw.txt`도 같은 커밋에서.** 값은 동기화 대상 아님(템플릿).
   단, 안전 스위치 계열은 값도 맞춘다. `.env`는 untracked라 명단의 git 기록은 `env_raw.txt`가 유일.
 - **§5 해시 칸은 한 사이클 지연.** 자기 해시는 자기 안에 못 쓴다(amend해도 해시가 또 바뀜).
-  미채움은 `PENDING`으로 두고 다음 커밋에서 채운다. 확인: `grep -n PENDING OBSERVED.md`
+  미채움은 `PENDING`으로 두고 다음 커밋에서 채운다. 확인: grep -c '^|.*PENDING' OBSERVED.md` → 1
 
 ---
 
@@ -106,8 +105,9 @@
 | 2026-07-30 | STANDARDS.md 줄번호 정정 | — |
 | 2026-07-30 | `.env` 고아 키 3건 삭제(`LOCAL_RAG_MIN_CHARS`·`LOCAL_RAG_MIN_CHUNK_CHARS`·`LOCAL_RAG_CHUNK_MODE`, `.py` 소비자 0건) + README·docstring 정정 | `85e16cf8` 등 |
 | 2026-07-30 | `RAG_CHUNK_CHARS` CFG 필드 추가 (기본 2400 유지 = 동작 변화 0) | — |
-| 2026-07-30 | `.env` 2줄: `ALLOW_GLOBAL_CLEAR` 1→0, `MAX_CHUNKS_PER_DOC` 주석 (동작 변화 0) | 없음(untracked) |
+| 2026-07-30 | `.env` 2줄: `ALLOW_GLOBAL_CLEAR` 1→0, `MAX_CHUNKS_PER_DOC`에 설명 주석 덧붙임 (동작 변화 0) | 없음(untracked) |
 | 2026-07-30 | STANDARDS §1.3 0단 추가 + CLAUDE 파일지도 + OBSERVED 신설 | `47bafc58` |
 | 2026-07-30 | `env_raw.txt` 고아 키 3건 삭제 — `.env`와 키 명단 재일치(133→130). 자격증명 3키 플레이스홀더/빈값 재확인 | `a2b68f3b` |
 | 2026-07-30 | 문구 확정·해시 규칙·⚠️ 위치 정정 | `4bf7b1e4` |
-| 2026-07-30 | §1 문구 확정 + §5 표 렌더링 수정 + `env_raw.txt` 주석 대칭 | `PENDING` |
+| 2026-07-30 | §1 문구 확정 + §5 표 렌더링 수정 + `env_raw.txt` 주석 대칭 | `20b26306` |
+| 2026-07-31 | CLAUDE.md §4 커밋 범위 문구 정정 — 원자료 차단·`.md` 포함·`!` 예외 체계 명시. §3-5 닫힘 | `PENDING` |
