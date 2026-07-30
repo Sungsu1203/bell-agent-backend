@@ -394,6 +394,7 @@ class Config:
     RAG_MIN_DOC_CHARS: int
     RAG_MIN_DOC_TOKENS: int
     MIN_CHUNK_CHARS: int
+    RAG_CHUNK_CHARS: int
     MIN_CHUNK_PPTX: int
     MIN_CHUNK_PDF: int
     WEB_PDF_MAX_CHARS: int
@@ -572,6 +573,7 @@ def _build_config() -> Config:
         RAG_MIN_DOC_CHARS=_env_int("RAG_MIN_DOC_CHARS", 200),
         RAG_MIN_DOC_TOKENS=_env_int("RAG_MIN_DOC_TOKENS", 30),
         MIN_CHUNK_CHARS=_env_int("MIN_CHUNK_CHARS", 120),
+        RAG_CHUNK_CHARS=_env_int("RAG_CHUNK_CHARS", 2400),
         MIN_CHUNK_PPTX=_env_int("MIN_CHUNK_PPTX", 40),
         MIN_CHUNK_PDF=_env_int("MIN_CHUNK_PDF", 80),
         LOCAL_MIN_CHARS_GLOBAL=_env_int("LOCAL_MIN_CHARS_GLOBAL", 80),
