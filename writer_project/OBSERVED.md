@@ -17,8 +17,8 @@
 |---|---|---|---|
 | `RAG_CHUNK_CHARS` | 2400 | 2400 | ✅ **2026-07-30 CFG 필드 추가 — 해소.** `.env` 적용됨 |
 | `RAG_CHUNK_OVERLAP` | 150 | **200** | 보류. 청크 값 실험과 함께(단일변수 통제) |
-| `MAX_CHUNKS_PER_DOC` | 15 | **0**(비활성) | 채우지 않음 — 활성화하면 긴 문서가 15조각에서 절단됨. `.env` 주석만 |
-| `ALLOW_GLOBAL_CLEAR` | 1 | **False**(차단) | `.env` 1→0 (믿음을 실물에 맞춤). 실물이 안전한 쪽 |
+| `MAX_CHUNKS_PER_DOC` | 15(주석) | **0**(비활성) | ✅ 2026-07-30 `.env` 주석 처리. 활성화하면 긴 문서가 15조각에서 절단 |
+| `ALLOW_GLOBAL_CLEAR` | 0 | **False**(차단) | ✅ 2026-07-30 `.env` 1→0 — 믿음을 실물에 맞춤. 동작 변화 0 |
 | `CLEAR_GUARD_DISABLE` | 0 | False | 그대로 (우연 일치) |
 | `CLEAR_ON_FIRST_VECTOR` | 0 | False | 그대로 (우연 일치) |
 
@@ -102,3 +102,6 @@
 | 2026-07-30 | STANDARDS.md 줄번호 정정 | — |
 | 2026-07-30 | `.env` 고아 키 3건 삭제(`LOCAL_RAG_MIN_CHARS`·`LOCAL_RAG_MIN_CHUNK_CHARS`·`LOCAL_RAG_CHUNK_MODE`, `.py` 소비자 0건) + README·docstring 정정 | `85e16cf8` 등 |
 | 2026-07-30 | `RAG_CHUNK_CHARS` CFG 필드 추가 (기본 2400 유지 = 동작 변화 0) | — |
+| 2026-07-30 | `.env` 2줄: `ALLOW_GLOBAL_CLEAR` 1→0, `MAX_CHUNKS_PER_DOC` 주석 (동작 변화 0) | 없음(untracked) |
+| 2026-07-30 | STANDARDS §1.3 0단 추가 + CLAUDE 파일지도 + OBSERVED 신설 | `47bafc58` |
+> ⚠️ `.env`는 untracked. `.env` 변경은 이 표에만 남는다 — 만졌으면 같은 커밋에 한 행.

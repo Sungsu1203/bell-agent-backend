@@ -24,10 +24,12 @@
 - **topic preset 활성 조건**: `os.environ["TOPIC_SLUG"]`가 set돼야 함. `state.topic_slug`만 설정하면 `_apply_topic_preset` 미작동 (자주 놓치는 결손).
 
 ### 1.3 다른 작업 진행 시 ENV 확인 절차
-1. **L4 확인**: script의 `.env` load 명시 여부 + 어느 파일 load.
-2. **L3 확인**: `topics/{TOPIC_SLUG}.env` override 여부 (TOPIC_SLUG env var 활성 필수).
-3. **L1 확인**: 글로벌 `.env` base 값.
-4. **runtime 확인**: `python -c "import core.config as c; print(c.CFG.<변수>)"`.
+1. **CFG 선언 확인이 0단**: `git grep -n "<KEY>" -- "core/config.py"` → 0건이면
+   파서 #2(`_cfg_*`) 경로에서 `.env`는 무효. 2~4단 생략하고 코드 기본값을 본다. 
+2. **L4 확인**: script의 `.env` load 명시 여부 + 어느 파일 load.
+3. **L3 확인**: `topics/{TOPIC_SLUG}.env` override 여부 (TOPIC_SLUG env var 활성 필수).
+4. **L1 확인**: 글로벌 `.env` base 값.
+5. **runtime 확인**: `python -c "import core.config as c; print(c.CFG.<변수>)"`.
 
 ### 1.4 새 토픽 작성 표준
 - `topics/_template.env` 복사 + 파일명 = `TOPIC_SLUG`와 동일.
