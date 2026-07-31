@@ -503,8 +503,25 @@ def _read_html(path: str) -> str:
 def _read_docx(path: str) -> str:
     if not docx:
         raise RuntimeError("python-docx 미설치")
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
     d = docx.Document(path)
-    return "\n".join(p.text for p in d.paragraphs)
+    out: List[str] = []
+    for child in d.element.body.iterchildren():
+        tag = child.tag.split("}")[-1]
+        if tag == "p":
+            out.append(Paragraph(child, d).text)
+        elif tag == "tbl":
+            for row in Table(child, d).rows:
+                cells, seen = [], set()
+                for c in row.cells:
+                    if id(c._tc) in seen:
+                        continue
+                    seen.add(id(c._tc))
+                    cells.append(c.text.strip().replace("\n", " "))
+                if any(cells):
+                    out.append(" | ".join(cells))
+    return "\n".join(out)
 
 def _read_pdf_pages(path: str, max_pages: Optional[int] = None) -> List[str]:
     """

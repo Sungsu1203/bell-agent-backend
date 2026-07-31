@@ -43,10 +43,13 @@
 
 ---
 
-## 3. 가상환경
+## 3. 가상환경 — provider별 분리 (STANDARDS §6)
 
-- **`../.venv_vertex/bin/python` 사용.** **macOS에서도 정상 동작**(윈도우 전용 아님 — 오해 금지).
-- vertex 계열 의존성 = `requirements.vertex.txt`.
+- **논문/vertex 트랙 = `../.venv_vertex/bin/python`** (vertex 의존성 = requirements.vertex.txt)
+- **ad/openai 트랙 = `../.venv_openai/bin/python`** (requirements.openai.txt, 2026-07-31 신설 — catch I)
+  ⚠️ `.venv_vertex`에는 `langchain_openai`가 없어 `LLM_PROVIDER=openai` 실행 시 임베딩 ctor 실패.
+- `.venv_emb` = 로컬 임베딩(e5-large) 전용.
+- **macOS에서도 정상 동작**(윈도우 전용 아님 — 오해 금지).
 - zsh에서 `§`, `*` 포함 경로는 따옴표로 감쌀 것.
 
 ---
