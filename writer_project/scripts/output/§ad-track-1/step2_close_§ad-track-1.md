@@ -122,6 +122,30 @@ md가 인덱스의 76%를 점유하지만, **SEM·Brakus 질의 상위 3개에 m
 800자 절단으로 인해 그동안 인덱스에 없던 내용.
 **계단 3 설계 전에 로컬 보유분을 먼저 훑어야 중복 수집을 피할 수 있다.**
 
+### 3.5 메타데이터 구조 실측
+
+Chroma에 실제 저장된 키는 **4개뿐**:
+
+| 키 | 예시 | 용도 |
+|---|---|---|
+| `title` | `week2_experience_economy.pptx (10, Index: 10, Chunk 1)` | **표시용. 한글 정상** |
+| `source` | `file:///.../refs/%E1%84%8E%E1%85%A6...pptx#part=1&index=1&chunk=1` | 식별용. 한글 깨짐 |
+| `source_version` | `1784534786058500528` (나노초 타임스탬프) | Chroma `changed` 판정 |
+| `content_type` | `application/vnd...presentationml.presentation` | 형식 구분 |
+
+`local_rag.py`가 조각 생성 시 붙이는 필드는 11개(`url`·`part`·`locator`·`bytes`·`fetched_at`·`mtime`·`pri` 포함)이나,
+`web_rag/ingest.py`를 거치며 **4개로 축소**됨. `part`(슬라이드 번호 등)가 유실되어 위치 정보는 `title` 문자열 파싱으로만 획득 가능.
+
+**`title` 형식이 분기별로 다름** — §3.2의 절단 이슈와 같은 구조:
+
+```
+pptx : week2_experience_economy.pptx (1, Index: 1, Chunk 1)         ← 슬라이드 번호
+xlsx : brand_..._items.xlsx (브랜드경험 척도, Index: 1, Chunk 1)     ← 시트명
+md   : 경험경제-파인앤길모어-골자.md (Chunk 1)                        ← 청크 번호만
+```
+
+→ 리포트 인용 시 "3주차 강의록 9번 슬라이드" 수준의 정밀도는 pptx·xlsx만 가능.
+
 ---
 
 ## 4. catch 등재
@@ -133,7 +157,7 @@ md가 인덱스의 76%를 점유하지만, **SEM·Brakus 질의 상위 3개에 m
 | **C** | `LOCAL_RAG_GLOBS` 토픽 override 전례 0건 (README-dev.md:1275 "자연 검증 예정" 항목) | **검증 완료 · 정상 작동** |
 | **D** | `RAG_DISTANCE_THRESHOLD`가 CFG 미선언. 사용처 2곳(`diagnose_distance_threshold.py:47`, `ingest_vector.py:1603`)이 `os.environ.get(..., "0.65")`로 직접 read. fallback 0.65는 vertex 768d 시절 값 → overlay 부재 시 조용히 무한루프 구간으로 회귀. `_PROTECTED_ENV_KEYS`에도 미포함 | 미조치 |
 | **E** | 텍스트 층 없는 스캔 PDF가 **경고 없이** 스킵. `1982_Holbrook.pdf` 10페이지 전량 누락, 로그·에러 0건 | 미조치 |
-| **G** | macOS NFD 한글 파일명이 percent-encoding되어 `source` 메타데이터에 저장. 자모 분리형(`%E1%84%8E...`)이라 판독 불가. **계단 3 리포트 출처 표기에 직접 영향** | 계단 3에서 확인 |
+| **G** | macOS NFD 한글 파일명이 percent-encoding되어 `source` 필드에 저장. 자모 분리형(`%E1%84%8E...`)이라 판독 불가. **단 `title` 필드는 한글이 정상 보존됨**(251건 확인) → 표시 목적에는 `title` 사용으로 회피 가능. `source` 사용 시 `unquote` + `unicodedata.normalize("NFC")` 필요 | **회피책 확보.** 리포트 생성 코드가 어느 필드를 쓰는지는 계단 3에서 실물 확인 |
 | **H-1** | `LOCAL_RAG_MAX_TEXT_CHARS=800`이 글로벌 `.env:134`에 잔존. 코드 기본값 200000의 **1/250**. `_to_webjson_items`의 `elif text` 분기(**md·docx·txt·html·csv**)가 앞 800자만 인덱싱. pptx·xlsx·pdf는 요소 단위 분기라 영향 없음. **프로젝트 전 토픽 영향** | **조치 완료** |
 | **H-2** | `_read_docx`가 `d.paragraphs`만 순회하고 `d.tables` 미포함 → 표 전량 누락 | **조치 완료** |
 | **H-3** | 부분/전체 추출 실패 무보고. pptx는 `slides=15/15`로 완결성을 보고하나 pdf·docx·md는 무보고. glob 매칭 파일 수와 실제 기여 분량의 괴리를 로그로 알 수 없음 | 미조치 |
@@ -281,7 +305,7 @@ vertex OFF여도 Tavily + Naver로 계단 3 실행 가능. 한국어 토픽이�
 | 3 | **중복 2쌍** — `wundt_curve_slide.pptx` ↔ `체험마케팅_1주차_강의초안.pptx`, `sem_expros_grid.pptx` ↔ `week3_..._lecture.pptx#part=9`. 동일 텍스트가 상위 3칸 중 2칸 점유 | 하 | 다음 재인덱싱 때 정리 |
 | 4 | **`1982_Holbrook.pdf`** 스캔본 | 중 | 학교 도서관 DB(JSTOR 등) 텍스트본 확보 권장. OCR은 1982년 스캔 품질상 차선 |
 | 5 | **`RETRIEVE_WEB_RATIO=0.65` 실효성** — venfobel 실측상 web은 임계 1.10에서 21%만 통과. 비율을 올려도 실제 충족량이 제한될 수 있음 | 중 | 계단 3 실측 후 판단. 미해결 1번과 같은 뿌리 |
-| 6 | **catch G 한글 파일명** | 중 | 계단 3 리포트 출처 표기에서 실제 영향 확인 후 대응 |
+| 6 | **catch G 한글 파일명** | 하 | `title` 필드로 회피 가능(§3.5). 리포트 생성 코드가 `source`를 쓰는 경우에만 실제 문제 |
 | 7 | **논문 트랙 baseline 영향** — `LOCAL_RAG_MAX_TEXT_CHARS` 800→200000 변경으로 이전 측정과 직접 비교 불가 | 하 | 논문 트랙은 `-oa` 컬렉션 자체가 미생성이므로 실제 영향 작음 |
 
 ---
@@ -311,5 +335,4 @@ vertex OFF여도 Tavily + Naver로 계단 3 실행 가능. 한국어 토픽이�
 | glob 루트 파일 보험 줄 추가 | Python `**`의 0-디렉토리 매칭 미확인 | 동작 불확실 시 재현 테스트 먼저 |
 | `.gitignore` venv 누락 판정 | `git check-ignore`가 **미존재 경로 + 디렉토리 전용 패턴**(`/` 접미)에서 매칭 실패하는 특성 미인지 | `check-ignore`는 미존재 경로에 대해 신뢰 불가 |
 | "md는 절단을 피했다" | 청크 **개수**(13)만 보고 분량 미확인 | 개수 ≠ 분량. 원본 대비 반영률로 판단 |
-
 
