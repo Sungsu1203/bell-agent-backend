@@ -107,6 +107,8 @@ probe_*
 # probe_* = 일회용 프로브. 본선 도구는 ! 예외로 개별 복구할 것.
 *.log
 !probe_Z_extract.py
+!probe_dist_adtrack.py
+!probe_local_dump.py
 
 # 강의 원자료 pptx — 생성물이 아니라 입력 자산 (§ad-track-1)
 !refs/experiential-marketing/**/*.pptx

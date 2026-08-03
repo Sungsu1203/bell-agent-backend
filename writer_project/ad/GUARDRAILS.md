@@ -1,8 +1,8 @@
 # GUARDRAILS — 회사 트랙 (광고·마케팅 기획서/보고서 writer)
 
-> 🏢 회사 트랙 운영 규칙·상수. 공통 규칙(venv·커밋·측정·subagent·방법론)은 상위 `../CLAUDE.md` 참조.
+> 🏢 회사 트랙 운영 규칙·상수. 공통 규칙(venv·커밋·측정·subagent·방법론·판정)은 상위 `../CLAUDE.md` 참조.
 > 여기엔 **회사 트랙에만 해당하는 것**만 적는다.
-> 상태: 골격(A안). 회사 트랙 작업 재개 시 채울 것.
+> 상태: §ad-track-1 진행 중 반영(2026-08-03).
 
 ---
 
@@ -12,7 +12,8 @@ RAG writer agent의 원형 용도 — 광고대행사 기획서·보고서 생�
 
 ## 회사 트랙 운영규칙 (원본: README-dev.md — 각 항목 상세는 포인터 참조)
 > 아래는 한 줄 요약 + 위치 포인터. 상세 아카이브는 `./README-dev.md`에 살아있음.
-> ⚠️ 공통 규칙(ENV 4-layer·측정 metric·credential 감사)은 여기 안 둠 → `../CLAUDE.md §6` + `../STANDARDS.md` 지목.
+> ⚠️ 공통 규칙은 여기 안 둠 → `../CLAUDE.md` (§4 커밋범위 · §6 측정 · §7 방법론 · **§9 판정 규율**)
+>    + `../STANDARDS.md` (§1 ENV · §2 metric · §3 Chroma · §4 보호키 · §5 credential · §6 venv)
 
 - **폴더 구조 & 의존 규칙** — `utils→tools→agent`, `core`는 설정·타입·라우팅만; `agent/*`끼리 직접 import 금지(라우팅은 `core/routers.py`). [README-dev.md §1]
 - **환경변수 단일화** — 모든 ENV는 `core/config.py`(`CFG`)·`ingest_config.py`(`_cfg_*`)에서만 파싱; 타 모듈 `os.getenv` 직접 호출 금지. [README-dev.md §2]
@@ -27,14 +28,19 @@ RAG writer agent의 원형 용도 — 광고대행사 기획서·보고서 생�
 - **알려진 이슈/주의사항** — 한국어 임베딩 모델 필수(`text-embedding-004` 금지, 변경 시 인덱스 재빌드), `vertex_search.py`는 토글 보존 코드(dead 아님). [README-dev.md §13]
 - 디버깅 표준 → `./README-dev-2.md` "디버깅 표준 박제(영구 박제, §14-3 origin)" 참조 (추정 기반 진단 위험성·사전확인 가치·Bash vs PowerShell 등).
 
-## 트랙 전용 상수 (TODO)
-- 대상 산출물 포맷(기획서체/보고서체 등):
-- 클라이언트·프로젝트별 설정:
-- 이 트랙 전용 토픽/프리셋(있다면):
+## 트랙 전용 상수
+- **활성 토픽** = `topics/experiential-marketing-media.env` (§ad-track-1)
+  - NS 격리 3키 필수 — `.env.openai:56-58`이 venfobel NS로 덮으므로 L3에서 탈환
+  - `RAG_DISTANCE_THRESHOLD` · `RAG_EMBEDDING_MODEL` · `SKIP_VERTEX_SEARCH`는 **L3에 쓰지 말 것** (`.env.openai` 관리)
+- 대상 산출물 포맷: 강의 사례표(E열 4요소) / 기획서·보고서체 (TODO)
+- 클라이언트·프로젝트별 설정: (TODO)
 
-## 측정·품질 기준 (TODO)
-- 회사 트랙 산출물 품질 축(있다면):
-- 공통 측정 표준은 ../CLAUDE.md 참조.
+## 측정·품질 기준
+- **사례 추출 판정 = 3요소**(브랜드 + 캠페인 + 연도 + URL). 부분 확보는 준확정
+- **추출 > 생성**: 목표물이 원문에 있으면 LLM을 거치지 않는다 (catch AN — 참조 27회에 본문 0회)
+- **가상 기획 배제**: 집행되지 않은 기획안이 사례로 위장한다 (catch AU — aimatters "가상 AI 캠페인")
+- **연도는 복수 청크 교차 확정** (catch AW/AX — 한국 마케팅 블로그는 사례 연도를 본문에 안 적는다)
+- 공통 측정 표준은 `../CLAUDE.md §6` + `../STANDARDS.md §2`
 
 ## 파일 지도
 - 이 파일 = 회사 트랙 운영 규칙.

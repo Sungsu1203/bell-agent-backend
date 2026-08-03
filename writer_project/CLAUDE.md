@@ -177,7 +177,7 @@ Claude Code가 코드 변경·명령을 보고할 때 **항상 두 층으로** �
   LLM을 거치면 브랜드·연도가 깎인다(catch AN) — 목표물이 원문에 있으면 추출이 생성보다 낫다.
 - E열 확보: **확정 5건 + 준확정 3건** / 목표 14칸
 - 누적 비용 ≈ **$0.25** (계단 0~3-c)
-- 상세는 `scripts/output/§ad-track-1/step3c_close_§ad-track-1.md`
+- 상세·진행 방향은 `ad/WORKBOARD.md` 참조. 사이클 박제는 `scripts/output/§ad-track-1/`
 
 ---
 
