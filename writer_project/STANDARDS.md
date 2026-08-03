@@ -77,7 +77,9 @@
 
 ---
 
-## 3. Chroma reset 정책
+## 3. Chroma reset 정책 (reset · 읽기 접근)
+
+### 3.1 reset 정책
 
 - **reset 책임 = driver**. graph의 `ensure_vector_store_cleared_once`는 `_CLEARED_ONCE_KEYS`/`_CLEARED_RUNTIME_KEYS` 가드로 **process당 1회만** 동작 → multi-invoke 측정 환경에선 사실상 no-op.
 - **reset 단위 = `ns_web`만, `ns_local`(PDF chunks) 보존**:
@@ -91,6 +93,25 @@
 - 측정 박제 시 "ns_web reset 정책: …" 명시.
 
 > 원본: `scripts/output/§14-2/phase_b_reset_policy.md` (실경로 `scripts/output/phase_b_reset_policy.md`)
+
+### 3.2 읽기 접근 — PersistentClient는 쓰기를 만든다
+
+- **읽기 전용 조회는 `sqlite3 <path> -readonly`.** `chromadb.PersistentClient(path=...)`는
+  경로가 존재하지 않으면 **그 자리에 빈 DB를 생성**한다. 조회하려다 오염원을 만든다.
+- 전례 2건 (catch AG): 2026-07-31 09:46 · 2026-08-02 09:13. 둘 다 루트 경로 오지정.
+  격리 파일 `data/chroma_store/_stray_*.sqlite3.bak` — 사고 기록물이므로 삭제 금지.
+- **사고 구분자는 `collections` 개수다.**
+  - `collections` = 0 → 경로 오지정 (컬렉션 생성조차 안 됨)
+  - `collections` ≥ 1 이고 `embeddings` = 0 → 색인 시도 중 중단
+  - ⚠️ **파일 크기는 구분자가 아니다.** 빈 Chroma 스키마는 항상 188,416B이며,
+    세 파일이 같은 크기인 것은 "셋 다 데이터 0"만 뜻한다.
+- ⚠️ `PersistentClient` 자체는 **macOS에서 정상 작동한다** (2026-08-02 실측 `count=416`).
+  `tools/diagnose_richness.py` 주석의 panic 기술은 Windows 시절(2026-05-06) 기록이다 — catch BA.
+  우회는 유지하되 "막혀 있다"로 읽지 말 것.
+- ⚠️ `diagnose_richness.py`의 `namespaces=N`은 **`-web`/`-local` 접미사 이름 필터**다.
+  내용 판정이 아니므로 "빈 NS의 증거"로 쓰면 틀린다.
+
+> 원본: `scripts/output/§ad-track-1/step3c_close_§ad-track-1.md` §1.2~1.3
 
 ---
 
@@ -139,3 +160,18 @@ _PROTECTED_ENV_KEYS = (
 - **STOP 게이트**: history scrub(`git filter-repo` 등)은 **rotation 완료 + collaborator 0명 또는 사전 동의 + 백업 push** 이후에만. read-only 감사 단계에서 실행 금지.
 
 > 원본: `scripts/output/§14-9-A1/credential_exposure_audit.md` (§1-b/1-c 감사 명령 + §2 convention + §3 rotation 체크리스트)
+
+## 6. provider별 venv 분리
+
+| venv | 용도 | 의존성 |
+|---|---|---|
+| `../.venv_vertex` | 논문/vertex 트랙 | `requirements.vertex.txt` |
+| `../.venv_openai` | ad/openai 트랙 (2026-07-31 신설 — catch I) | `requirements.openai.txt` |
+| `../.venv_emb` | 로컬 임베딩 전용 (e5-large) | — |
+
+- ⚠️ `.venv_vertex`에 `langchain_openai`가 없다. `LLM_PROVIDER=openai`로 실행하면
+  임베딩 생성자에서 실패한다. **provider와 venv는 반드시 짝을 맞춘다.**
+- `.env` 파일도 provider별 분리 (§1.5 측정 driver 작성 표준 연동).
+- macOS·Windows 공통 동작. 플랫폼 전용 아님.
+
+> 원본: `scripts/output/§ad-track-1/step2_close_§ad-track-1.md` (catch I)

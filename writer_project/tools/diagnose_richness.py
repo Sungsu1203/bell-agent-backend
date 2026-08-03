@@ -1,9 +1,13 @@
 """풍부도 실측: 모든 chroma_store NS의 청크 수/길이/소스 분포 + PDF 페이지 사용률.
 
-NOTE: 본 환경에서 chromadb의 Rust binding이 PersistentClient.start() 단계에서 panic을 내는
-관계로 (chromadb_rust_bindings.Bindings) langchain-chroma 경유 접근이 막혀 있다.
-대안: chroma의 SQLite 파일(chroma.sqlite3)을 직접 읽는다. ChromaDB의 스키마는 안정적이며
-embeddings/embedding_metadata 테이블에 chunk text + metadata가 들어 있다.
+NOTE: (Windows 시절 기록, 2026-05-06) 당시 환경에서 chromadb의 Rust binding이
+      PersistentClient.start() 단계에서 panic이 발생하는 관계로
+      (chromadb_rust_bindings.Bindings) langchain-chroma 경유 접근이 막혀 있었다.
+      대안: chroma의 SQLite 파일(chroma.sqlite3)을 직접 읽는다. ChromaDB의 스키마는
+      안정적이며 embeddings/embedding_metadata 테이블에 chunk text + metadata가 들어 있다.
+
+      ※ 2026-08-02 macOS 실측: PersistentClient 정상 동작(count=416) — catch BA.
+        아래 SQLite 직접 읽기 우회는 동작에 문제 없어 그대로 유지한다.
 """
 from __future__ import annotations
 

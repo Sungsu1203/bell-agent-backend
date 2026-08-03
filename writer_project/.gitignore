@@ -101,6 +101,16 @@ scripts/output/**/paper_*.md
 archive/NEXT_SESSION_*.md
 archive/run_*.md
 
+# ─── 벨 에이전트 개선시 로그 산출물 (writer_project 폴더 내) ───
+# 체험 마케팅 캠페인 케이스 수집-색인-검색.
+probe_*
+# probe_* = 일회용 프로브. 본선 도구는 ! 예외로 개별 복구할 것.
+*.log
+!probe_Z_extract.py
+
+# 강의 원자료 pptx — 생성물이 아니라 입력 자산 (§ad-track-1)
+!refs/experiential-marketing/**/*.pptx
+
 # ─── 기타 ───
 # §14-8: diag local 스크립트 (박제 자산 아님 — local only, git 이력 0건 확인 2026-07-26)
 scripts/diag/
