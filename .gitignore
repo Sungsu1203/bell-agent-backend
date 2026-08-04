@@ -19,7 +19,16 @@ venv*/
 !.env.*.example
 
 # ── Secrets / credentials ────────────────────────────────
+# ⚠️ 이름 패턴으로 차단한다. 디렉터리 통째 차단은 `!` 예외 복원이 불가하기 때문 (CLAUDE.md §4).
+# ⚠️ `.json` 접미사 필수 — 접미사를 빼면 tracked 분석 문서
+#    (scripts/output/§14-9-A1/credential_exposure_audit.md)까지 죽는다. 실측 확인함.
 writer_project/service_account*.json
+# §research-1 R1b: 위 패턴은 접두 고정이라 bell_service_account.json / credentials.json /
+# client_secret_*.json / *-sa.json 을 놓친다. check-ignore 실측으로 확인된 구멍을 메운다.
+*service_account*.json
+*credentials*.json
+*client_secret*.json
+*-sa.json
 
 # ── Logs & run artifacts ─────────────────────────────────
 logs/

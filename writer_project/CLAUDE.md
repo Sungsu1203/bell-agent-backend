@@ -127,7 +127,12 @@ Claude Code가 코드 변경·명령을 보고할 때 **항상 두 층으로** �
 > - **Chroma 정책 — ns_web reset · 읽기 접근 (STANDARDS §3)**
 >   ⚠️ 읽기 전용 조회는 `sqlite3 -readonly`. `PersistentClient`는 경로 오지정 시 **빈 DB를 생성**한다 (catch AG).
 > - `_PROTECTED_ENV_KEYS` 5키 (STANDARDS §4)
-> - credential 노출 감사 3-명령 (STANDARDS §5)
+> - **credential 노출 감사 — 현재상태 2-명령 + 🔴 이력 3축 (STANDARDS §5.1 / §5.1-a)**
+>   ⚠️ 이력 감사의 **1순위는 키 prefix가 아니라 파일명 축**이다. prefix 없는 키(naver·serpapi)는
+>   정규식으로 영원히 안 걸리고, 실제 사고는 `.env` **파일 통째** 커밋이었다.
+>   판정은 `git show <commit>:<path>`로 마감한다 — `git grep ... -- .`은 pathspec이 cwd 기준이라
+>   레포 루트 파일을 **에러 없이 0건**으로 흘린다 (§research-1 R1b 실사고).
+> - history scrub(`filter-repo`) = **이 레포 기각 확정, 재론 금지** (STANDARDS §5.4-a)
 > - **provider별 venv 분리 (STANDARDS §6)**
 
 ---

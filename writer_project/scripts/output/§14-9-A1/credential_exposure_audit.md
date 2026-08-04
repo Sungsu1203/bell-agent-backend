@@ -227,3 +227,41 @@ Step A § 6-f (`step_a_backend_provider_matrix.md` 작성 시점) 의 단언:
 5. **§14-9 Step A2 즉시 진입 가능** — 본 audit 결과 차단 사항 0.
 
 — §14-9-A1 박제 종결 (자율 진행 중지, 사용자 컨펌 대기).
+
+---
+
+## § 7. 적용 한계 — 사후 추가 (§research-1 R1b, 2026-08-05)
+
+> ⚠️ **위 § 6 결론은 고치지 않는다. 당시 실측 범위 안에서 정확했다.**
+> 아래는 그 결론이 **커버하지 못하는 범위**를 명시하는 것이다.
+
+### 7-a. 무엇이 한계였나
+
+§ 1-c 는 `git log --all --oneline -S "<prefix>"` 를 썼고, 검색한 prefix 는
+**당시 현행 키의 앞 5~9자**(`tvly-k4Rrm` · `sk-proj-9BjSi` 등)였다.
+
+→ 이 방식은 **"그 키"의 노출만** 판정한다. **이전 세대의(이미 회전됐을) 키**는 원리적으로 안 걸린다.
+
+### 7-b. 이후 실제로 발견된 것 (R1b 실측)
+
+현행 키가 아닌 **구세대 `.env` blob 3건**이 이력에 남아 있었다. HEAD 는 클린.
+
+| blob | 도입 커밋 | 정식형식 키 |
+|---|---|---|
+| `env_text.txt` | `0c59bff1` | 2건 (Google·Tavily) |
+| `.env.bak` | `ffcdfa30` | 2건 (Google·OpenAI) |
+| `chap14-6-legacy/env_backup/.env.origin` | `7ea222d6` | 2건 (Google·OpenAI) |
+
+`.env` 파일이 **통째로** 커밋된 것이므로, prefix 없는 값
+(`NAVER_CLIENT_SECRET` · `SERPAPI_API_KEY` · `GOOGLE_CSE_ID`)도 함께 노출됐다.
+**이들은 § 1-c 방식으로는 검출 자체가 불가능하다.**
+
+### 7-c. 절차 개정
+
+→ `STANDARDS.md §5.1-a` **이력 감사 3축**으로 대체.
+**1순위 = 키 prefix 축이 아니라 파일명 축**(`git log --all --name-status -- '.env*' 'env*' '*.bak'`).
+
+### 7-d. 이 문서 § 1-a 표의 현행성
+
+§ 1-a 가 열거한 5키는 2026-06-01 시점 값이다.
+2026-08-05 회전·삭제 결과는 `scripts/output/§research-1/R1b_HYGIENE_CLOSE.md` § 회전 로그 참조.

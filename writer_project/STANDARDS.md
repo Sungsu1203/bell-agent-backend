@@ -142,10 +142,44 @@ _PROTECTED_ENV_KEYS = (
 
 ## 5. credential 노출 감사
 
-### 5.1 3-명령 감사
+### 5.1 현재 상태 감사 (2-명령)
 1. `git ls-files <env files>` → tracked 여부 (empty = 미tracked).
 2. `git check-ignore -v <file>` → ignore 매칭 규칙·source 확인.
-3. `git log --all --oneline -S "<prefix>"` → key prefix별 history 노출 여부 (0 hit = 미노출).
+   ⚠️ **규칙이 파일에 적혀 있는 것과 작동하는 것은 다르다.** 반드시 실행해 매칭 규칙:라인을 눈으로 본다.
+
+### 5.1-a 🔴 이력 감사 — **3축** (§research-1 R1b 개정, 2026-08-05)
+
+> **구 절차는 `git log -S "<현행 키 prefix>"` 단일 축이었고, 그것이 실제 노출을 놓쳤다.**
+> 특정 키 값으로 검색하면 **"그 키"의 노출만** 판정된다. 이전 세대의 키는 원리적으로 안 걸린다.
+
+| 축 | 명령 | 잡는 것 | 우선 |
+|---|---|---|---|
+| **① 파일명** | `git log --all --oneline --name-status -- '.env*' 'env*' '*.bak' '*secret*' '*credential*'` | **세대 무관.** 키 형식과 무관하게 파일 단위로 포착 | 🔴 **1순위** |
+| **② 형식 정규식** | `git log --all -S'AIzaSy'` 등 → 후보 커밋 추출 | prefix가 있는 키만 | 2순위 |
+| **③ blob 직독** | `git show <commit>:<path> \| grep -cE '<형식>'` | ①②가 지목한 blob의 **실제 키 존재 확정** | 필수 마감 |
+
+형식 정규식(길이 하한을 반드시 붙여 placeholder와 구분):
+`AIzaSy[A-Za-z0-9_-]{30,}` · `sk-proj-[A-Za-z0-9_-]{40,}` · `sk-ant-api03-[A-Za-z0-9_-]{40,}` · `tvly-[A-Za-z0-9]{20,}`
+
+**⚠️ ①이 1순위인 이유 — prefix 없는 키는 ②로 영원히 안 걸린다.**
+실제 사고에서 새어나간 것은 키 한 줄이 아니라 **`.env` 파일 전체**였다.
+`NAVER_CLIENT_SECRET` · `SERPAPI_API_KEY` 처럼 식별 가능한 접두어가 없는 값은
+정규식으로 찾을 방법이 없다. → **"어느 키가 샜나"가 아니라 "어느 파일이 커밋됐나"로 묻는다.**
+
+**⚠️ ③이 필수인 이유 — pathspec 함정 (실사고, §9 계열)**
+
+```bash
+git rev-list --all | while read c; do git grep -lE '<형식>' "$c" -- . ; done
+#                                                                  ^^^
+#  `-- .` 는 cwd 기준. writer_project/ 에서 실행하면 레포 루트의 env_text.txt 는 범위 밖.
+#  → 에러 없이 0건. 그것을 "이상 없음"으로 읽었다.
+```
+
+`git show <commit>:<path>` 는 pathspec이 개입하지 않는다. **판정은 이 명령으로 마감한다.**
+CLAUDE.md §9 "도구 출력은 계산 방식을 확인한 뒤 해석한다"의 재현 사례.
+
+**⚠️ 오탐 걸러내기** — `AKIA`(AWS) 는 vendored 라이브러리·웹수집 JSON에서 우연히 나온다.
+길이 하한 정규식(`AKIA[0-9A-Z]{16}`)으로 형식을 확인하기 전에는 노출로 판정하지 않는다.
 
 ### 5.2 마스킹 규칙
 - 박제 시 key 값 전체 노출 금지 — **prefix 4~8자 + `***`만**.
@@ -158,6 +192,18 @@ _PROTECTED_ENV_KEYS = (
 - rotation 판단 전 **live/idle 분류** 선행 (노출 자체가 부재하면 rotation 의무 없음).
 - rotate trigger: gitignore 누락 / history commit 발견 / remote push 노출.
 - **STOP 게이트**: history scrub(`git filter-repo` 등)은 **rotation 완료 + collaborator 0명 또는 사전 동의 + 백업 push** 이후에만. read-only 감사 단계에서 실행 금지.
+
+#### 5.4-a 🔴 이 레포의 history scrub 판정 = **기각** (§research-1 R1b, 2026-08-05 박제)
+
+> 키를 회전하면 유출된 옛 키는 **무효 문자열**이 된다. 이력 재작성은 그 죽은 문자열을 가릴 뿐이다.
+> `filter-repo`는 **이후 모든 커밋 해시를 변경**하는데, 이 레포는 `scripts/output/` 분석 문서 ·
+> `ARCHITECTURE.md` 부록 A · `R1_FINDINGS.md`(기준 HEAD `53a76a88`) · WORKBOARD ·
+> catch 로그가 **커밋 해시를 근거로 참조**한다.
+> → **1년치 측정 기록의 추적성이 파손되고, 얻는 것은 0.** 비용 >> 이득으로 기각.
+
+- 이 판정은 `bell-agent-backend` · `Sungsu1203/blockagi`(포크) **양쪽 모두**에 적용된다.
+- **재론 금지.** 대응은 ① 키 회전 ② HEAD 정리 ③ `.gitignore` 보강 3종으로 마감한다.
+- 조건이 바뀌는 경우(레포 public 전환 등)에만 재검토.
 
 > 원본: `scripts/output/§14-9-A1/credential_exposure_audit.md` (§1-b/1-c 감사 명령 + §2 convention + §3 rotation 체크리스트)
 
