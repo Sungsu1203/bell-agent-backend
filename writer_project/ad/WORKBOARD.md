@@ -13,7 +13,8 @@
 ### §research-1 — 연구 루프 구조 재설계
 - **시작** 2026-08-03 / **토픽** `topics/experiential-marketing-media.env` (ad/research 트랙 공유)
 - **venv** `../.venv_openai/bin/python`
-- **현재** R1·R1b 종료 → **R2 설계(챗 소관)**. 누적 비용 **$0** (전량 읽기 전용)
+- **현재** 🔴 **R3-1 = FAIL 종결(2026-08-05).** 다음은 **결정 4(챗 소관)** — 프롬프트 3갈래 판단
+- **누적 비용** R1~R2 $0 / **R3-1 유료 4회** (토큰 합 ≈ 73,281 · 벽시계 합 ≈ 5.2분)
 
 | 단계 | 결과 |
 |---|---|
@@ -21,6 +22,19 @@
 | R1b 감사 | credential 이력 오염 발견 → STOP → 키 회전(사용자) + HEAD 정리 + `.gitignore` 보강 + 감사 절차 3축 개정 |
 | R1b 대조 | 원형 BlockAGI Plan↔Evaluate 배선 실측 |
 | R2-a | 설계 입력 수집 + R1b 정정 2건 |
+| R2-b | 결정 1(JSONL 스키마)·3(2단) 확정, 결정 2 결론 |
+| R3-a 정찰 | T1~T16 — 진입점·dedup·state·프롬프트 실측. 박제 `R3a_ENTRYPOINT_RECON.md` |
+| **R3-1 run1** | 본선 retrieve 0회 · 마커 17(전부 고아) · 사이드카 0 — `flags.smoke_retrieve_done` 이월로 §2~7 스모크 스킵 |
+| **R3-1 run2** | 본선 retrieve **0회** · 마커 17(전부 고아) — **쿼리 0개**(`(summary) total 0 queries`). 쿼리 소스 4관문 전부 빔 |
+| **R3-1 run3** | 본선 retrieve 7회 · **마커 0** · 사이드카 0 — Direct QA 조기 반환(`:1305`×5/`:1342`×2) + `[이전 대화]`에 QA 산문 유입 |
+| **R3-1 run4 (B안)** | **파이프라인 첫 작동** — 사이드카 5 · 마커 12(출처연결 11) · 요약 11콜 · 접힘 0%. **D4 ② FAIL**(§1 마커0 / §7 고아1) |
+
+**🔴 R3-1 3대 발견**
+1. **B안 확정** — `vector_search_agent` 우회(`_dual_retrieve` → `merge_refs` → `section_writer`).
+   그 노드는 D4 산출물을 생산하지 않는 래퍼다. **삭제 아님, 우회. 챗 UI 경로는 그대로**
+2. **web 통과율 3.6%** (28→1) vs local 71.4% (14→10) — **실질 코퍼스는 local 302청크뿐** (catch BK)
+3. 🔴 **조작은 환각이 아니라 지시 이행** — `[Executive Summary 규칙]` 블록이 **7/7 주입**(절단 분기 0).
+   그리고 **§1 은 refs 0 에서 최대 조작을 하고 마커 0 이라 전 검사를 통과했다** — 검사망 최대 사각 (catch BC/BO/BR)
 
 **🔴 R1의 3대 발견**
 1. **근거 사슬은 본선에서 안 끊긴다.** X는 `research_synthesizer` 곁가지 1곳뿐이고 소비처가 0건.
@@ -32,7 +46,23 @@
 
 **우리가 원형보다 나은 2건** (이식 불요): 루프 종료(`no_new_url_streak` 보유) · citation 보증(`.refs.json`)
 
-- **박제** `scripts/output/§research-1/R1_FINDINGS.md` · `R1b_{CREDENTIAL_AUDIT,HYGIENE_CLOSE,BLOCKAGI_COMPARE}.md` · `R2a_DESIGN_INPUTS.md`
+**이월 — R3-1 발**
+
+| # | 항목 | 우선도 |
+|---|---|---|
+| **결정 4** | 🔴 **프롬프트 3갈래 판단 (챗 소관).** A 구조결함(ES 블록 무조건 주입 — 챗 UI 에도 버그) / B 정책(내부 모순·생략 허용 부재·분량 강제) / C 장르(광고 시장보고서 틀 — **챗 UI 본래 용도일 수 있음, 건드리지 말 것**). 호출부 1곳이라 **챗 UI 공유** | **최상** |
+| **catch BC** | `[[N]]` + "~에 따르면" + 근거 부재. **원인 확정 = 명시적 지시.** "보장 부재" 표현 폐기 | 최상 |
+| **catch BO** | 규칙 합성 — "수치 필수" + "출처 표기 필수" → 지어내고 마커 붙이기 | 상 |
+| **catch BR** | 프롬프트 **장르 미스매치** — 광고 시장조사 틀 vs 대학원 강의자료 코퍼스. §ad-track-1 미스매치와 동일 계열 | 상 |
+| 검사망 | 🔴 **마커 없는 조작은 C3·C4·D4 ③ 전부 통과.** 판정선 설계 재검토 필요 | 상 |
+| catch BK | web 3.6% — `RETRIEVE_WEB_RATIO` 조정 금지(토픽 env 광고 트랙 공유 + C7-a) | 중 |
+| catch BQ | 모델 입력 = snip 350자 ≠ 대조 대상 = 청크 원문. 7건 중 5건 절단(최저 15%) | 중 |
+| catch BL | `chunk_summary` 섹션 간 캐시 없음 — 동일 청크 재요약(유료 콜 중복) | 중 |
+| R3-2 | 결정 1 스키마(`round-NN.jsonl`) — 착수 시 `research/<slug>/` 구·신 형식 혼재 처리 방침 필요 | 중 |
+
+- **드라이버** `scripts/§research-1/run_r3a_straight.py` (untracked) — S1~S8 · C1~C9 · T9~T15 반영
+- **박제** `scripts/output/§research-1/R1_FINDINGS.md` · `R1b_{CREDENTIAL_AUDIT,HYGIENE_CLOSE,BLOCKAGI_COMPARE}.md` · `R2a_DESIGN_INPUTS.md` · `R2b_DECISION_1_3.md` · **`R3a_ENTRYPOINT_RECON.md`(§8 정찰 / §9 실행)**
+- **실행 로그** `scripts/output/§research-1/R3a_run_*.log` 6건 · 결과 JSON 4건 · 산출물 `sections/…/_FAILED_20260805-run{1..4}_*`(삭제 금지)
 - **대조 자산** `~/dev/blockagi-ref`(upstream, 읽기전용) · `~/dev/blockagi-run`(포크, `ahead 1` 미push)
 
 ## 완료 트랙
@@ -125,6 +155,11 @@
 ### 신규 (§research-1 발)
 - **`.gitignore` 차단 잔여** — `api_secrets.txt` 류 접미 변형 · `*.p12` · `*.pfx` · `id_rsa` 계열 미차단.
   현행 차단분은 루트 `.gitignore:21-36`. 우선도 하
+- **`research/<slug>/` 구·신 형식 혼재** — R3-2에서 결정 1 스키마(`round-NN.jsonl`)를 적용하면
+  기존 `round-01-findings.md` · `round-02-findings.md`(구 형식, 마크다운 자유 서술)와
+  **한 디렉터리에 섞인다.** 파서가 무엇을 읽을지·구 형식을 이관할지 폐기할지 착수 시 방침 필요.
+  실물 확인(2026-08-05): `research/experiential-marketing-media/` 에 findings 2건 + `state/` 2건.
+  우선도 **중**. (출처: §research-1 R3-1 착수 정찰)
 
 ## 아카이브
 - README-dev.md, README-dev-2.md = 기존 기획서/보고서 에이전트 개선 기록
