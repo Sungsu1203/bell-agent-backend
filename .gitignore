@@ -29,6 +29,11 @@ writer_project/service_account*.json
 *credentials*.json
 *client_secret*.json
 *-sa.json
+# §research-1 R2-a: 키 자재·평문 시크릿 파일. ⚠️ `*.key` 는 설정 확장자로 쓰이는 사례가 있어
+# 추가 전 tracked 전량 대조로 충돌 0건을 실측 확인함 (WOULD-BREAK 검사).
+secrets.txt
+*.pem
+*.key
 
 # ── Logs & run artifacts ─────────────────────────────────
 logs/

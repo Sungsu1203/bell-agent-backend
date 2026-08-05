@@ -63,10 +63,17 @@ git grep -cE 'AIzaSy|<CSE ID>' HEAD -- .   →  exit 1 (0건)
 
 커밋: `0587a2b` "security: remove hardcoded Google API key/CSE ID fallbacks from test script" (레포 = `blockagi-run`)
 
-### ⚠️ 미완 1건 — **push 미수행**
+### push 미수행 — 🟢 **판정 완료(2026-08-05): 하지 않는다**
 
-핸드오프에 push 지시가 없어 **로컬 커밋까지만** 했다.
-→ **GitHub 원격의 HEAD에는 아직 평문 키가 남아 있다.** push 여부는 챗 판정 대상.
+로컬 커밋까지만 하고 `ahead 1` 상태로 둔다. 원격 HEAD에는 평문 키가 남는다.
+
+> **근거 (박제)**
+> 해당 키는 **콘솔에서 이미 삭제**되어 무효 문자열이다. 원격 HEAD 잔존의 **실질 위험이 없다.**
+> B-2(blockagi 실행)는 보류 상태이므로 **push할 실익도 없다.**
+> **blockagi를 다시 쓸 사유가 생기면 그때 push한다.**
+
+⚠️ 이 판정은 "위험이 없다"가 아니라 **"이 키에 한해 위험이 소멸했다"**이다.
+회전되지 않은 키가 원격에 있다면 판정은 달라진다.
 
 ---
 
@@ -137,13 +144,37 @@ git ls-files -z | tr '\0' '\n' | while read f; do git check-ignore -q "$f" && ec
 
 ⚠️ `ls-files -z | tr '\0' '\n'` 사용 — `§` 경로가 다수라 quotePath 이스케이프를 우회해야 한다 (CLAUDE.md §9).
 
-### 잔여 구멍 1건 (승인 패턴 목록 밖 — 임의 확장하지 않음)
+### 잔여 구멍 — ✅ **2026-08-05 확장 완료 (판정 2번)**
 
-| 파일 | 상태 |
+1차 보고 시점의 잔여 구멍(`secrets.txt`·`*.pem`·`*.key`)을 루트 `.gitignore:34-36`에 추가했다.
+
+```gitignore
+# §research-1 R2-a: 키 자재·평문 시크릿 파일. ⚠️ `*.key` 는 설정 확장자로 쓰이는 사례가 있어
+# 추가 전 tracked 전량 대조로 충돌 0건을 실측 확인함 (WOULD-BREAK 검사).
+secrets.txt
+*.pem
+*.key
+```
+
+**사전 충돌 검사** (추가 *전*에 수행 — `*.key`가 설정 확장자로 쓰이는 위험 때문):
+```
+git ls-files | grep -iE '\.pem$|\.key$|secrets\.txt$'   →  0건 (writer_project · 루트 레포 양쪽)
+```
+
+**사후 실측**
+
+| 파일 | 결과 |
 |---|---|
-| `secrets.txt` | 🔴 여전히 NOT IGNORED |
+| `secrets.txt` | `.gitignore:34:secrets.txt` ✅ |
+| `server.pem` | `.gitignore:35:*.pem` ✅ |
+| `private.key` · `config.key` | `.gitignore:36:*.key` ✅ |
+| `api_secrets.txt` | 🔴 **NOT IGNORED** — `secrets.txt`는 정확한 이름 매칭이지 패턴이 아니다 |
 
-`*.pem` · `*.p12` · `*.key` 계열도 미차단. **패턴 확장 여부는 챗 판정 대상.**
+**WOULD-BREAK 전량 검사(tracked 전체) → 0건.** 1차 때보다 넓은 범위로 재실행했으며,
+기존 4패턴이 만든 사고도 함께 검사돼 **누적 0건**이다.
+
+⚠️ 잔여: `api_secrets.txt` 류(접미 변형) · `*.p12` · `*.pfx` · `id_rsa` 계열은 미차단.
+**승인 목록 밖이라 임의 확장하지 않았다.**
 
 ### 워킹트리 실측 — 자격증명 파일 잔존 0건
 
@@ -216,7 +247,7 @@ writer_project에서 실행해 레포 루트의 `env_text.txt`가 범위 밖으�
 
 | 일자 | 대상 | 종류 | 조치 | 식별·근거 | 사유 | 상태 |
 |---|---|---|---|---|---|---|
-| 2026-08-05 | `vertex-rag-sa` (`gemini-rag-search-final`) | 서비스계정 개인키 | **회전** (신규 발급 + 구키 삭제) | 구키 생성 2026-02-23, key_id `3f523bee…` / 신키 key_id 상이 확인 | 🔴 **`fd340652`(2026-05-01)에서 `service_account_key.json` 커밋 — 현행 키가 이력에 노출.** 날짜 대조로 확정: 키 생성(2/23) < 커밋(5/1) | ✅ 완료 |
+| 2026-08-05 | `vertex-rag-sa` (`gemini-rag-search-final`) | 서비스계정 개인키 | **회전** (신규 발급 + 구키 삭제) | 구키 생성 2026-02-23, key_id `3f523bee…` / 신키 key_id 상이 확인 | 🔴 **`service_account_key.json`이 두 번 커밋됐고, 두 번째가 현행 키를 노출.**<br>`3fce3e61`(2026-01-31) 최초 커밋 = 키 생성 **이전** → 이전 세대 키<br>2026-02-23 `vertex-rag-sa` 키 생성 (`3f523bee…`)<br>**`105eca9b`(2026-03-02) 재커밋 = 키 생성 이후 → 현행 키 노출 확정** [^rot1] | ✅ 완료 |
 | 2026-08-05 | `RAG-SEARCH_KEY` | GCP API 키 | **삭제** | 생성 2026-02-22 / 뒤4자리 사용자 메모 보관 | `.env` 미참조 실측 + **제한 없음(unrestricted)** + 평문 노출 이력. 콘솔 API 키 목록 유일 항목 | ✅ 완료 |
 | 2026-08-05 | `writer_project/service_account.json`<br>`writer_project/service_account_vertex.json` | 개인키 파일 | **리포 밖 이동** (`~/.config/gcloud/_retired/`) | 전자 = `ai-agent-user@gemini-rag-project-new`<br>후자 = `vertex-rag-sa@…` key_id `3f523bee…` | 리포 내 자격증명 상주가 `fd340652` 사고의 직접 원인. git 추적은 안 되고 있었으나 **무시 규칙도 없어 `add -A` 시 유입 가능 상태였음** | ✅ 완료 |
 | 2026-08-05 | Tavily | API 키 | 정상 확인 | `api.tavily.com/search` → **200** | `.env` 상주. 동작 확인 완료 | ✅ 완료 |
@@ -226,18 +257,14 @@ writer_project에서 실행해 레포 루트의 `env_text.txt`가 범위 밖으�
 | 2026-08-05 | SerpAPI | API 키 | 미확인 | `.env` 미참조 | 우선도 하. 계정 잔존 시 키 삭제 권고 | ⬜ 미착수 |
 | — | `gemini-rag-project-new` 프로젝트 | GCP 프로젝트 | 미확인 | `service_account.json`의 소속 프로젝트 | 현행 `GCP_PROJECT_ID`와 불일치 = 미사용 추정. 계정째 정리 여부 미정 | ⬜ 미착수 |
 
-### ⚠️ 회전 로그 1행에 대한 실측 주석 (원표 미변경)
-
-위 표 1행의 근거 `fd340652`는 **이 세션 실측에서 다른 커밋으로 확인됐다** (§B 참조).
-
-| 표 기재 | 실측 |
-|---|---|
-| `fd340652` (2026-05-01) | `fd340652` = `feat(rag): externalize topic-specific config` — 자격증명 파일 무관 |
-| — | `service_account_key.json` 실제: **`3fce3e61`(2026-01-31) 추가 → `105eca9b`(2026-03-02) 삭제** |
-
-→ **회전 판단 자체는 바뀌지 않는다.** 키 생성(2026-02-23)이 삭제 커밋(2026-03-02)보다 **앞서므로**
-노출 구간에 걸린다. 오히려 노출 시점이 기재보다 **2개월 이르다.**
-표는 사용자 실측 결과이므로 **원문을 수정하지 않고 주석으로만 병기**한다.
+[^rot1]: **정정 이력 (2026-08-05, R2-a).** 이 행의 사유는 최초 기재 시 오염 커밋을
+`fd340652`(2026-05-01)로 적었으나, 실측 결과 `fd340652`는
+`feat(rag): externalize topic-specific config`로 **자격증명 파일과 무관**했다.
+실제는 `3fce3e61`(2026-01-31) 추가 → `105eca9b`(2026-03-02) 삭제.
+**결론(회전 필요)은 불변**이나 **노출 시점이 2개월 앞당겨졌고**, 최초 커밋이 키 생성보다
+앞선다는 점이 드러나 "이전 세대 키 + 현행 키" 2세대 노출로 판정이 정밀해졌다.
+1차 보고에서는 **원표 미변경 + 주석 병기**로 처리했으나, 틀린 근거가 표 본문에 남으면
+후속 판정이 그것을 인용하므로(CLAUDE.md §9) **표 본문을 교체하고 이 각주로 이력을 남긴다.**
 
 ### 별건 이월 — `ad/WORKBOARD.md` 등재 후보
 
@@ -246,10 +273,10 @@ writer_project에서 실행해 레포 루트의 `env_text.txt`가 범위 밖으�
 | **NAVER Search API → API HUB 이관** | 2027-06-30 (지원 종료) | NCP 계정 신규 가입 필요. 인증 체계 변경(개발자센터 Client ID/Key → API HUB Key). 프로모션 2026-09-30 |
 | SerpAPI 계정 정리 | — | 우선도 하 |
 | `gemini-rag-project-new` 프로젝트 정리 | — | 우선도 하 |
-| `secrets.txt`·`*.pem`·`*.key` 차단 패턴 확장 | — | §B 잔여 구멍 |
-| `blockagi-run` push (원격 HEAD 정리) | — | §A 미완 |
+| ~~`secrets.txt`·`*.pem`·`*.key` 차단 패턴 확장~~ | — | ✅ **2026-08-05 완료** (§B) |
+| `blockagi-run` push (평문 키 제거 커밋, `ahead 1`) | blockagi 재사용 시 | 하. **지금은 하지 않음 판정** (§A) |
 
-⚠️ 이 절은 **기록만.** `ad/WORKBOARD.md` 실제 갱신은 R1b 종료 후 챗 판정.
+✅ **2026-08-05: `ad/WORKBOARD.md` 등재 완료** (판정 3번). 위 항목은 그쪽이 정본이다.
 
 ---
 
@@ -299,10 +326,14 @@ writer_project에서 실행해 레포 루트의 `env_text.txt`가 범위 밖으�
 
 ---
 
-## 🛑 판정 대기
+## ✅ 판정 완료 (2026-08-05, R2-a 세션에서 반영)
 
-| # | 항목 |
-|---|---|
-| 1 | `blockagi-run` push 여부 (원격 HEAD에 평문 키 잔존) |
-| 2 | `secrets.txt`·`*.pem`·`*.key` 차단 패턴 확장 여부 |
-| 3 | `ad/WORKBOARD.md`에 별건 5종 등재 |
+| # | 항목 | 판정 | 반영 |
+|---|---|---|---|
+| 1 | `blockagi-run` push 여부 | 🔴 **하지 않음** (키 이미 무효 + B-2 보류로 실익 0) | §A 갱신 |
+| 2 | `secrets.txt`·`*.pem`·`*.key` 확장 | ✅ 진행 | §B 갱신, 루트 `.gitignore:34-36` |
+| 3 | `ad/WORKBOARD.md` 별건 등재 | ✅ 진행 | WORKBOARD 정본화 |
+| 4 | 회전 로그 1행 근거 날짜 | ✅ **표 본문 교체** + 정정 각주 `[^rot1]` | §E 갱신 |
+
+> ⚠️ 4번은 1차 보고에서 "원표 미변경 + 주석 병기"로 처리했던 것을 **표 본문 수정으로 격상**한 것이다.
+> 사유: 틀린 근거가 본문에 남으면 후속 판정이 그것을 인용한다 (CLAUDE.md §9).

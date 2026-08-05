@@ -173,7 +173,12 @@ for step_count in range(self.iteration_count):          # :57
 | 프롬프트 강제 | `"You should ONLY respond in the JSON format as described below"` + `to_json_str(response_format)` (`:71-73`) |
 | 파싱 | **`json.loads(response.content)`** (`:98`) |
 | 물리화 | 필드명으로 꺼내 dataclass 생성 — `Objective(topic=obj["topic"], expertise=obj["expertise"])`, `remark=result["updated_findings"]["remark"]` (`:100-119`) |
-| 실패 처리 | `self.retry_llm(messages)` (`:96`) — 재시도 경로 존재 |
+| 실패 처리 | `self.retry_llm(messages)` (`:96`) — **⚠️ LLM 호출 예외만** 재시도(`base.py:55-64`, 5회 지수백오프).<br>`json.loads`는 `:98`로 **retry 밖**에 있어 형식 위반은 `JSONDecodeError`로 그대로 터진다 [^ev1] |
+
+[^ev1]: **정정 (2026-08-05, R2-a).** 1차 기재는 "JSON 파싱 실패 시 재시도 경로"였으나
+    `blockagi/chains/base.py:55-64` 실물 확인 결과 `retry_llm`의 `try`는 `self.llm(messages)`만
+    감싼다. 스키마 위반 응답에 대한 자동 복구는 **없다.** 원형도 "형식을 강제한다"까지이고
+    "형식을 보증한다"는 아니다.
 | 배선 선언 | `output_keys` 주석에 **`# Evaluate -> Plan`** 명시 (`:26-30`) |
 
 타입 정의 (`blockagi/schema.py`):
@@ -230,6 +235,50 @@ for step_count in range(self.iteration_count):   # compose.py:57
 
 ℹ️ 우리 역추적(`[[N]]` 위치 인덱스 + `attach_marker_citations`의 코드 매핑 + `.refs.json` 사이드카)은
 **코드가 보증**한다. **이 항목에서 원형에서 물려받을 것은 없다** (R1 A-⑤와 일치).
+
+---
+
+## 2-d. 🔴 정정 (2026-08-05, R2-a) — Narrate 유물 판정 근거 등급 하향
+
+> ⚠️ **위 §1-b·§2 서술은 삭제하지 않는다.** 판단 이력 보존을 위해 이 절을 덧붙인다.
+
+### 무엇이 무너졌나
+
+챗에서 세운 논리는 이랬다.
+
+> "포크가 2025년에 모델을 교체해야 했다 → 16k 전제는 그때 이미 무효
+>  → Narrate의 청크 점증 refinement는 **유물**"
+
+§1-b 실측이 **첫 전제를 반증**했다. 포크 `.env.example`은 upstream과 **byte 동일**하고
+(`git diff upstream/master...HEAD -- .env.example` → 0줄), `OPENAI_MODEL=gpt-3.5-turbo-16k`가 그대로다.
+**모델 교체 흔적이 리포에 없다.**
+
+### 근거 재구성 — 결론은 유지, 등급은 하향
+
+| 근거 | 상태 |
+|---|---|
+| ~~포크가 2025년에 모델을 교체했다~~ | 🔴 **철회.** 실측 반증 (§1-b) |
+| `ARCHITECTURE.md` — Narrate 청크화 사유 = "LLM 컨텍스트 한계" 명시 | 🟢 유효 |
+| `DESIGN_CHOICES.md` — Narrate에 다른 목적 기술 없음 (단일 사유) | 🟢 유효. **원저자 문서 확인됨** (§1-d) |
+| 현행 운영 모델 컨텍스트가 원형 전제(16k)보다 크다 | 🟢 유효 |
+
+### 판정 등급
+
+> **"확정" → 🟡 "유력(미검증)"**
+
+미검증 사유 2가지:
+
+1. **우리 `section_writer`가 점증 refinement를 물려받았는지 확인되지 않았다.**
+   물려받지 않았다면 유물이고 자시고 할 것이 없고, **catch AN(참조 확대 역효과)·AO(확신도 세탁)의
+   원인은 다른 곳에 있다.** 이 확인은 R2 설계 시 별도 항목이다(이번 범위 밖).
+2. 포크의 **실제 런타임 모델**은 커밋되지 않은 로컬 `.env`에 있었고 이력에도 없다
+   (`ad89c6d`의 `.env`는 `HOST`·`PORT` 2줄뿐). **리포로는 영원히 확인 불가.**
+
+### 남는 교훈
+
+`ADVANCED_HACKING.md`·`DESIGN_CHOICES.md`의 **문서 근거는 그대로 살아 있다.**
+무너진 것은 **"포크가 그것을 증명한다"**는 보조 논거 하나다.
+→ 결론을 바꿀 필요는 없으나, **결론을 "실측으로 확정됨"이라 인용해서는 안 된다.**
 
 ---
 

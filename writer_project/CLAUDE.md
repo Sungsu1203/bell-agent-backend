@@ -182,7 +182,24 @@ Claude Code가 코드 변경·명령을 보고할 때 **항상 두 층으로** �
   LLM을 거치면 브랜드·연도가 깎인다(catch AN) — 목표물이 원문에 있으면 추출이 생성보다 낫다.
 - E열 확보: **확정 5건 + 준확정 3건** / 목표 14칸
 - 누적 비용 ≈ **$0.25** (계단 0~3-c)
+- ⚠️ **2026-08-05 §ad-track-1 완료 처리 (E열 미충족).** 미충족 사유 = 수집 부족이 아니라
+  파이프라인·목표 미스매치. 잔여 계단은 `ad/WORKBOARD.md` 이월 표로 이관
 - 상세·진행 방향은 `ad/WORKBOARD.md` 참조. 사이클 박제는 `scripts/output/§ad-track-1/`
+
+### 8.3 §research-1 (2026-08-05, R1b close 기준) — **현재 활성**
+- 목표: 연구 루프(Plan↔Evaluate) 구조 재설계. 토픽은 ad 트랙과 공유(`experiential-marketing-media`)
+- 누적 비용 **$0** — R1·R1b 전량 읽기 전용
+- **🔴 계측기는 이미 있다.** 9개 노드 전원이 진입부에서 `emit_event()` 호출 + `/api/events`(`app.py:2188`)·
+  `/api/state`(`:1231`) 노출. **노드 진입 로그 삽입 작업은 불요.**
+  단 `/api/state`가 `research_round`·`research_plan`·`last_synthesis`를 노출하지 않아
+  라운드 관측은 `research/<slug>/round-NN-findings.md`와 planner 로그로 한다
+- **🔴 근거 사슬은 본선에서 안 끊긴다.** `[[N]]` 위치 인덱스 + `.refs.json` 사이드카
+  (URL + 청크 풀텍스트)로 역추적 생존. X는 `research_synthesizer` 곁가지 1곳뿐이고
+  `last_synthesis`·`findings_md`의 **소비처가 0건**이다
+- **🔴 Evaluate→Plan 되먹임 배선이 없다.** 목표는 토픽 env 5개를 `objs[min(rnd, len-1)]`로
+  **고정 순회**(`agent/research_planner.py:227`). 원인은 배선이 아니라 **출력 형식** —
+  원형은 JSON 스키마 강제 + `json.loads` → dataclass, 우리는 마크다운 자유 서술이라 추출 불가
+- 상세는 `ad/WORKBOARD.md` 활성 트랙. 박제는 `scripts/output/§research-1/`
 
 ---
 
