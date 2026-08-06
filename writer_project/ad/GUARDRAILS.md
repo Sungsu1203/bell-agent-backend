@@ -2,7 +2,7 @@
 
 > 🏢 회사 트랙 운영 규칙·상수. 공통 규칙(venv·커밋·측정·subagent·방법론·판정)은 상위 `../CLAUDE.md` 참조.
 > 여기엔 **회사 트랙에만 해당하는 것**만 적는다.
-> 상태: §ad-track-1 진행 중 반영(2026-08-03).
+> 상태: §research-1 선분 1 종결 반영(2026-08-06). §ad-track-1은 완료(E열 미충족).
 
 ---
 
@@ -22,14 +22,24 @@ RAG writer agent의 원형 용도 — 광고대행사 기획서·보고서 생�
 - **공통 타입/시그니처** — `DocMode` 리터럴, `retrieve()`/`web_search()`/`merge_refs()` 시그니처 고정. [README-dev.md §5]
 - **임베딩 안전망** — 기본 fail-fast(RuntimeError); 더미 폴백은 `ALLOW_DUMMY_EMBEDDINGS=1` opt-in만, 프로덕션 금지(인덱스 0벡터 오염 방지). [README-dev.md §6]
 - **진단 도구** — `diagnose_embeddings.py`(임베딩·NS 확인)·`diagnose_chunks_deep.py`(청크 분포); 새 토픽 인덱싱 후 1회 권장. [README-dev.md §8]
-- **데이터 품질 운영 노하우** — HWP/이벤트·광고/SEO 시장리포트 노이즈 패턴, 단일 호스트 50%↑ 의심, `FILTER_BAD_DOMAINS` 업데이트. [README-dev.md §9]
+- **데이터 품질 운영 노하우** — HWP/이벤트·광고/SEO 시장리포트 노이즈 패턴,
+  단일 호스트 50%↑ 의심, `FILTER_BAD_DOMAINS` 업데이트. [README-dev.md §9]
+  - 🔴 **사이트크롬 오염 (catch CA, 2026-08-06 실측)** — nav·푸터·사업자등록번호·직원명단·
+    댓글폼이 청크로 색인된다. dist **0.669~1.081**로 유의미 자료보다 가깝게 통과.
+    web 통과 청크의 **29%**(19/65), local 0건.
+    ⚠️ **임계 조정으로 못 막는다.** 수집·색인 단계 제거가 유일한 해법
+  - 🔴 **플레이스홀더 오염 (catch CB)** — 강의자료의 `🟨 실무 사례 자리` 슬라이드가
+    색인에 포함된다. local 전용 오염
+  - 🔴 **`FILTER_BAD_DOMAINS` 실측 = `''`(빈 문자열)** — 2차 필터가 현재 무작동
+    (`ingest_vector.py:1644-1647`, 2026-08-06 확인)
 - **코드 품질 가드** — pre-commit(Ruff·Mypy·Pytest), `tests/` 회귀 스위트(domain_bonus·xlsx·garbled 등). [README-dev.md §10]
 - **PR 운영 순서(권장)** — config 통합→파사드→rag_utils→scheduler→routers→토픽 외부화→품질가드→deprecated 제거. [README-dev.md §11]
 - **알려진 이슈/주의사항** — 한국어 임베딩 모델 필수(`text-embedding-004` 금지, 변경 시 인덱스 재빌드), `vertex_search.py`는 토글 보존 코드(dead 아님). [README-dev.md §13]
 - 디버깅 표준 → `./README-dev-2.md` "디버깅 표준 박제(영구 박제, §14-3 origin)" 참조 (추정 기반 진단 위험성·사전확인 가치·Bash vs PowerShell 등).
 
 ## 트랙 전용 상수
-- **활성 토픽** = `topics/experiential-marketing-media.env` (§ad-track-1)
+- **활성 토픽** = `topics/experiential-marketing-media.env` (§ad-track-1 · §research-1 **공유**)
+  ⚠️ 두 트랙 공유이므로 `RETRIEVE_WEB_RATIO` 등 검색 파라미터 조정 시 양쪽 영향 확인 필수
   - NS 격리 3키 필수 — `.env.openai:56-58`이 venfobel NS로 덮으므로 L3에서 탈환
   - `RAG_DISTANCE_THRESHOLD` · `RAG_EMBEDDING_MODEL` · `SKIP_VERTEX_SEARCH`는 **L3에 쓰지 말 것** (`.env.openai` 관리)
 - 대상 산출물 포맷: 강의 사례표(E열 4요소) / 기획서·보고서체 (TODO)
@@ -41,6 +51,7 @@ RAG writer agent의 원형 용도 — 광고대행사 기획서·보고서 생�
 - **가상 기획 배제**: 집행되지 않은 기획안이 사례로 위장한다 (catch AU — aimatters "가상 AI 캠페인")
 - **연도는 복수 청크 교차 확정** (catch AW/AX — 한국 마케팅 블로그는 사례 연도를 본문에 안 적는다)
 - 공통 측정 표준은 `../CLAUDE.md §6` + `../STANDARDS.md §2`
+- **추출 > 생성**: 목표물이 원문에 있으면 LLM을 거치지 않는다 (catch AN)
 
 ## 파일 지도
 - 이 파일 = 회사 트랙 운영 규칙.
