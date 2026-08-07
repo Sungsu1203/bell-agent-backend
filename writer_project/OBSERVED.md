@@ -39,6 +39,11 @@
 - 파서 #3 `tools/local_rag._cfg_*` — CFG → env 폴백. 가장 견고 (표준 후보)
 - 파서 #4 `agent/vector_search.py:191` — 자체 집합(`"y"` 허용)
 
+> ⚠️ 2026-08-07 실측 — 이 분류는 실물과 다르다. 정의부 60행/25파일,
+> import 공유 2곳뿐, **미등재 사본 21개**(시그니처 3인자 변종 포함).
+> CFG 미선언 키도 6건이 아니라 **16건**(그중 `.env` 값이 무효화되는 것 13건).
+> 전량 명단 = `R4_D_PREMISE_RECON.md` §5-b. **본 대장 갱신은 별건 이월.**
+
 → **STANDARDS §1.3의 확인 절차(L4→L3→L1→runtime)는 파서 #2 키에서 1~3단이 헛수고.** 규범 결손.
 → **CLAUDE.md·STANDARDS.md 어디에도 "CFG 선언된 키만 유효"가 없다.** 규범 갱신 필요.
 
@@ -76,7 +81,7 @@
 | 2 | 로컬 260 vs 웹 1,800 격차 | 로컬 쪽 레버는 `local_rag._type_chunk_params`. 미조사 |
 | 3 | `_cfg_int` 키 17개 — 대부분 CFG 미선언 추정 | 필요해지면 `git grep -n "_cfg_int" -- "tools/web_rag/ingest_vector.py"` 1회로 명단 확보 가능 |
 | 4 | CRLF 전 줄 파일 2건 (`agent/vector_search.py` 1568 / `tools/local_rag.py` 1656) | `.gitattributes` 명문화 + **단독 커밋.** 기능 변경과 절대 미혼합 |
-| 5 | `MIRROR_STATE_TO_ENV` 상태 미확인 | 켜져 있으면 런타임 state가 env를 덮음 → 설정 스냅샷에 시점 표기 필요 |
+| ~~5~~ | ~~`MIRROR_STATE_TO_ENV` 상태 미확인~~ **닫힘 (2026-08-07 실측)** | 실효 = **켜짐**. `.env`·`.env.*`·`env_raw.txt`·`topics/*.env` 전부 부재 → `config.py:634` `_env_flag(…, True)` 기본값 True. 런타임 `CFG.MIRROR_STATE_TO_ENV` = `True`, `os.environ` = `None`. 소비처 `core/topic.py:140→:142`(`os.environ["CHROMA_DIR"]` 주입). 근거 `R4_D_PREMISE_RECON.md` §5-c |
 
 ---
 
