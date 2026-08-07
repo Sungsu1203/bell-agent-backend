@@ -5,7 +5,8 @@
 ---
 
 ## 지금 상태 (한 줄)
-**§research-1 활성.** 연구 루프(Plan↔Evaluate) 구조 재설계. R1 정찰 종료 → R2 설계 착수.
+**§research-1 활성.** objective 기반 리서치 리포트 파이프라인(8단계). **선분 1(objective→쿼리) 종결(Q-2)**,
+**선분 3(수집→색인) 정찰 범위 결정 중** — 후보 A 크롬제거 / B 플레이스홀더 / C `published_date` / D 조각ID.
 §ad-track-1은 **완료(E열 미충족, 미스매치 판정)**로 이동.
 
 ## 활성 트랙
@@ -68,12 +69,12 @@
 | **catch BS** | 🔴 **objective 원문이 근거 대체재.** round-02 `## 근거 요약` 4건 중 3건이 objective 1 재진술에 `[저자(연도)]` 라벨 부착. 근거 얇을 때 objective가 findings로 역류. ES 블록과 독립된 **제2 조작 경로** | 최상 |
 | **판정선** | 🔴 **`refs.docs == 0 && 본문 길이 > N → 즉시 FAIL`.** run4 실측 = refs 0 섹션(§1·§7)이 조작 2섹션과 정확히 일치. 밀도 휴리스틱 불요. ⚠️ **프롬프트 교체가 이 사각을 닫지 않는다 — 별건으로 살아 있다** | **최상** |
 | 판정선 개정 | refs==0 단독 불충분(§2 미검출). D4③ **표본 → 전수** 확정(표본이 최악 §2를 놓침, 전수 실비용 $0 확인) | 최상 |
-| **catch AY** | `published_date` 메타데이터 부재 — objective에 "2023~2026" · "2025~2026 최신 동향"이 명시돼 **날짜 없이는 구조적으로 충족 불가.** 선분 3의 선행 조건. 중 → **상 승격**. 선행 검토 회수 → **※1**(표 하단) | 상 |
+| **catch AY** | `published_date` 메타데이터 부재 — objective에 "2023~2026" · "2025~2026 최신 동향"이 명시돼 **날짜 없이는 구조적으로 충족 불가.** 선분 3의 선행 조건. 중 → **상 승격** | 상 |
 | **catch CB** | local 플레이스홀더 오염 — `🟨 실무 사례 자리` 슬라이드가 색인 포함. 2건, web 0건 | 상 |
 | **catch BU** | 🔴 **근거 미활용.** §5 refs text에 92%·별점 4.8·아마존 실재, 본문 사용 0. **검사 항목 자체가 부재** | 상 |
 | **코드 반영** | 🔴 **미정.** 방식 (나)"v2 함수 신설" **기각** — 호출부 `research_planner.py:229` 1곳이 챗 UI 본선. 후보 (다)조건분기/(라)전용노드/(마)state주입. **결정 시점 = R3-2 루프 설계 후** | 상 |
 | **선분 1 이월** | ① obj4 취약(14중 7, 참여지표 갈래 미배정) ② 영문 소실 `experiential grid`·`customer journey map` ③ 자수 하한 미달 6건. ⚠️ **규칙을 추가하지 말 것** | 상 |
-| **catch CE** | 🔴 `CHROMA_DIR` 2순위 경로 사문. `_cfg_str`(utils.py:121)이 `getattr(CFG, key)`만 읽고 `os.environ`을 안 본다. `Config`(config.py:228)는 `@dataclass`이고 `CHROMA_DIR` 필드 0건 → `AttributeError` → `default=""`. `core/topic.py:142`의 환경변수 미러링은 이 경로에 미반영. **에러 없이 조용히 기본 경로.** 색인 격리는 `CHROMA_NAMESPACE`(L3 topic preset)로만 가능. ⚠️ CFG 재빌드 경로는 미확인<br>⚠️ **2026-08-07 보강 실측** — `.env:125`에 `CHROMA_DIR=data/chroma_store`가 **주석이 아니라 활성 상태로 존재**한다. 값이 없어서가 아니라 **값이 있는데 무시된다.** (R3b 최초본의 "L1/L2 CHROMA_* 0건"은 재귀 grep이 숨김파일을 건너뛴 거짓 0 — 정정 완료) | 상 |
+| **catch CE** | 🔴 `CHROMA_DIR` 2순위 경로 사문. `_cfg_str`(utils.py:121)이 `getattr(CFG, key)`만 읽고 `os.environ`을 안 본다. `Config`(config.py:228)는 `@dataclass`이고 `CHROMA_DIR` 필드 0건 → `AttributeError` → `default=""`. `core/topic.py:142`의 환경변수 미러링은 이 경로에 미반영. **에러 없이 조용히 기본 경로.** 색인 격리는 `CHROMA_NAMESPACE`(L3 topic preset)로만 가능. ⚠️ CFG 재빌드 경로는 미확인<br>⚠️ **2026-08-07 보강 실측** — `.env:125`에 `CHROMA_DIR=data/chroma_store`가 **주석이 아니라 활성 상태로 존재**한다. 값이 없어서가 아니라 **값이 있는데 무시된다.**<br>⚠️ 이 건은 `STANDARDS §1.3` **0단**이 이미 규정한 경우다(CFG 선언 0건 → `.env` 무효, 2~4단 생략). 0단을 밟지 않아 우회로로 갔다. 거짓 0의 원인 = **grep 심 치환(ugrep `--ignore-files`)이 `.gitignore:16-17` 대상인 `.env*`를 배제** → `catch CG`(CLAUDE.md §9) | 상 |
 | **R3-2** | 결정 1 스키마(`round-NN.jsonl`) + 파서 + planner 슬롯 = **선분 6~7(판정→루프).** 착수 시 `research/<slug>/` 구·신 형식 혼재 처리 방침 필요 | 중 |
 | **catch BV** | `utils/query_filters.py:107` `r"\\b"` 리터럴 → BOOLEAN_TOKENS 제거 무작동. 선분 2 착수 시 수리 | 중 |
 | catch BL | `chunk_summary` 섹션 간 캐시 없음 — 동일 청크 재요약(유료 콜 중복). objective 단위 전환 시 재측정 | 중 |
@@ -88,17 +89,10 @@
 
 `CC·CD = 결번 (Claude Code 약칭과 충돌)`
 
-**※1 — `catch AY` 선행 검토 회수.** 출처 = `scripts/output/§ad-track-1/NEXT_SESSION_20260803_§ad-track-1-3d1-mid.md:188`
-(untracked 일회용 메모 · 소멸 예정). `## 6. 이월 — 3-d-1 잔여 (전부 $0)` 표의 항목 ⑤ **전문 그대로**:
-
-> | ⑤ | `published_date` 추출률 실측(샘플 20) → 되면 구현 + **diff STOP** | 두 트랙 공유 파일. 읽는 쪽 `.get()` 강제. 기존 416청크 소급 불가 |
-
-(인용만. 해석·판정 없음.)
-
 
 - **드라이버** `scripts/§research-1/run_r3a_straight.py` · `probe_q1_arms.py` · `probe_q2_zdouble.py` (전부 `.gitignore` probe_*/untracked)
-- **박제** `R1_FINDINGS.md` · `R1b_{CREDENTIAL_AUDIT,HYGIENE_CLOSE,BLOCKAGI_COMPARE}.md` · `R2a_DESIGN_INPUTS.md` · `R2b_DECISION_1_3.md` · `R3a_ENTRYPOINT_RECON.md` · **`R2c_NORTH_STAR.md`** · **`Q2_SEGMENT1_CLOSE.md`**(커밋 `16de443f`)
-- **원자료** `q1_arms_20260806-161606.json`(16.0MB, ignored) · `q2_zdouble_20260806-210440.json`(ignored) · 🔴 **`q1_arms_dist_raw_20260806.md`(48,704B, untracked — 커밋 여부 미결)**
+- **박제** `R1_FINDINGS.md` · `R1b_{CREDENTIAL_AUDIT,HYGIENE_CLOSE,BLOCKAGI_COMPARE}.md` · `R2a_DESIGN_INPUTS.md` · `R2b_DECISION_1_3.md` · `R3a_ENTRYPOINT_RECON.md` · **`R2c_NORTH_STAR.md`** · **`Q2_SEGMENT1_CLOSE.md`**(커밋 `16de443f`) · **`q1_arms_dist_raw_20260806.md`**(커밋 `dda58a70`·`5b16cdd5`, **push 완료**) · `R3b_INGEST_SHARE_RECON.md`
+- **원자료** `q1_arms_20260806-161606.json`(16.0MB, ignored) · `q2_zdouble_20260806-210440.json`(ignored)
 - **실행 로그** `scripts/output/§research-1/R3a_run_*.log` 6건 · 결과 JSON 4건 · 산출물 `sections/…/_FAILED_20260805-run{1..4}_*`(삭제 금지)
 - **대조 자산** `~/dev/blockagi-ref`(upstream, 읽기전용) · `~/dev/blockagi-run`(포크, `ahead 1` 미push)
 
