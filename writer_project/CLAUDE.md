@@ -186,8 +186,8 @@ Claude Code가 코드 변경·명령을 보고할 때 **항상 두 층으로** �
   파이프라인·목표 미스매치. 잔여 계단은 `ad/WORKBOARD.md` 이월 표로 이관
 - 상세·진행 방향은 `ad/WORKBOARD.md` 참조. 사이클 박제는 `scripts/output/§ad-track-1/`
 
-### 8.3 §research-1 (2026-08-05, R1b close 기준) — **현재 활성**
-- 목표: 연구 루프(Plan↔Evaluate) 구조 재설계. 토픽은 ad 트랙과 공유(`experiential-marketing-media`)
+### 8.3 §research-1 (2026-08-07, R3b 시점) — **현재 활성**
+- 목표: **objective 기반 리서치 리포트 파이프라인** — `.env`의 `BLOCKAGI_OBJECTIVE_N`을 입력으로 `쿼리 생성 → 수집 → 색인 → objective별 retrieve → 충분/부족 판정 → 재쿼리 루프 → objective별 writer` 8단계를 한 명령으로 완주 (정본 `scripts/output/§research-1/R2c_NORTH_STAR.md`). 토픽은 ad 트랙과 공유(`experiential-marketing-media`)
 - 누적 비용 **$0** — R1·R1b 전량 읽기 전용
 - **🔴 계측기는 이미 있다.** 9개 노드 전원이 진입부에서 `emit_event()` 호출 + `/api/events`(`app.py:2188`)·
   `/api/state`(`:1231`) 노출. **노드 진입 로그 삽입 작업은 불요.**
@@ -251,3 +251,20 @@ Claude Code가 코드 변경·명령을 보고할 때 **항상 두 층으로** �
 > - 검증은 **부작용 없는 실물 명령**으로. 예: `git add --dry-run <path> | wc -l`
 >
 > 위 "도구 출력" 항목이 *도구가* 가짜 근거를 만드는 경우라면, BB는 *실행이* 만드는 경우다.
+
+**🔴 grep이 진짜 grep이 아니다 (catch CG)**
+> Claude Code 셸 심이 `grep`을 `ugrep -G --ignore-files --hidden`으로 치환한다
+> (`type grep`으로 확인). `--ignore-files` = .gitignore 준수.
+> 실측 — `grep -rn "CHROMA" --include=".env*" .` → **0건**,
+> `command grep` 동일 명령 → **39건**. `.env`·`.env.*`는 `.gitignore:16-17` 대상.
+> 쉽게 설명하자면 grep이라는 이름이 다른 프로그램에 연결돼 있다(셸 함수 → ugrep).
+> 확인 = `type grep`. 우회 = `command grep`.
+> ⚠️ **배제는 균일하다 — "비균일"로 보였던 것은 오분류였다.** `.gitignore:106 probe_*` 아래
+> `:109~:111`에 `!` 예외 3건(`probe_Z_extract.py`·`probe_dist_adtrack.py`·`probe_local_dump.py`)이 있다.
+> R3b #2가 검출한 2건은 **`!` 예외라 애초에 ignore 대상이 아니었다.** 반대로 `:106`에만 걸리는
+> `probe_q1_arms.py`·`probe_q2_zdouble.py`는 일관되게 빠진다 — `get_research_planner_prompt`
+> 검색이 심 **3건** vs `command grep` **9건**이고 차이분 6건 전량이 이 2파일이다.
+> → 규칙은 하나다: **ignore 대상이면 빠지고, `!` 예외면 잡힌다.**
+> - ignore 대상을 찾을 때는 `command grep` 병행.
+> - 양성 대조는 **대상과 같은 ignore 상태**의 것으로 한다.
+>   추적 파일로 대조하면 검색기 생존만 보이고 배제는 안 보인다.
