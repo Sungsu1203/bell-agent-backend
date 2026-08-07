@@ -295,7 +295,6 @@ def _resolve_persist_dir(namespace, persist_directory) -> str:
 > 원인 = **grep 심 치환** — `catch CG`(CLAUDE.md §9) 참조.
 > 이 세션의 `grep`은 셸 함수이고 `ugrep -G --ignore-files --hidden`으로 위임된다.
 > `--ignore-files`가 `.gitignore` 를 준수하므로 `.gitignore:16-17`(`.env`·`.env.*`) 대상이 통째로 배제됐다.
-> (`--hidden`이 명시적으로 넘어가므로 dotfile 배제는 원인이 아니다.)
 > 에러 없이 0을 반환해 "정의 없음"으로 읽혔다(§9 · catch BB 유형).
 > 재검증은 **파일별 직접 grep**(`grep -nF "CHROMA" .env` 등)으로 했다. 아래 표는 정정본이다.
 > 양성 대조: 같은 파일에 `TOPIC` 7건이 잡히므로 검색 자체는 작동한다.
