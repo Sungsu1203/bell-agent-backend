@@ -259,11 +259,16 @@ Claude Code가 코드 변경·명령을 보고할 때 **항상 두 층으로** �
 > `command grep` 동일 명령 → **39건**. `.env`·`.env.*`는 `.gitignore:16-17` 대상.
 > 쉽게 설명하자면 grep이라는 이름이 다른 프로그램에 연결돼 있다(셸 함수 → ugrep).
 > 확인 = `type grep`. 우회 = `command grep`.
-> ⚠️ **배제는 균일하다 — "비균일"로 보였던 것은 오분류였다.** `.gitignore:106 probe_*` 아래
-> `:109~:111`에 `!` 예외 3건(`probe_Z_extract.py`·`probe_dist_adtrack.py`·`probe_local_dump.py`)이 있다.
-> R3b #2가 검출한 2건은 **`!` 예외라 애초에 ignore 대상이 아니었다.** 반대로 `:106`에만 걸리는
-> `probe_q1_arms.py`·`probe_q2_zdouble.py`는 일관되게 빠진다 — `get_research_planner_prompt`
-> 검색이 심 **3건** vs `command grep` **9건**이고 차이분 6건 전량이 이 2파일이다.
+> ⚠️ **"비균일"의 근거 2건 중 1건은 해소됐다** — R3b #2가 검출한
+> `probe_dist_adtrack.py`·`probe_local_dump.py`는 `.gitignore:110-111` `!` 예외라
+> 애초에 ignore 대상이 아니었다(오분류).
+> (`:106 probe_*` 아래 `!` 예외는 `:109~:111` 3건 — `probe_Z_extract.py` 포함.)
+> 🔴 **`Q2 §3.1` 1건은 미해소.** 그 문서는 `probe_q1_arms.py:481`·
+> `probe_q2_zdouble.py:523`의 행번호를 싣고 "양쪽 결과 일치"라 적었으나,
+> 실측상 심 grep은 이 두 파일(`:106` 대상)을 보지 못한다.
+> **행번호의 출처가 미확인이다.** 해소 전까지 `command grep` 대조를 생략하지 않는다.
+> 실측 — `get_research_planner_prompt` 검색이 심 **3건** vs `command grep` **9건**,
+> 차이분 6건 전량이 위 2파일이다.
 > → 규칙은 하나다: **ignore 대상이면 빠지고, `!` 예외면 잡힌다.**
 > - ignore 대상을 찾을 때는 `command grep` 병행.
 > - 양성 대조는 **대상과 같은 ignore 상태**의 것으로 한다.
