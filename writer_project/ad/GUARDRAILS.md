@@ -20,6 +20,9 @@ RAG writer agent의 원형 용도 — 광고대행사 기획서·보고서 생�
 - **RAG 파이프라인 구조** — 수집→변환→인덱싱→검색→드롭필터 흐름; 한국어는 `text-multilingual-embedding-002`(768d), `_looks_like_garbled`로 깨진 바이너리 드롭. [README-dev.md §3]
 - **공개 API(파사드)만 사용** — 외부는 `tools/web_rag/__init__.py` 파사드만; 내부 `ingest*.py` 직접 import 금지. [README-dev.md §4]
 - **공통 타입/시그니처** — `DocMode` 리터럴, `retrieve()`/`web_search()`/`merge_refs()` 시그니처 고정. [README-dev.md §5]
+  ⚠️ **2026-08-08 R6** — `merge_refs()` 실효 범위는 **위치 인자 3개까지.**
+  `utils/rag_utils.py:342` 사본에만 keyword-only 4개(`preserve_extra`·`limit_queries`·`limit_docs`·`sort_docs_by_score`)가 더 있다.
+  `utils/refs.py:255` 사본은 3인자이고 **본선 import 0곳(사문)**.
 - **임베딩 안전망** — 기본 fail-fast(RuntimeError); 더미 폴백은 `ALLOW_DUMMY_EMBEDDINGS=1` opt-in만, 프로덕션 금지(인덱스 0벡터 오염 방지). [README-dev.md §6]
 - **진단 도구** — `diagnose_embeddings.py`(임베딩·NS 확인)·`diagnose_chunks_deep.py`(청크 분포); 새 토픽 인덱싱 후 1회 권장. [README-dev.md §8]
 - **데이터 품질 운영 노하우** — HWP/이벤트·광고/SEO 시장리포트 노이즈 패턴,
@@ -32,6 +35,8 @@ RAG writer agent의 원형 용도 — 광고대행사 기획서·보고서 생�
     색인에 포함된다. local 전용 오염
   - 🔴 **`FILTER_BAD_DOMAINS` 실측 = `''`(빈 문자열)** — 2차 필터가 현재 무작동
     (`ingest_vector.py:1644-1647`, 2026-08-06 확인)
+    ⚠️ **2026-08-08 R5** — `:1644-1647`의 소속은 **`retrieve()`(@1534)**. 색인부 1차는
+    **`:899`**(`documents_to_chroma` 내부). 소비처 4벌 — `:899` · `:1645`/`:1702` · `web_search.py:629`
 - **코드 품질 가드** — pre-commit(Ruff·Mypy·Pytest), `tests/` 회귀 스위트(domain_bonus·xlsx·garbled 등). [README-dev.md §10]
 - **PR 운영 순서(권장)** — config 통합→파사드→rag_utils→scheduler→routers→토픽 외부화→품질가드→deprecated 제거. [README-dev.md §11]
 - **알려진 이슈/주의사항** — 한국어 임베딩 모델 필수(`text-embedding-004` 금지, 변경 시 인덱스 재빌드), `vertex_search.py`는 토글 보존 코드(dead 아님). [README-dev.md §13]
