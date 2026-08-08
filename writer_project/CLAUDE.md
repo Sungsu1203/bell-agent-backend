@@ -263,14 +263,34 @@ Claude Code가 코드 변경·명령을 보고할 때 **항상 두 층으로** �
 > `probe_dist_adtrack.py`·`probe_local_dump.py`는 `.gitignore:110-111` `!` 예외라
 > 애초에 ignore 대상이 아니었다(오분류).
 > (`:106 probe_*` 아래 `!` 예외는 `:109~:111` 3건 — `probe_Z_extract.py` 포함.)
-> 🔴 **`Q2 §3.1` 1건은 미해소.** 그 문서는 `probe_q1_arms.py:481`·
-> `probe_q2_zdouble.py:523`의 행번호를 싣고 "양쪽 결과 일치"라 적었으나,
-> 실측상 심 grep은 이 두 파일(`:106` 대상)을 보지 못한다.
-> **행번호의 출처가 미확인이다.** 해소 전까지 `command grep` 대조를 생략하지 않는다.
-> 실측 — `get_research_planner_prompt` 검색이 심 **3건** vs `command grep` **9건**,
-> 차이분 6건 전량이 위 2파일이다.
-> → 규칙은 하나다: **ignore 대상이면 빠지고, `!` 예외면 잡힌다.**
-> - ignore 대상을 찾을 때는 `command grep` 병행.
+> ✅ **`Q2 §3.1` 1건도 해소(2026-08-09) — 갈래 ①(다른 경로로 검색).**
+> 행번호 `probe_q1_arms.py:481`·`probe_q2_zdouble.py:523`은 **옳다**(실물 대조 일치).
+> 미확인의 원인은 검색기가 아니라 **경로 오기**였다 — 두 probe는 `scripts/§research-1/`에 없고
+> `writer_project/` 루트에 있다. `scripts/` 하위를 뒤지면 심·실물 **둘 다 0건**이라
+> 애초에 양성 대조가 성립하지 않는 검색이었다.
+> 루트 기준 재측정 = 심 **16** vs `command grep` **25**(차이 9건), **심에만 있는 행 0건 → 심 동작은 균일하다.**
+> (③ 비균일 아님. 상세는 `ad/WORKBOARD.md` 이월표 `Q2 §3.1` 행)
+> **배제 조건은 2개다. 둘 다 만족해야 빠진다.**
+> - **(1) 재귀 탐색일 것.** 🔴 심 grep은 **명시 경로 인자에는 ignore 대상도 검색한다.**
+>   `--ignore-files` 배제는 **재귀 탐색에만** 걸린다
+>   (2026-08-08 실측, 1-e 부수 관측 / 08-09 재확인 — `grep -c "EMBEDDING" .env.openai` → 심 **2건** = `command grep` 2건).
+>   **따라서 재귀 검색의 0건은 부재의 근거가 아니다.** 파일을 지목해 다시 물어야 한다.
+> - **(2) 그 `.gitignore`가 탐색 루트에 있거나 그 아래일 것.** 🔴 **탐색 루트 위의 `.gitignore`는 적용되지 않는다**
+>   → **같은 명령이 cwd에 따라 다른 답을 낸다.** 2026-08-09 실측, `grep -rln "RAG_EMBEDDING_MODEL" --include=".env*" .`:
+>
+> | cwd | 심 grep | `command grep` |
+> |---|---|---|
+> | 레포 루트 | **0건** | 6건 |
+> | `writer_project/` | **4건** (`.env` `.env.openai` `.env.vertex` `.env.anthropic`) | 6건 |
+>
+> `.env*` 4건은 **레포 루트** `.gitignore:16-17` 대상이라 루트에서 돌리면 빠지고,
+> `writer_project/`에서 돌리면 그 규칙이 탐색 루트 위에 있어 **잡힌다.**
+> 두 cwd 모두에서 빠지는 `.env.bak_*` 2건은 `writer_project/.gitignore:67 *.bak_*` — 규칙이 안쪽에 있다.
+> ⚠️ 그러므로 **"ignore 대상이면 빠진다"는 단독으로 성립하지 않는다.** `git check-ignore`가 잡아도
+> 심 grep은 잡을 수 있다 — 두 도구의 `.gitignore` 적용 범위가 다르다.
+> ⚠️ 이것은 §9의 **"심 동작이 세션마다 다름(③)"과 다른 건**이다. 심은 균일하게 동작한다.
+> 달라지는 것은 **어디서 실행했는가**다.
+> - ignore 대상을 찾을 때는 `command grep` 병행. **cwd도 같이 적는다.**
 > - 양성 대조는 **대상과 같은 ignore 상태**의 것으로 한다.
 >   추적 파일로 대조하면 검색기 생존만 보이고 배제는 안 보인다.
 
