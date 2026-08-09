@@ -92,6 +92,10 @@ scripts/output/**/paper_*.md
 !scripts/output/**/c_ab_results.json
 # catch 83 (faithfulness rank 표준 근거 스냅샷 — OA/SS 재조회 비결정적이라 고정)
 !scripts/output/§paper-writer-1/chunks_full_abstract_dump.json
+# §research-1 선분3 작업3: 꼬리표 판별용 원본 HTML. 색인 X·Y 입력이 아님(원장 밖).
+# ⚠️ 디렉터리 통째 차단(_s2_probe_html/) 안 씀 — 하위를 ! 로 되살릴 수 없다(CLAUDE.md §4).
+#    확장자 패턴으로 거른다. 전 레포 *.html 차단도 안 씀 — User Guide/USER_GUIDE.html(추적 중) 오염 방지.
+scripts/output/**/_s2_probe_html/*.html
 
 # ─── 세션 인계 메모 / 런 산출물 아카이브 ───
 # NEXT_SESSION_*.md 는 설계상 일회성 untracked 산출물.
