@@ -61,7 +61,7 @@ R8의 유일한 뿌리가 `.gitignore:84`로 커밋에서 빠진 로컬 파일�
 `web_search.py:848` **무수정** · seed 경로 **미사용**(`catch CJ`).
 `trafilatura`·`readability`·`html2text`는 탐침에도 쓰지 않았다.
 
-**탐침 스크립트** = `probe_s2_tagmap.py` · `probe_s2_body.py` · `probe_s2_agg.py` · `probe_s2_occ.py`
+**탐침 스크립트** = `probe_s2_tagmap.py` · `probe_s2_body.py` · `probe_s2_agg.py` · `probe_s2_occ.py` · `probe_s2_pure.py`
 (레포 루트, `.gitignore:106 probe_*`로 차단 — 커밋 대상 아님).
 
 ---
@@ -317,8 +317,18 @@ GET·200 정상이고 문구만 사라진 것이라 **사이트 개편으로 읽
 🔴 **#45도 통째로 미해결은 아니다** — 출현 전수로 갈라보니 ④확정 4건 중 **순수형은
 `진익준/ 브랜드경험디자인연구소` 1건**이고, 태그 3단어는 크롬 쪽 출현이 `wrap_keyword`로 구분된다.
 그 1건은 **저자가 글 본문에 직접 써 넣은 서명**의 형태다(출현 1회, 본문 체인).
-같은 기준을 9청크 전체에 적용하면 순수형 보유는 **6청크**로 더 내려간다.
-전량 덤프와 근거는 **§7-c-1 · §7-c-2**. ⚠️ 6은 관측이며 결론 문장은 이 문서에서 쓰지 않는다.
+같은 기준을 9청크 전체에 적용하면 순수형 보유는 **6청크**로 내려간다(§7-c-1 · §7-c-2).
+
+🔴 **그 순수형 61건마저 대부분 크롬이 아니었다** (§7-c-3 기준 · §7-c-4 전량 덤프).
+
+| 갈래 | span | 청크 |
+|---|---|---|
+| (a) 크롬 아님 | **51** (84%) | 9 |
+| **(b) 크롬인데 사이트가 구조를 안 줌 — 진짜 미해결** | **5** | **3** (#22 · #35 · #43) |
+| (c) 탐침 한계 — 대조 불가 | 5 | 2 (#20 · #59) |
+
+`#45`의 서명도 **(a)**로 떨어졌다 — 같은 호스트 다른 4 URL에 없다. 저자가 이 글에만 쓴 것이다.
+⚠️ 위 수치는 관측이며 **결론 문장은 이 문서에서 쓰지 않는다.** 결정은 챗 소관.
 
 ⚠️ 최악값 규칙의 한계다. 규칙 자체는 "같은 크롬 문구가 여러 크롬 위치에 있고 그중 하나가 제거 불가"인
 경우에 맞다. 짧은 문구가 본문 어휘와 겹치는 경우에는 과대 계상한다.
@@ -500,6 +510,142 @@ astro-slot → div.article_contents → div.wrap_article.disable_selection
 **미리 밝히는 한계** — 3번은 "크롬이 아니다"는 뜻이 아니라 **"이 자료로는 못 가른다"**는 뜻이다.
 (c)를 (b)로 읽으면 미해결을 부풀리고, (a)로 읽으면 축소한다. 어느 쪽으로도 옮기지 않는다.
 
+### 7-c-4. 🔴 순수형 61건 전량 덤프 + 분류 결과
+
+> §7-c-3 규칙을 **그대로** 통과시킨 결과다. 결과를 보고 규칙을 고치지 않았다.
+
+**분류 결과 — (a) 51 · (b) 5 · (c) 5 / 합계 61**
+
+| 갈래 | span | 청크 | 청크 수 |
+|---|---|---|---|
+| **(b) 크롬인데 사이트가 구조를 안 줌 — 진짜 미해결** | **5** | #22 · #35 · #43 | 3 |
+| (c) 탐침 한계 — 대조 불가 | **5** | #20 · #59 | 2 |
+| (a) 크롬 아님 | **51** | #4 · #20 · #22 · #28 · #35 · #41 · #43 · #45 · #56 | 9 |
+
+#### (b) 진짜 미해결 5건 — 전량
+
+| 청크 | URL | 문구 전문 | 출현 | 조상 체인 | R8 유형 | 판정 근거 |
+|---|---|---|---|---|---|---|
+| #22 | `https://jaenung.net/tree/31086` | `과학` | 1 | `article.mt-4.p-0.rounded-1 → div.main-content.posts-show-content.px-0 → div#content.custom-content.p` | nav · 댓글폼 · 미분류 | b 같은 호스트 1/1 URL 에도 있음 |
+| #35 | `https://openads.co.kr/content/contentDetail?contsId=9476` | `추천 콘텐츠` | 1 | `html → body → div.wrap → div.content` | 사업자등록번호 · 푸터 · 댓글폼 · 미분류 | b 같은 호스트 2/2 URL 에도 있음 |
+| #35 | `https://openads.co.kr/content/contentDetail?contsId=9476` | `공유하기` | 1 | `html → body → div.wrap → div.content` | 사업자등록번호 · 푸터 · 댓글폼 · 미분류 | b 같은 호스트 2/2 URL 에도 있음 |
+| #43 | `https://openads.co.kr/content/contentDetail?contsId=18029` | `추천 콘텐츠` | 1 | `html → body → div.wrap → div.content` | 사업자등록번호 · 푸터 · 댓글폼 · 미분류 | b 같은 호스트 2/2 URL 에도 있음 |
+| #43 | `https://openads.co.kr/content/contentDetail?contsId=18029` | `공유하기` | 1 | `html → body → div.wrap → div.content` | 사업자등록번호 · 푸터 · 댓글폼 · 미분류 | b 같은 호스트 2/2 URL 에도 있음 |
+
+#### (c) 탐침 한계 5건 — 전량
+
+| 청크 | URL | 문구 전문 | 출현 | 조상 체인 | R8 유형 | 판정 근거 |
+|---|---|---|---|---|---|---|
+| #20 | `https://business.google.com/kr/think/search-and-video/youtube…` | `측정` | 1 | `body.glue-body → main#page-content.simple-article → div.glue-page.simple-article__content → section.` | nav · 푸터 | c 같은 호스트 다른 URL 0개 (business.google.com) |
+| #20 | `https://business.google.com/kr/think/search-and-video/youtube…` | `검색` | 3 | `body.glue-body → main#page-content.simple-article → div.glue-page.simple-article__content → section.` | nav · 푸터 | c 같은 호스트 다른 URL 0개 (business.google.com) |
+| #20 | `https://business.google.com/kr/think/search-and-video/youtube…` | `파트너` | 1 | `body.glue-body → main#page-content.simple-article → div.glue-page.simple-article__content → section.` | nav · 푸터 | c 같은 호스트 다른 URL 0개 (business.google.com) |
+| #20 | `https://business.google.com/kr/think/search-and-video/youtube…` | `공유` | 1 | `body.glue-body → main#page-content.simple-article → div.glue-page.simple-article__content → section.` | nav · 푸터 | c 같은 호스트 다른 URL 0개 (business.google.com) |
+| #59 | `https://magazine.contenta.co/2023/04/%EB%A9%94%ED%83%80%EB%B2…` | `Menu` | 1 | `html → body.post-template-default.single.single-post` | nav · 미분류 | c 같은 호스트 다른 URL 0개 (magazine.contenta.co) |
+
+#### (a) 크롬 아님 51건
+
+**a-2 — 같은 호스트 다른 URL 에 없음 → 저자가 이 글에만 쓴 것. 2건**
+
+| 청크 | URL | 문구 전문 | 출현 | 조상 체인 | R8 유형 | 판정 근거 |
+|---|---|---|---|---|---|---|
+| #35 | `https://openads.co.kr/content/contentDetail?contsId=9476` | `엠포스` | 2 | `div.col-xl-9.d-flex.flex-column → div.group → pre-line → p → span` | 사업자등록번호 · 푸터 · 댓글폼 · 미분류 | a-2 같은 호스트 다른 2 URL 에 없음 |
+| #45 | `https://brunch.co.kr/@jinikjun/31` | `진익준/ 브랜드경험디자인연구소` | 1 | `div#ArticleView.wrap_body.text_align_left → astro-island → p.wrap_item.item_type_text → span → span` | 직원명단 · 미분류 | a-2 같은 호스트 다른 4 URL 에 없음 |
+
+**a-1 — R8 §5 `🔴 지배` 청크의 본문 행(크롬으로 지목된 적 없음). 49건**
+
+
+`#4` · 11건 · `https://jaenung.net/tree/14441` · 체인 `article.mt-4.p-0.rounded-1 → div.main-content.posts-show-content.px-0 → div#content.c`
+
+- (1회) 안녕하세요, 여러분! 오늘은 정말 흥미진진한 주제로 여러분과 함께 이야기를 나눠볼 거예요. 바로
+- (1회) 요즘 세상이 어떻게 돌아가는지 아시죠? 눈으로 보는 것만으로는 부족해요. 이제는
+- (1회) 도 중요해졌어요. 그래서 기업들이 자신만의 특별한 소리를 만들어 브랜드를 알리는 전략을 쓰고 있어요. 이게 바로 '시그니처 사운드 마케팅'이에요!
+- (1회) 우리 귀는 24시간 열려 있어요. 자는 동안에도 소리를 들을 수 있죠. 그래서 소리를 이용한 마케팅이 더욱 효과적일 수 있어요!
+- (1회) 자, 이제부터 시그니처 사운드 마케팅의 세계로 함께 떠나볼까요? 준비되셨나요? 그럼 고고씽~! 🚀
+- (3회) 여러분, 혹시
+- (1회) 라는 말을 들어보셨나요? 그 뒤에 나오는 "뚜둥~" 하는 소리 말이에요. 그게 바로 인텔의 시그니처 사운드예요! 😮
+- (1회) 시그니처 사운드는 말 그대로 브랜드를 대표하는 소리에요. 로고가 눈으로 보는 브랜드의 상징이라면, 시그니처 사운드는
+- (1회) 이라고 할 수 있죠.
+- (1회) 이런 시그니처 사운드는 보통 다음과 같은 요소들로 구성돼요:
+- (1회) 이런 소리들이 우리 귀에 쏙쏙 박혀서 브랜드를 기억하게 만드는 거죠. 완전 귀에 꽂힌다니까요! 👂✨
+
+`#20` · 2건 · `https://business.google.com/kr/think/search-and-video/youtube…` · 체인 `body.glue-body → main#page-content.simple-article → div.glue-page.simple-article__con`
+
+- (1회) 수많은 취향과 문화가 교차하는 YouTube에서 영향력을 효과적으로 확산시키고, 소비자의 마음을 사로잡은 브랜드들의 비결은 무엇일까요? 그 해답을 찾기 위해, YouTube는 글로벌 마케팅 데이터 기업 칸타(Kantar)와 함께 2025 YouTube Works Awards의 출품작 및
+- (1회) 여기서 발견한 성공적인 캠페인의 공통된 특징을 바탕으로, 2026년 마케팅을 위한 4가지 핵심 팁을 정리했습니다.
+
+`#22` · 10건 · `https://jaenung.net/tree/31086` · 체인 `article.mt-4.p-0.rounded-1 → div.main-content.posts-show-content.px-0 → div#content.c`
+
+- (1회) 안녕? 요즘 유튜브나 인스타그램 릴스 보다 보면 "와, 저 브랜드는 영상 진짜 감각적이다" 싶은 순간들 있지 않아?
+- (1회) 화면을 가득 채우는 화려한 영상미도 중요하지만, 우리의 시선을 확 사로잡는 건 바로 **'움직이는 글자들'**일 때가 많아.
+- (1회) 마치 살아있는 생명체처럼 나타났다가 사라지고, 리듬에 맞춰 통통 튀거나, 중요한 단어를 강조하며 화면을 장악하는 그 텍스트들 말이야.
+- (1회) 이게 바로 오늘 우리가 깊게 파고들 주제,
+- (1회) 단순히 '움직이는 글자'라고 생각하면 경기도 오산! 이건 브랜딩과 마케팅의 판도를 바꾸고 있는 아주 중요한 전략적 무기거든.
+- (1회) 생각해 봐. 우리는 이제 텍스트를 '읽는' 시대에서 '보는' 시대로 넘어왔어.
+- (1회) 수많은 정보와 콘텐츠가 쏟아지는 '디지털 정글' 속에서, 고요하게 멈춰있는 우리 브랜드의 로고와 메시지는 과연 살아남을 수 있을까?
+- (1회) 정답은, '어렵다'에 가까울 거야. 소비자들의 시선은 1초가 멀다 하고 다른 곳으로 이동하니까.
+- (1회) 그래서 등장한 개념이 바로
+- (1회) 정해진 로고, 정해진 컬러, 정해진 서체라는 '고정된 규칙'에서 벗어나, 다양한 미디어 환경에 맞춰 유연하게 변화하고 살아 움직이는 브랜드 정체성을 만드는 거지. 그리고 그 중심에 키네틱 타이포그래피가 있어.
+
+`#28` · 5건 · `https://marketing-leadership.tistory.com/77` · 체인 `div.logSkin-article → div.article_view → div.tt_article_useless_p_margin.contents_sty`
+
+- (1회) 숏폼은 꾸준함이 생명입니다. 알고리즘은 정기적으로 양질의 콘텐츠를 업로드하는 계정을 선호합니다.
+- (1회) 2025년 숏폼 마케팅은 더 이상 선택이 아닌 필수입니다.
+- (1회) 하지만 단순히 짧은 영상을 만드는 것이 아니라, 브랜드의 정체성을 명확히 하고, 타겟 오디언스와 진정성 있게 소통하며, 지속적으로 실험하고 개선하는 것이 핵심입니다.
+- (1회) 변화의 속도가 빨라질수록, 브랜드의 본질은 더욱 중요해집니다.
+- (1회) 숏폼이라는 새로운 캔버스에서 여러분의 브랜드 스토리를 어떻게 그려나갈지 고민해보세요. 15초의 기적이 여러분을 기다리고 있습니다.
+
+`#41` · 3건 · `https://marketup.co.kr/marketing/%EC%88%8F%ED%8F%BC-%EC%BD%98…` · 체인 `main#main.site-main → article#post-2792.post-2792.post.type-post → div.ast-post-forma`
+
+- (1회) 2025년 콘텐츠 환경은
+- (1회) 로 수렴할 것이다. 숏폼은 신규 고객 유입과 초기 관심 확보에, 롱폼은 신뢰 구축과 심화 학습에 각각 최적화되어 있다.
+- (1회) 은 2025년 디지털 마케팅의 핵심 축이다. 초개인화, 참여형 콘텐츠, 멀티채널 전략, 그리고 성공 사례의 벤치마킹을 통해 기업은 ROI와 브랜드 가치를 동시에 극대화할 수 있다. 숏폼은 더 이상 선택이 아닌 전략적 필수 요소(Strategic Imperative)이다.
+
+`#43` · 4건 · `https://openads.co.kr/content/contentDetail?contsId=18029` · 체인 `div.col-xl-9.d-flex.flex-column → div.group → pre-line → p → span`
+
+- (1회) 오늘 살펴본 사례들처럼, 이제는 선물을 나눠주거나 샘플을 제공하는 방식만으로는 소비자를 브랜드의 실제 사용자로 전환하기 어려워졌어요. 소비자는 스스로 경험하고 느끼는 과정에서 제품에 대한 이해와 신뢰를 쌓기 때문이에요.
+- (1회) 브랜드가 아무리 좋은 메시지를 준비해도 일방향적인 설명은 소비자에게 광고처럼 느껴지기 쉽고 금세 잊혀지죠. 반면 소비자가 직접 참여하는 체험형 콘텐츠는 재미와 몰입을 제공하며 브랜드 팝업스토어를 자연스럽게 ‘내 경험’으로 받아들이게 해요. DIY로 나만의 제품을 만들어보거나, 브랜드 메
+- (1회) 2026년에 오프라인 마케팅을 고민 중인 뷰티 브랜드라면, 우리 브랜드는 어떤 체험을 중심에 둘지, 어떤 방식이 가장 자연스럽게 소비자의 참여를 이끌지 오늘 아티클을 참고해 고민해 보세요!
+- (1회) ⭐️"우리 브랜드, 팝업스토어 하려면 얼마나 들까?" 매번 고민 많으셨죠?
+
+`#56` · 14건 · `https://letter.wepick.kr/post/23767` · 체인 `div.bn-block-group → div.bn-block-outer → div.bn-block → div.bn-block-content → p.bn-`
+
+- (1회) 올해 마무리 하랴, 내년 마케팅 전략 세우랴 바쁜 하루 보내고 계신가요? 올해 성과를 정리하면서 동시에 내년에는 어떤 마케팅을 해야 할지, 무엇을 더 강화해야 할지 고민해야 하니 지금이야말로 실무자들의 고민이 가장 복잡해지는 시기예요.
+- (1회) 그래서 많은 마케터들이 내년 전략을 고민하면서 가장 많이 다시 꺼내보는 카드 중 하나가 바로 팝업스토어입니다.
+- (1회) 에서 설명드린 것과 같이 했듯, 2025년에 운영된 팝업스토어 수는 전년 대비 약 80% 증가하며 시장이 점점 더 빠르게 커지고 있어요. 이제 팝업스토어는 특별한 시도가 아니라 기본적인 마케팅 옵션으로 자리 잡은 셈이죠. 하지만 브랜드가 늘어난 만큼 경쟁도 훨씬 치열해졌어요. 소비자는 
+- (1회) 이런 흐름 속에서 올해 주목받은 팝업스토어들은 공통적으로 세 가지 전략을 중심에 두고 있었어요. 바로
+- (1회) 예요. 오늘은 2025년에 특히 눈 여겨볼 만한 팝업스토어 전략을 실제 성공 사례와 함께 정리해볼게요.
+- (1회) 2024년까지 팝업스토어에서의 AI 활용은 제품 추천이나 포토부스처럼 보조적인 역할에 머무는 경우가 많았어요. 하지만 2025년에는 AI가
+- (1회) 을 만들고,
+- (2회) 하며,
+- (1회) 술로 자리 잡았어요. AI가 제공하는 초개인화 인터랙션은 끊임없이 새로운 자극을 원하는 소비자의 기대를 가장 효과적으로 충족시키는 장치가 된 셈이죠. 특히 생성형 AI가 본격적으로 상용화되면서 비교적 낮은 비용으로도 고도화된 체험 구현이 가능해졌고, AI는 이제 더 다양한 방식으로 팝업
+- (1회) 실제로 2025년에는 2024년 대비 AI 키워드가 포함된 팝업스토어 검색량이
+- (1회) 하며, AI가 팝업스토어의 기본 요소로 인식되고 있는데요. 드라마 '
+- (1회) 는 작품의 세계관인 ‘천국’을 테마로 공간을 구현하고, 방문객이 생성형 AI를 활용한 ‘천국 프로필 촬영’을 통해 개인화된 ‘천국 주민증’을 발급받는 체험을 제공했어요. 여기에 AI 챗봇과의 대화를 더해, 세계관 안에서 상호작용하는 경험까지 확장했죠. 또 다른 사례로
+- (1회) 는 현장에서 촬영한 사진을 기반으로 AI가 유년기와 노년기의 모습을 합성해 보여주는 체험을 선보였어요. '시간의 흐름 속에서도 함께한다'는 메시지를 AI 경험으로 풀어내며, 브랜드가 ‘평생 동반자’라는 인식을 자연스럽게 강화한 사례예요.
+- (1회) 올해 가장 눈에 띄는 변화 중 하나는
+
+
+**⚠️ 규칙의 한계 3건 (분류를 바꾸지 않고 기록만 한다)**
+
+1. **(b) `#22 과학`은 2글자다.** 같은 호스트 대조는 짧은 문자열에 약하다 —
+   2글자는 어느 페이지에나 우연히 나타날 수 있다. 규칙대로 (b)로 뒀으나
+   openads 2건(`추천 콘텐츠`·`공유하기`)보다 근거가 약하다.
+2. **(b) 5건 중 4건이 한 사이트(openads)다.** 표본이 한쪽에 몰려 있다.
+   `catch CI` — 실패가 한 호스트에 몰리면 그것부터 의심한다.
+3. **(c) 5건은 "크롬 아님"이 아니라 "못 가름"이다.** 같은 호스트 URL이 1개뿐이라
+   자동/저자를 가릴 수 없었다. (b)로 읽으면 미해결이 10으로, (a)로 읽으면 5로 간다.
+   어느 쪽으로도 옮기지 않았다.
+
+**읽히는 것 (판정 아님)**
+
+- **(a)가 51/61 = 84%다.** 순수형의 대부분은 **애초에 크롬이 아니었다.**
+  49건은 R8 §5 `🔴 지배` 청크의 본문 행이고, 2건은 저자가 글에 직접 쓴 문구다
+  (`엠포스` = 그 글의 작성사명 · `진익준/ 브랜드경험디자인연구소` = 저자 서명).
+- **(b) 5건의 성질** — openads 4건은 `추천 콘텐츠`·`공유하기` 위젯 라벨이고
+  체인이 `html → body → div.wrap → div.content`로 **컨테이너 이름이 없다.**
+  같은 사이트 전 페이지에 자동으로 붙는데 구조 단서를 안 준다. 규칙 R이 다뤄야 할 형태다.
+- 청크 기준으로 (b)를 가진 것은 **3건**(#22 · #35 · #43), (c)는 2건(#20 · #59).
+
 ### 7-c. 세는 방식별 민감도
 
 | 세는 방식 | 청크 수 | 기준 10 대비 |
@@ -563,8 +709,8 @@ astro-slot → div.article_contents → div.wrap_article.disable_selection
 | `R9_CHROME_TAG_MAP.md` | **O** | 이 문서 |
 | `.gitignore` | **O** | HTML 차단 1행 추가 |
 | `_s2_probe_html/*.html` | X | 원본 HTML 43건 (차단) |
-| `_s2_fetch_log.json` · `_s2_tagmap_raw.json` · `_s2_body_diag.json` · `_s2_final.json` · `_s2_occ.json` | X | `.gitignore:84 scripts/output/**/*.json` |
-| `probe_s2_tagmap.py` · `probe_s2_body.py` · `probe_s2_agg.py` · `probe_s2_occ.py` | X | `.gitignore:106 probe_*` |
+| `_s2_fetch_log.json` · `_s2_tagmap_raw.json` · `_s2_body_diag.json` · `_s2_final.json` · `_s2_occ.json` · `_s2_pure.json` | X | `.gitignore:84 scripts/output/**/*.json` |
+| `probe_s2_tagmap.py` · `probe_s2_body.py` · `probe_s2_agg.py` · `probe_s2_occ.py` · `probe_s2_pure.py` | X | `.gitignore:106 probe_*` |
 
 ### 10-b. deviation (자진 보고)
 
