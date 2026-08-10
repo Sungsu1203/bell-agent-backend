@@ -246,6 +246,21 @@ CP-3 9 URL 이 덮는 ③ 레코드          = 188 (레코드 기준) / 192 (URL
 
 ---
 
+## 8-b. 부록 — S4 계산 코드 박제 (2026-08-10 추가)
+
+`R10~R10i` 전부가 이 코드의 출력인데 **부록 diff 는 변경분뿐이고 S4 최초판 전문이 없어 복원 불가**임이 확인돼(1,476줄 vs diff 총합 ~700줄) 사본을 커밋했다.
+
+| 원본 (untracked, `.gitignore:106 probe_*`) | 박제본 (tracked) | sha256 |
+|---|---|---|
+| `writer_project/probe_s2_tagmap.py` | `scripts/§research-1/s2_tagmap_frozen_20260810.py` | `1530a6ba5a611408b2dd939e24668f9ec7112114b50cb11e9cf8bbfe06ad91b4` |
+| `writer_project/probe_s2_agg.py` | `scripts/§research-1/s2_agg_frozen_20260810.py` | `9db06411014ad3d4f97a076a688b068d8934d3d8373fcc245463acf8c808b75c` |
+| `writer_project/probe_s4_census.py` | `scripts/§research-1/s4_census_frozen_20260810.py` | `d70a723137a4640e1da308c265bb7d8841b93dcdd2472232d213c674ecee06da` |
+
+🔴 **사본이다. 이동이 아니다.** 원본 3종은 제자리에 있으며 sha256 이 박제 전후 동일함을 확인했다(위 표의 해시 = 원본 = 박제본 본문). 박제본은 헤더 주석 3줄이 앞에 붙어 파일 해시는 다르며, **본문 해시가 위 값**이다.
+⚠️ **이후 탐침을 수정해도 이 사본은 갱신하지 않는다. S4 시점 고정본이다.**
+
+---
+
 ## 9. 🔴 정지 — S4 계열 종료. 챗이 확정할 것
 
 | # | 항목 | 값 |
