@@ -73,6 +73,13 @@
 - **변동성 임계**: `vertex_grounding count`의 N=3간 `CV > 30%` → 토픽 unstable, patch 효과 vs noise 분리 불가 → Tier1 fallback / 재시도 결정.
 - **한국어 grounding 주의**: Google Search 한국어 corpus가 영어 대비 grounding metadata를 적게 반환할 수 있음 → 한국어 토픽은 별도 검증.
 
+**측정 설계 catch 포인터** (2026-08-10) — 아래 2건은 **`../CLAUDE.md §9` 에 이미 등재**돼 있다.
+중복 등재하지 않고 소재만 가리킨다.
+- **catch CL** (`CLAUDE.md:305`) — 요약·대표값·첫 일치를 전수 대신 쓰면 답이 달라진다.
+  판정에 쓰는 값이 **전수인지 표본인지**를 먼저 밝힌다.
+- **catch CM** (`CLAUDE.md:323`) — 판단 불가는 **제3의 칸**에 넣는다. 어느 쪽으로도 밀지 않는다.
+  미확정 칸의 크기가 결론을 바꿀 만하면 닫으러 가되, **기준이 아니라 자료를 바꾼다**.
+
 > 원본: `scripts/output/§14-3/metric_definitions.md`
 
 ---
@@ -110,6 +117,15 @@
   우회는 유지하되 "막혀 있다"로 읽지 말 것.
 - ⚠️ `diagnose_richness.py`의 `namespaces=N`은 **`-web`/`-local` 접미사 이름 필터**다.
   내용 판정이 아니므로 "빈 NS의 증거"로 쓰면 틀린다.
+- 🔴 **import 는 실행이다 (catch CN, 2026-08-09 §research-1 S4-c)** — `__main__` 가드가 없는 probe
+  모듈을 `import` 하면 모듈 본문이 전부 돌아 **산출물이 덮어써진다.** 실물 — `import probe_s2_agg`
+  한 번에 R9 집계가 재실행되고 `_s2_final.json` 이 재생성됐다. 확인 = `python -c "import <mod>"`
+  출력 **0줄**.
+  · **부수 관측(양성 정보)** — 재생성분 sha256 이 동일해 **R9 파이프라인이 결정론적**임이 확인됐다.
+  · ⚠️ 단 **원본 byte 일치는 미증명**이다(사전 해시·백업 부재, 크기 일치만 확보). 크기 일치를
+    동일성으로 읽지 않는다(§3.2 상단·`STANDARDS §3.2` 빈 Chroma 188,416B 전례).
+  · `catch AG`(`PersistentClient` 가 경로 오지정 시 빈 DB 를 **만든다**)와 **동형** — 둘 다
+    *"조회하려다 오염원을 만든다"*.
 
 > 원본: `scripts/output/§ad-track-1/step3c_close_§ad-track-1.md` §1.2~1.3
 
@@ -219,5 +235,13 @@ CLAUDE.md §9 "도구 출력은 계산 방식을 확인한 뒤 해석한다"의 
   임베딩 생성자에서 실패한다. **provider와 venv는 반드시 짝을 맞춘다.**
 - `.env` 파일도 provider별 분리 (§1.5 측정 driver 작성 표준 연동).
 - macOS·Windows 공통 동작. 플랫폼 전용 아님.
+- 🔴 **착수 전 venv 를 트랙 규약과 대조한다 (catch CO, 2026-08-10 §research-1 S4-c)** — §research-1 은
+  ad 트랙(`experiential-marketing-media`)이므로 `.venv_openai` 가 정본인데 S4·S4-b 를 `.venv_vertex`
+  로 돌렸다. **산출물 서두에 실행 환경 캡처 칸이 없어 3차수 뒤에야 발견**됐다.
+  · 영향은 **관측되지 않았다** — 두 venv 의 python 3.11.6 / bs4 4.14.2 / lxml 6.0.2 / libxml2 2.14.6
+    **직접 확인** + `body_meta` 43 URL 실측 동일 + R9 집계 전항 재현. "영향 0" 이 아니라
+    **"영향 관측되지 않음"** 으로 적는다.
+  · ⚠️ 파서만 쓰는 작업이라 무해했다. **LLM 호출이 개입하면 실패 원인이 된다.** → §7 연동.
 
-> 원본: `scripts/output/§ad-track-1/step2_close_§ad-track-1.md` (catch I)
+> 원본: `scripts/output/§ad-track-1/step2_close_§ad-track-1.md` (catch I) ·
+> `scripts/output/§research-1/R10c_POWER_CONTROL.md` §0 (catch CO)
