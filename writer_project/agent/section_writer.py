@@ -225,6 +225,14 @@ def section_writer(state: State):
         outline_text = get_topic_outline_text(state)
         if not (outline_text or "").strip():
             logger.info("[SECTION WRITER] outline missing → build failed (%s)", fname)
+            # [§research-1 R36-b] 실패 경로에만 Task 종료를 복원한다(구 코드 :217-220 과 동일).
+            #   빼두면 writer Task 가 미완료로 남고, tail_task_router:362 가 참이 돼
+            #   :370 이 section_writer 를 되돌려 무한 루프가 된다(refs.docs>0 일 때).
+            #   본문 경로는 무접촉 — 거기는 :490-493 이 같은 객체로 종료 처리한다.
+            if pending:
+                pending.done = True
+                pending.done_at = _now_str()
+                pending.description = pending.description or "write: (no-outline)"
             return {"messages": messages, "task_history": tasks}
 
     target_title, came_from_lock = _resolve_title(state, outline_text)
