@@ -664,6 +664,11 @@ _PROTECTED_ENV_KEYS = (
     "TOPIC_SLUG",
     "SKIP_VERTEX_SEARCH",
     "MIRROR_STATE_TO_ENV",
+    # [§research-1 R28] 로그 회전 상수 2키 추가. .env:32-33 에 기재돼 있어
+    # os.environ 주입이 reload 에서 회귀했고, min_=1024 clamp 로 회전을 끌 수도 없었다.
+    # 관통 2회차(R21)에서 초기 3분 46초가 유실된 원인. 박제: R22 §2 · R28 §1-e.
+    "LOG_MAX_BYTES",
+    "LOG_BACKUP_COUNT",
 )
 
 def reload_config_inplace() -> Config:
