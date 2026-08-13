@@ -562,7 +562,7 @@ def after_web_search_agent(state: State) -> str:
             return "web_search_agent"
         # §12-15: writer 펜딩이라도 vector_search 가 대기중이면 먼저 실행.
         # 그렇지 않으면 RAG 가 있는데도 retrieval 단계가 통째로 스킵되어 빈 본문이 나간다.
-        if has_pending(state, "vector_search_agent"):
+        if has_pending(tasks, "vector_search_agent"):
             logger.info("[router.after_web] writer pending but vector_search pending → vector_search_agent")
             return "vector_search_agent"
         logger.info("[router.after_web] writer pending(strict) → %s", preferred_writer)
@@ -570,12 +570,12 @@ def after_web_search_agent(state: State) -> str:
 
     # 0-b) vector_search_agent가 대기 중이면 연구 루프보다 우선 실행
     #     순서:
-    #       1) utils.tasks.has_pending(state, "vector_search_agent")
+    #       1) utils.tasks.has_pending(tasks, "vector_search_agent")
     #       2) task_history 기반 펜딩 검사(튜플/딕셔너리 호환)
     #       3) state["pending"] 리스트(구버전 호환)
 
     # (1) 공식 헬퍼 우선
-    if has_pending(state, "vector_search_agent"):
+    if has_pending(tasks, "vector_search_agent"):
         logger.info("[router.after_web] has_pending(vector_search_agent)=True → vector_search_agent")
         return "vector_search_agent"
 
