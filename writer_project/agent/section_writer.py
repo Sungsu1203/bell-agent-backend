@@ -211,15 +211,21 @@ def section_writer(state: State):
     if not (outline_text or "").strip():
         default_outline = "outline_book.md" if _doc_mode() == "book" else "outline_report.md"
         fname = state.get("outline_fname") or default_outline
-        if not has_pending(tasks, "content_strategist", prefix="create_outline"):
-            tasks.append(Task(agent="content_strategist", done=False, description=f"create_outline:{fname}", done_at=""))
-        messages.append(AIMessage(content=f"[Section Writer] 아웃라인이 비어 있어 자동으로 목차 생성을 요청했습니다. (target={fname})"))
-        if pending:
-            pending.done = True
-            pending.done_at = _now_str()
-            pending.description = pending.description or "write: (no-outline)"
-        logger.info("[SECTION WRITER] outline missing → scheduled content_strategist (%s)", fname)
-        return {"messages": messages, "task_history": tasks}
+        # [§research-1 R36] (E)안 — 아웃라인을 이 자리에서 확보한다.
+        #   종전에는 content_strategist Task 만 예약하고 return 했고, 그 노드의 출구가
+        #   graph.py:125 고정 엣지(→ communicator → END) 라 writer 로 돌아오지 못했다(R34 §5-b).
+        #   노드를 통째로 호출한다 — 시그니처가 (state) 단일 인자다(R35 §2-a).
+        #   반환 dict 는 버린다: tasks/messages 는 얕은 복사라 append 만 유실되고
+        #   state 대입·Task 변형·파일은 공유 객체·디스크로 전파된다(R36 §1-b).
+        #   순환 import 없음(content_strategist 의 import 에 agent.* 0건, R35 §1-b) —
+        #   모듈 적재 순서를 바꾸지 않도록 지역 import 으로 둔다.
+        from agent.content_strategist import content_strategist as _r36_build_outline
+        _r36_build_outline(state)
+        #   save_outline 은 디스크에만 쓴다(utils/outline.py:260) — 재읽기가 필요하다(R36 §3-a).
+        outline_text = get_topic_outline_text(state)
+        if not (outline_text or "").strip():
+            logger.info("[SECTION WRITER] outline missing → build failed (%s)", fname)
+            return {"messages": messages, "task_history": tasks}
 
     target_title, came_from_lock = _resolve_title(state, outline_text)
 
