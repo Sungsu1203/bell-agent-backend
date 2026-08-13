@@ -812,8 +812,11 @@ def after_planner_router(state: State) -> str:
     """
     플래너 이후 라우팅:
     1) announce=1 → communicator
-    2) writer 펜딩이 있으면 writer 최우선
-    3) 쿼리 없으면 communicator
+    2) 🔴 쿼리가 남아 있으면 수집이 우선이다(4~6으로 진행). writer 펜딩은 보지 않는다.
+       [§research-1 R30] 종전에는 writer 펜딩을 쿼리 검사보다 먼저 봤고, planner가 쿼리를
+       만들어 web_search_agent를 예약해도 writer로 가로채 ②③④가 잘렸다(R29 실측).
+    3) 쿼리가 없을 때만 writer 펜딩 → writer
+       (없으면 research_loop_active=True → research_synthesizer, 그 외 → communicator)
     4) SKIP_WEB_SEARCH=1 또는 state.flags.skip_web_search → vector_search_agent
     5) refs/references에 이미 문서가 있거나 rag_on_disk=True → vector_search_agent
     6) 기본: web_search_agent
@@ -862,14 +865,13 @@ def after_planner_router(state: State) -> str:
         logger.info("[router.after_planner] announce=1 → communicator")
         return "communicator"
 
-    w = _pending_writer()
-    if w:
-        logger.info("[router.after_planner] writer pending → %s", w)
-        return w
-
     plan_qs = ((state.get("research_plan") or {}).get("queries") or []) or state.get("planner_queries") or []
     have_queries = bool(plan_qs)
     if not have_queries:
+        w = _pending_writer()
+        if w:
+            logger.info("[router.after_planner] writer pending → %s", w)
+            return w
         if bool(state.get("research_loop_active")):
             logger.info("[router.after_planner] no planner queries but research_loop_active=True → research_synthesizer")
             return "research_synthesizer"
