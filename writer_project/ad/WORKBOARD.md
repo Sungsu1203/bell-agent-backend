@@ -624,3 +624,162 @@ R17 관통 1회차에서 LLM 3요청의 토큰을 재지 못했다. 응답 `usag
 - 새 NS `research1-through2` = web 829 / local 302. 🔴 **기존 NS 416/302 전건 불변**
 - 백업 `_archive_research1/r17_pre_20260813/` · 스크래치 `r18_scratch_20260813/` 유지
 - 남은 후보 = **(나) fast-path 분리** · **(라) `tasks.py:337` 이 Task 생성** — 부작용 측정이 R27
+
+---
+
+# §R33 반영분 (2026-08-13) — 미배치 · 🔴 9칸 성립 기준선
+
+## 🔴 관통 7회차 — ⓪~⑧ 9칸이 한 실행에 전부 섰다
+
+R17 2칸에서 시작한 이 트랙의 이정표다. `research1/r28-writer-fix` 브랜치.
+
+| 회차 | ⓪① | ②③④ | ⑤ | ⑥ | ⑦ | ⑧ | 비고 |
+|---|---|---|---|---|---|---|---|
+| R17 (1회차) | ⓪만 | ❌ | ✅ | ❌ | ❌ | ✅ | fast-path 로 ①②③④ 스킵 |
+| R21 (2회차) | ✅ | ✅ | ✅ | ✅ | 억제(설계) | ❌ | `iteration_count=1` |
+| R28 (3회차) | ✅ | ✅ | ✅ | ✅ | ✅1회 | ❌ | Task 가 auto-close 로 죽음 |
+| R29 (4회차) | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ | Task 를 살리자 ②③④ 잘림 |
+| R30 (5회차) | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | `after_web` 이 ⑤ 가로챔 |
+| R31 (6회차) | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | `after_synth` 가 ⑦ 가로챔 |
+| **R32 (7회차)** | ✅ | ✅ | ✅ | ✅ | 🔴 **✅1회** | ✅ | 🔴 **9칸 성립** |
+
+### 수정 4건 (전부 분리 브랜치, `main` = `0eb3d37e` 무접촉)
+
+| # | 커밋 | 대상 | 내용 |
+|---|---|---|---|
+| 1 | `c9f29dcd` | `core/config.py` | 로그 보호키 2개 추가 — 로그 유실 해소 |
+| 2 | `4e43d236` | `agent/supervisor.py` | δ-1 — fast-path 밖 writer Task 생성 + `CFG.TOPIC_TITLE` 제목 |
+| 3 | `2b040400` | `agent/supervisor.py` | δ-1 을 auto-close 뒤로 이동 |
+| 4 | `6453bfd4` | `core/routers.py` | `after_planner` writer 분기를 쿼리 검사 블록 안으로 |
+| 5 | `909aba54` | `core/routers.py` | 🔴 `has_pending` 인자 타입 오용 교정 (`state` → `tasks`) |
+| 6 | `f3dcd161` | `core/routers.py` | `after_synth` writer 분기를 ⑦ 판정식 뒤로 |
+| — | `2c62bd55`·`24f8fa23`·`d90d10d9`·`17ae300f`·`e9dcbd05` — **5건, 실물은 through3~7** | `topics/*.env` | 프리셋 신설 (through2~7) |
+
+### 🔴 핵심 진단 — 하나의 Task 가 양쪽을 결정했다
+
+`supervisor.py:721` fast-path 블록 안에 **Task 생성(`:725`)·제목 세팅(`:731`)이 함께** 있었다.
+→ 블록이 닫히면 ⑧이 안 서고, 열리면 ①②③④가 잘린다.
+그리고 Task 를 살리자 **라우터 3곳이 차례로 writer 를 최우선으로 잡아** 조사 단계를 가로챘다.
+
+**이것은 세 개의 버그가 아니라 하나의 설계 습관이었다** — 라우터마다 writer 검사를 본래 검사보다 앞에 둠.
+`after_planner` · `after_web` · `after_synth` 순으로 드러났고 3곳을 교정했다.
+
+### 🔴 `has_pending` 인자 타입 오용 — 주석이 예고한 사고
+
+`core/routers.py:565` 가 `has_pending(state, …)` 로 **dict 를 넘겼다.**
+dict 순회는 키 문자열을 내고 `getattr(str,"agent","")` 가 `""` 라 **예외도 경고도 없이 항상 False.**
+
+`:563-564` 주석이 정확히 이 사고를 예고한다 —
+*"writer 펜딩이라도 vector_search 가 대기중이면 먼저 실행. 그렇지 않으면 RAG 가 있는데도
+retrieval 단계가 통째로 스킵되어 빈 본문이 나간다."*
+
+🔴 **폴백 3중이 전부 죽어 있었다** — `:586`·`:593` 이 `Task`(dataclass)를 못 잡고 `:605` 는 비어 있다.
+→ **이 규칙은 만들어진 이래 한 번도 발동한 적이 없다.** 교정 후 `:842` 로그가 첫 발화 기록이다.
+⚠️ `CLAUDE.md §9` 「이터러블 타입 오용 → 조용한 0건」 계통.
+
+### ⑦의 정체 — 재수집이 아니라 재검색
+
+`R32` 라운드 2에서 ③수집이 돌지 않았다 —
+`:968 [router.after_planner] refs/docs or rag_on_disk detected → vector_search_agent`.
+북극성 ⑦ 정의는 *"부족 판정 → 재쿼리 → **재수집**"* 이나, 실측된 것은 **재검색**이다.
+⚠️ `R20 §3-c` 가 예측한 **2라운드 자기잠금**과 같은 현상이다. 상세 = 🔴 **재쿼리는 생성됐다.** planner 라운드 2가 objective #2 로 새 쿼리 2개(사운드 로고·분트 곡선)를 만들고 `:967 [Planner] schedule next → web_search_agent (queries=2)` 로 ③을 예약했다. **집행만 안 됐다** — `after_planner`(`routers.py:895`)가 `vector_search_agent` 로 보냈고 `WEB SEARCH AGENT` 배너는 **1건**(라운드 1)뿐이다(양성 대조: 같은 로그에 `VECTOR SEARCH AGENT` 2건 · `RESEARCH PLANNER` 2건 검출). 코퍼스는 두 라운드 모두 `web=335 local=302 base=0` 으로 **증가 0**. 🔴 **재쿼리가 ⑤ 질의로도 안 쓰였다** — `:923`·`:1034` 둘 다 원 사용자 문안이다. `R20 §3-c` 는 *"2라운드 이후 관문 1·3의 입력이 달라진다 / `iteration_count`=1 이면 이 효과가 관측되지 않는다"* 고 적었고, `iteration_count=2` 인 R32 가 **처음 관측**했다. 박제 = `R33_BASELINE.md §6`
+
+### 남은 것 — ⑧ 본문
+
+⑧은 **섰다**(배너·Task 확보). 그러나 4회 연속 `outline chars=0` 으로
+`section_writer.py:211` 미통과 → `:222` return, `_resolve_title` 미평가.
+**칸이 안 서는 문제가 아니라 노드 간 순서 문제다** — `content_strategist` 가 writer 뒤에 온다.
+`R24 §3-b` 가 이미 밝혔다: **「조사 후 writer 예약 지점」이 코드에 없다.**
+
+## 죽은·미완성 경로 5건
+
+| # | 대상 | 성격 | 차수 |
+|---|---|---|---|
+| 1 | `flags["force_writer"]` | 주석은 *"플래그로 무시 가능"*, 세팅 코드 0건 | R24 |
+| 2 | `state["title"]` (`tasks.py:331`) | 조회하는데 대입 0건 | R25 |
+| 3 | `flags["router"]["writer_pending"]` | 주석은 *"라우팅 변경은 라우터에서"*, 보는 라우터 0건 | R26 |
+| 4 | auto-close B블록 (`supervisor.py:793-800`) | A블록이 먼저 return — 도달 불가 | R29 |
+| 5 | 🔴 `has_pending` 폴백 3중 (`routers.py:586`·`:593`·`:605`) | 옛 형식만 인식 — **셋 다** 죽음 | R31 |
+
+## 동명이의 6건
+
+| # | 표기 | 실물 | 차수 |
+|---|---|---|---|
+| 1 | `CFG.DIRECT_QA` | `:310` 은 `flags["DIRECT_QA"]` 를 읽음 | R23 |
+| 2 | 지역변수 `ALLOW_SUMMARY` | 실제 CFG 키는 `ALLOW_LOCAL_SUMMARY` | R24 |
+| 3 | `.env ALLOW_SUMMARY` | Config 필드가 아니라 ENV 폴백 이름 | R24 |
+| 4 | `CFG.TOPIC_TITLE` | `state["topic_title"]` 은 다른 저장소 — 같은 실행에서 값이 달랐다 | R28 |
+| 5 | `state["qa_direct_reply"]` | `flags["qa_direct_reply"]` 와 다른 저장소 | R28 |
+| 6 | 🔴 `BLOCKAGI_OBJECTIVE_N` | CFG 필드는 `RESEARCH_OBJECTIVES`(`config.py:555`) | R32 |
+
+⚠️ **`state` 최상위 ↔ `flags` 하위 조합이 상습**(#1·#5). 그 형태를 먼저 의심한다.
+⚠️ 정확한 표기 = 🔴 **층이 넷이다.** ① 프리셋/`.env` 키 **`BLOCKAGI_OBJECTIVE_<n>`**(n=1..5) → ② 변환 `load_research_objectives_from_env()`(`core/config.py:182..224`, `prefix` 는 `:183`) → ③ **CFG 정본 필드 `RESEARCH_OBJECTIVES`**(선언 `:313` / 대입 `:555`) → ④ **state 키 `research_objectives`**(소문자 — `state_types.py:104` 선언, `topic.py:154` 대입, `routers.py:799`·`rag_utils.py:703` 읽기). ⚠️ **`CFG.BLOCKAGI_OBJECTIVES`(복수형·`str`, 선언 `:332` / 대입 `:588`)는 별개 레거시 필드**이며 현행 값은 `''` 다. *"objective 5키"* 는 ①만 가리키는 표현이다. R32 오독의 원인 = `dir(CFG)` 를 **`.env` 키 이름**으로 걸렀다(CFG 에는 번호형이 없다).
+
+## 규율 — 「범위를 자르지 마라」 (4회, 마지막이 가장 나쁨)
+
+| 회차 | 놓친 것 | 범위를 정한 쪽 |
+|---|---|---|
+| R25→R23 | `:330` 만 보고 `:331` 제3 폴백 | CC 요약을 챗이 물려받음 |
+| R26→R25 | `:721`·`:731` 만 보고 `:725` Task 생성 | 상동 |
+| R28→R27 | `:743` 에서 끊어 `:775` auto-close | 🔴 챗이 지시서에 범위 명시 |
+| **R30** | `:865-871` 7줄 창으로 보고 **순서 교정안을 설계** | 🔴 **챗. 안이 무효였고 CC 가 집행 전 반증** |
+
+🔴 앞의 셋은 **놓친 것**이고 마지막은 **틀린 것을 지시한 것**이다. 유료 1회를 태울 뻔했다.
+→ 규율: **함수를 고치는 안을 낼 때는 그 함수 전문을 먼저 받는다. 인용된 조각으로 설계하지 않는다.**
+→ 지시서에 줄 범위를 박는 것 자체를 위험 신호로 본다.
+
+## 규율 — 「실험 설계 무효」 6회 (변종이 매번 다름)
+
+측정하려는 기전과 **다른 기전이 값을 만들어낸다.** 결과가 그럴듯하기에 더 위험하다.
+
+| 회차 | 변종 |
+|---|---|
+| R22 | `.env` 회귀값을 clamp 결과로 오독 |
+| R28 | BOM 을 파일 훼손으로 오독 (`ast.parse` 실패 / `import` 성공 모순으로 잡음) |
+| R29 | 오프셋 가정 대조가 2행 어긋남 → 앵커 방식으로 재측정 |
+| R31 | 테스트 픽스처(`refs_docs=1`)가 결과를 만듦 |
+| R32 Ph1 | 🔴 **채점표가 틀림** — 코드가 아니라 기대값이 반대 |
+| R32 Ph2 | 탐침 키 이름 오류로 objective 0개 오독 |
+
+→ 규율: 결과가 예상과 다르면 **같은 실행의 다른 결과와 앞뒤를 맞춘다.** 대상보다 자를 먼저 의심한다.
+
+## 함정 — `core/routers.py` 는 CRLF
+
+1,025행 전부 CRLF. `splitlines()` 로 읽으면 `\r` 이 지워져 **박제 대조가 전건 불일치**한다.
+→ 이 파일 편집·박제는 **바이트 분할**(`split(b"\n")`)로. 편집 전/후/커밋 후 줄끝 3회 확인.
+⚠️ `.gitattributes` 부재 · `autocrlf` 미설정.
+
+## 검증 방법론 — 3단계로 진화했다
+
+| 단계 | 형태 | 차수 |
+|---|---|---|
+| 1 | 코드를 읽어 판정 | ~R29 |
+| 2 | 함수 직접 호출 + **양방향**(고쳐진 것 / 안 깨진 것) | R30·R31 |
+| 3 | 🔴 **구·신 모듈 동시 적재** — 같은 입력을 양쪽에 먹여 대조 | R32 |
+
++ 부작용 함수 **스텁으로 차단**해 색인·파일 쓰기 0 유지. 안전장치가 실제로 죽는지 역방향 확인.
+
+## 원칙 검증 — 선제 수정 금지가 실측으로 뒷받침됐다
+
+`R32 Phase 0` 이 writer 우선 분기를 전수해 **잔여 2곳**(`after_web:569`·`after_vector:759`)을 찾았으나
+**관측된 `after_synth` 만 고쳤다.**
+→ `R32` 관통 7회차 실측: 잔여 2곳 **발화 0건**(하나는 탈출구로, 하나는 도달조차 안 함).
+**미관측 경로를 안 고친 판단이 맞았다.**
+
+## 지표 앵커 정정
+
+`R31` 보고의 「LLM 5건」은 **배너 기준**이었다. 같은 앵커로 재측정 시 **R31 76 / R32 73**, 임베딩 142 / 130.
+→ 🔴 **회차 간 비교가 흔들렸다.** `catch CL`(지표가 무엇을 세는지 밝힌다) 계열.
+→ 규율: 실적표에 **측정 앵커를 함께 적는다.** 형식 = 값 뒤 괄호에 **`앵커 문자열` / 로그레벨 / 전수·하한** 3항. 예: ``LLM 73 (앵커 `Request options` / DEBUG / 전수)``.
+앵커 정본 — LLM `Request options`(DEBUG) · 임베딩 `POST https://api.openai.com/v1/embeddings`(DEBUG) · 검색 `call ok`(INFO) · 노드 `============ <NODE> ============`(INFO).
+🔴 관통 1~7회차 로그 **전건 존재**(「로그 부재」 0건)이고 **DEBUG 행도 전건 존재**(46/139/586/30/444/571/575)하여 앵커가 전 회차에 유효하다.
+전건 재측정 (LLM / 임베딩 / 검색) — R17 **3/0/0** · R21 **≥59/≥112/≥1** · R28 **73/130/8** · R29 **2/0/0** · R30 **60/114/7** · R31 **76/142/8** · R32 **73/130/8**.
+⚠️ **R21 만 `≥` 다** — 로그가 회전 4조각이고 최초 조각이 유실됐다(조각별 20/19/12/8). **전수가 아니라 하한값**이다.
+
+## 상태 (9칸 성립 시점)
+
+- 브랜치 `research1/r28-writer-fix` · `main` = `0eb3d37e` **무접촉**
+- 색인 = 전 NS 실측(`sqlite3 -readonly`, 1차축 = 청크 수) — `research1-through2` **829/302** · `through3` **309/302** · `through4` **0/0** · `through5` **332/302** · `through6` **378/302** · **`through7` 335/302**(7회차 신설) · `venfobel-vitamin` **47/810** · `_empty_ns_20260802.bak` **0** · `base` sqlite 없음
+- 🔴 **기존 NS `experiential-marketing-media` web 416 / local 302 — 7회 관통 전부 불변**
+- 관통 7회차 산출물 = `outlines/…/outline_report.md` **367 B** · `research/…/round-01-findings.md` **2,257 B** · `round-02-findings.md` **2,641 B** · `reports/…/qa/qa_…_222908.md` **539 B**(qa 1건뿐 — **본보고서 없음**) · `research/…/state/last_state.json` 41,940 B · `resources/…` 10건 ≈ 41.4 MB · 🔴 **`sections/research1-through7/` 디렉터리 부재 — 섹션 본문 0건** · refs `docs=5` `queries=1`
+- 백업 `_archive_research1/r17_pre_20260813/` · 스크래치 `r18_scratch_20260813/` 유지
