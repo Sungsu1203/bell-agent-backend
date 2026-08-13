@@ -925,22 +925,6 @@ def after_synthesizer_router(state: State) -> str:
                 e,
             )
 
-    # write: 펜딩이 있으면 writer 우선 (STRICT + suppress 고려)
-    preferred_writer = _preferred_writer()
-    alt_writer = _alt_writer()
-    if not _suppress_writer(state):
-        wa = _custom_writer_agent()
-        if (
-            has_pending(tasks, preferred_writer, prefix="write:")
-            or has_pending(tasks, alt_writer, prefix="write:")
-            or (wa is not None and has_pending(tasks, wa, prefix="write:"))
-            or bool((state.get("flags") or {}).get("pending_write_title"))
-        ):
-            logger.info("[router.after_synth] writer pending(write:) → %s", preferred_writer)
-            # 합성 이후 writer로 즉시 전이되는 경우도 라운드 종료로 간주하여 스냅샷/알람
-            _metrics_snapshot_and_alert(state)
-            return preferred_writer
-
     rounds_done = as_int(state, "research_round", 0)
     max_iter = as_int(state, "iteration_count", 0)
 
@@ -980,6 +964,22 @@ def after_synthesizer_router(state: State) -> str:
     if can_continue:
         logger.info("[router.after_synth] continue research → research_planner")
         return "research_planner"
+
+    # [§research-1 R32] writer 펜딩 검사는 ⑦(라운드 계속 판정) 뒤로 옮겼다 — R31 실측: writer Task 가 살아 있으면 재쿼리 루프가 통째로 스킵됐다.
+    preferred_writer = _preferred_writer()
+    alt_writer = _alt_writer()
+    if not _suppress_writer(state):
+        wa = _custom_writer_agent()
+        if (
+            has_pending(tasks, preferred_writer, prefix="write:")
+            or has_pending(tasks, alt_writer, prefix="write:")
+            or (wa is not None and has_pending(tasks, wa, prefix="write:"))
+            or bool((state.get("flags") or {}).get("pending_write_title"))
+        ):
+            logger.info("[router.after_synth] writer pending(write:) → %s", preferred_writer)
+            # 합성 이후 writer로 즉시 전이되는 경우도 라운드 종료로 간주하여 스냅샷/알람
+            _metrics_snapshot_and_alert(state)
+            return preferred_writer
 
     # 연구 중단(라운드 종료) 시점
     # 1) 방금 생성된 findings를 즉시 RAG에 포함시키기 위한 경량 재스캔
