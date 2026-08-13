@@ -742,18 +742,6 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
         _dash_emit(state, where="supervisor", picked="vector_search_agent", reason="write_rag_fastpath_with_vector")
         return {"messages": messages, "task_history": tasks, "flags": state.get("flags", {}), "rag_on_disk": True, "topic_title": state.get("topic_title")}
 
-    # [§research-1 R28] fast-path(:721) 밖에서도 section_writer Task 를 만든다.
-    #   위 블록이 return 하므로 여기는 fast-path 미진입 경로 전용이다.
-    #   사유: :725 가 프로덕션 유일한 section_writer Task 생성 지점인데 fast-path 안에 있어,
-    #         write 어간이 없는 질의(관통 2회차)에서는 ⑧이 설 근거가 만들어지지 않았다.
-    #         라우터(core/routers.py:301)는 write: prefix Task 만 본다. 박제: R26 §1-d·§1-e.
-    #   제목: _write_title_early 가 있으면 그것(기존 동작 유지), 없으면 CFG.TOPIC_TITLE(:128 과 동일 형태).
-    #         빈 문자열이면 Task 를 만들지 않는다 — "write: " 를 만드느니 안 만드는 편이 낫다.
-    if not _safe_has_pending(tasks, "section_writer"):
-        _r28_title = _write_title_early or (getattr(config.CFG, "TOPIC_TITLE", "") or "").strip()
-        if _r28_title:
-            tasks.append(Task(agent="section_writer", done=False, description=f"write: {_r28_title}", done_at=""))
-
     if _is_research_mode_local(state):
         research_agents = ("research_planner","web_search_agent","vector_search_agent","research_synthesizer")
         has_research_pending = any(_safe_has_pending(tasks, a) for a in research_agents)
@@ -777,6 +765,17 @@ def supervisor(state: Mapping[str, Any]) -> Dict[str, Any]:
                     t.done, t.done_at = True, now
                     t.description = (t.description or "") + " [auto-closed: start research loop]"
             tasks.append(Task(agent="research_planner", done=False, description="plan: auto", done_at=""))
+            # [§research-1 R28] fast-path(:721) 밖에서도 section_writer Task 를 만든다.
+            #   위 블록이 return 하므로 여기는 fast-path 미진입 경로 전용이다.
+            #   사유: :725 가 프로덕션 유일한 section_writer Task 생성 지점인데 fast-path 안에 있어,
+            #         write 어간이 없는 질의(관통 2회차)에서는 ⑧이 설 근거가 만들어지지 않았다.
+            #         라우터(core/routers.py:301)는 write: prefix Task 만 본다. 박제: R26 §1-d·§1-e.
+            #   제목: _write_title_early 가 있으면 그것(기존 동작 유지), 없으면 CFG.TOPIC_TITLE(:128 과 동일 형태).
+            #         빈 문자열이면 Task 를 만들지 않는다 — "write: " 를 만드느니 안 만드는 편이 낫다.
+            if not _safe_has_pending(tasks, "section_writer"):
+                _r28_title = _write_title_early or (getattr(config.CFG, "TOPIC_TITLE", "") or "").strip()
+                if _r28_title:
+                    tasks.append(Task(agent="section_writer", done=False, description=f"write: {_r28_title}", done_at=""))
             msg = "[Supervisor fast-path] 연구 라운드 모드 시작 → research_planner"
             messages.append(AIMessage(content=msg)); logger.info(msg)
             _dash_emit(state, where="supervisor", picked="research_planner", reason="research_mode_bootstrap")
