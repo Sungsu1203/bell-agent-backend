@@ -158,7 +158,17 @@ def content_strategist(state: State):
 
     # ─────────────────────────────────────────────────────────
     # 일반 경로: 목차 생성 (LLM 호출)
-    strategist_prompt = get_content_strategist_prompt(MODE)
+    # [§research-1 R41] 리서치 리포트 프롬프트 트랙 — 프리셋 키로 갈린다.
+    #   기존 report/book 문안은 무접촉이다. 이 키가 없거나 0 이면 종전 그대로 돈다.
+    #   분기를 prompts.py 안이 아니라 여기서 하는 이유 — prompts.py:18-31 _get_cfg_attr 은
+    #   ENV 폴백이 없어 프리셋 전용 키가 보이지 않는다(R41 Phase 0 §2-c 실측).
+    #   config.truthy 는 CFG → ENV 순으로 보므로 CFG 필드 없이 프리셋 키만으로 성립한다.
+    if config.truthy("RESEARCH1_PROMPT_TRACK", False):
+        from prompts_research import get_research_outline_prompt as _r41_outline_prompt
+        strategist_prompt = _r41_outline_prompt()
+        logger.info("[Content Strategist] research prompt track ON (RESEARCH1_PROMPT_TRACK=1)")
+    else:
+        strategist_prompt = get_content_strategist_prompt(MODE)
     chain = strategist_prompt | llm | StrOutputParser()
 
     outline_text = get_topic_outline_text(state)
