@@ -299,7 +299,15 @@ def section_writer(state: State):
     ref_text = _refs_preview_text(state, numbered=True) + _facts_block(state)
 
     # ---- LLM 초안 ----
-    chain = get_section_writer_prompt() | llm | StrOutputParser()
+    # [§research-1 R41] 리서치 리포트 프롬프트 트랙 — content_strategist 와 같은 키로 갈린다.
+    #   꺼지면 기존 get_section_writer_prompt() 그대로 — §ad-track 경로 무변화.
+    if config.truthy("RESEARCH1_PROMPT_TRACK", False):
+        from prompts_research import get_research_section_writer_prompt as _r41_section_prompt
+        _writer_prompt = _r41_section_prompt()
+        logger.info("[SECTION WRITER] research prompt track ON (RESEARCH1_PROMPT_TRACK=1)")
+    else:
+        _writer_prompt = get_section_writer_prompt()
+    chain = _writer_prompt | llm | StrOutputParser()
     _llm_provider = (_cfg_str("LLM_PROVIDER", "") or "").strip().lower()
     try:
         _llm_model = str(getattr(llm, "model_name", "") or getattr(llm, "model", "") or type(llm).__name__)
