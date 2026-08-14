@@ -19,7 +19,7 @@ from utils.refs import attach_auto_citations, attach_marker_citations, build_mar
 from utils.chunk_summary import start_background_summarization
 from prompts import get_section_writer_prompt
 from content_utils import save_md_draft
-from utils.outline import get_topic_outline_text, next_unwritten_title
+from utils.outline import get_topic_outline_text, next_unwritten_title, list_outline_headings
 from utils.tasks import get_last_write_target, has_pending
 from utils.text_utils import section_slugify
 from core.llm import get_llm
@@ -112,6 +112,17 @@ def _resolve_title(state: State, outline_text: str | None) -> Tuple[str | None, 
     _last = get_last_write_target(messages, tasks)
     if _last and _last.strip() in done:
         _last = None
+    # [§research-1 R40] (δ)안 — 2단 결과가 아웃라인 헤딩이 아니면 버리고 3단으로 넘긴다.
+    #   R36 실측: get_last_write_target 이 vector_search_agent Task 의 queries 문자열을
+    #   작성 요청으로 읽어 아웃라인에 없는 제목을 냈고, 조립기(report_builder.py:184)가
+    #   그 파일을 못 찾아 missing 7/7 이 됐다(R39 §6-4 · R40 §2-d-4).
+    #   대조 키는 조립기와 같은 section_slugify 다 — 「같은 파일을 가리키는가」가 판정 기준이다.
+    #   헤딩이 0개면(아웃라인 부재/파싱 실패) 대조가 성립하지 않으므로 건드리지 않는다.
+    if _last:
+        _heads = list_outline_headings(outline_text or "")
+        if _heads and section_slugify(_last) not in {section_slugify(h) for h in _heads}:
+            logger.info("[SECTION WRITER] stage-2 title not in outline → stage-3: %r", _last)
+            _last = None
     title = _last or next_unwritten_title(
         outline_text or "",
         mode="report",
