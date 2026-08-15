@@ -76,6 +76,9 @@ topics/*.env
 !topics/_template.env.example
 # §academic-1: academic 모드 토픽은 학술 lit-review (NDA 아님) — 추적 허용
 !topics/academic-*.env
+# §research-1: 관통 검증용 프리셋(through2~10). 토픽은 ad 트랙과 공유하며 NDA 자산이 아니다.
+# 전건 git add -f 로 들어와 있었다 — -f 를 잊으면 조용히 누락되므로 예외로 되살린다(R45 §3).
+!topics/research1-*.env
 
 # ─── §14-2 dump outputs ───
 # 차단: raw 측정 결과(json/log/ndjson/patch) + 논문 산출물(docx, paper_*.md)
