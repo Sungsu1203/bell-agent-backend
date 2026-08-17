@@ -561,6 +561,57 @@ def section_writer(state: State):
                 "[SECTION WRITER] no re-reservation (done=%d, total=%d, saved=%s, qa=%s)",
                 _done_r46, _total_r46, _saved_r46, is_qa_mode
             )
+            # [§research-1 R47] (ㄱ)안 — 완주 시점에만 본보고서를 조립한다.
+            #   조립기(report_builder.py:279 build_final_report)는 코드가 이미 있고 LLM 0 인데
+            #   그래프·라우터가 부르는 곳이 0건이었다(R47 Phase 0 §3). 배선만 한다.
+            #
+            #   🔴 이 else 를 완주 신호로 쓰면 안 된다 — R46 조건은 4항 복합이라
+            #   저장 실패(saved=False) · Q&A(qa=True) · 플래그 갱신 실패(done=0) 도 같은 가지다
+            #   (R47 Phase 0 §4-0). 그래서 세 항을 여기서 다시 명시적으로 확인한다.
+            #
+            #   재진입 가드 = flags.final_report_built. 중단 조건 7(조립기 2회 이상)이 걸려 있다.
+            #   flags 는 말미의 flags_out 이 같은 dict 를 읽어 return 에 실으므로 다음 노드까지 전파된다
+            #   (자기 파일 내부 행번호는 같은 커밋 안에서도 밀린다 — 이름으로 가리킨다).
+            #
+            #   인자 4개는 전건 실물로 넘긴다(기본값에 의존하지 않는다, R47 Phase 0 §3-b).
+            #   root_dir 은 :377 이 이미 만든 _proj_root — str(current_path) 와 같은 값이다.
+            #   지역 import 로 둔다: report_builder 의 import 에 agent.* 0건이라 순환은 없으나
+            #   모듈 적재 순서를 바꾸지 않기 위함이다(R36 (E) 인라인과 같은 관행).
+            _built_r47 = bool(_f_r46.get("final_report_built"))
+            if (not is_qa_mode) and _saved_r46 and _total_r46 > 0 \
+                    and _done_r46 == _total_r46 and not _built_r47:
+                try:
+                    from report_builder import build_final_report as _r47_build
+                    _outline_fname_r47 = _as_str(state.get("outline_fname")) or (
+                        "outline_book.md" if _doc_mode() == "book" else "outline_report.md"
+                    )
+                    _final_path, _missing = _r47_build(
+                        topic_slug=slug,
+                        outline_fname=_outline_fname_r47,
+                        mode=_doc_mode(),
+                        root_dir=_proj_root,
+                    )
+                    logger.info(
+                        "[SECTION WRITER] final report built (%d/%d) → %s | missing=%d",
+                        _done_r46, _total_r46, _final_path, len(_missing or []),
+                    )
+                    if _missing:
+                        # 리포트는 만들되 누락을 남긴다 — 조립기는 예외를 던지지 않고
+                        # 부분 산출한다(R47 Phase 0 §2-g). 판정은 호출자 몫이다.
+                        logger.warning(
+                            "[SECTION WRITER] final report missing sections (%d): %s",
+                            len(_missing), ", ".join(str(x) for x in _missing),
+                        )
+                    _f_r46["final_report_built"] = True
+                    _f_r46["final_report_path"] = _final_path
+                    state["flags"] = cast(Flags, _f_r46)
+                except Exception as _e_r47:
+                    logger.warning("[SECTION WRITER] final report build failed: %s", _e_r47)
+            else:
+                logger.info(
+                    "[SECTION WRITER] final report skipped (done=%d, total=%d, saved=%s, qa=%s, built=%s)",
+                    _done_r46, _total_r46, _saved_r46, is_qa_mode, _built_r47,
+                )
     except Exception as _e_r46:
         logger.warning("[SECTION WRITER] re-reservation skipped: %s", _e_r46)
 
