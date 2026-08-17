@@ -525,6 +525,45 @@ def section_writer(state: State):
         pending.done_at = _now_str()
         pending.description = pending.description or f"write: {target_title}"
 
+    # [§research-1 R46] (A)안 — 남은 섹션이 있으면 자기 자신을 재예약한다.
+    #   graph.py:174-178 에 section_writer 자기 엣지가 이미 있고,
+    #   tail_task_router:362 _has_writer_pending_strict 가 :386 need_outline_display 보다
+    #   먼저 걸린다(:309-319 는 prefix 없는 열린 writer Task 도 잡는다). 그래서
+    #   여기서 Task 하나만 열어두면 라우터·그래프 무접촉으로 다음 섹션으로 돌아온다.
+    #   R44 실측: :1068 "outline exists but not shown → communicator" 가 1개에서 끊던 지점이다.
+    #
+    #   🔴 상한을 재예약 지점 자체가 안다 — sections_done < sections_total.
+    #   하류 두 장치(:284-293 target None · :259-280 completed_sections)는 그 뒤의 이중·삼중이다.
+    #   플래그는 :496 이 방금 쓴 값을 다시 읽는다 — :485/:490 지역변수는 try 가 앞에서
+    #   터지면 미정의라 NameError 가 된다.
+    #   저장 성공 경로에서만 건다 — 실패 경로에서 재예약하면 R36 무한 루프 재현이다
+    #   (Q&A 모드는 파일을 안 만들므로 제외).
+    try:
+        _f_r46: Dict[str, Any] = dict(cast(Dict[str, Any], state.get("flags") or {}))
+        _done_r46 = _as_int(_f_r46.get("sections_done"), 0)
+        _total_r46 = _as_int(_f_r46.get("sections_total"), 0)
+        _saved_r46 = bool(out_path) and path.isfile(str(out_path))
+        if (not is_qa_mode) and _saved_r46 and (0 < _done_r46 < _total_r46) \
+                and not has_pending(tasks, "section_writer"):
+            # description 은 기존 괄호 관행(:246 :267 :289)을 따른다. 아웃라인 헤딩이 아니므로
+            # _resolve_title 2단이 이걸 집어도 R40 δ 가 버리고 3단으로 넘긴다.
+            tasks.append(
+                Task(
+                    agent="section_writer",
+                    done=False,
+                    description="write: (next-section)",
+                    done_at=""
+                )
+            )
+            logger.info("[SECTION WRITER] next section reserved (%d/%d)", _done_r46, _total_r46)
+        else:
+            logger.info(
+                "[SECTION WRITER] no re-reservation (done=%d, total=%d, saved=%s, qa=%s)",
+                _done_r46, _total_r46, _saved_r46, is_qa_mode
+            )
+    except Exception as _e_r46:
+        logger.warning("[SECTION WRITER] re-reservation skipped: %s", _e_r46)
+
     if not has_pending(tasks, "communicator"):
         tasks.append(
             Task(
