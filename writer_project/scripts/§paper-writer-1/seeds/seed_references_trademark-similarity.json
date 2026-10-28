@@ -2,7 +2,7 @@
   "seed_set": "trademark-similarity-confusion",
   "topic_slug": "consumer-perceived-trademark-similarity",
   "version": "2026-06-26",
-  "design_note": "OA hydrate 검증결과 반영: openalex_search는 정확한 제목을 query로 넣으면 해당 논문을 top-1로 회수하나, DOI 문자열은 식별자로 해석하지 못함(풀텍스트 토큰 매칭). 따라서 FETCH KEY는 'title'(정확 제목). doi/arxiv/pii는 fetch 후 '올바른 논문을 잡았는지' 대조하는 VERIFY 라벨로 사용. seed chunk는 _backend='openalex'로 태깅해 axis3 학술 분자에 포함(catch 66 분모함정 회피). 'core'=무조건 인용+검색앵커, 'context'=SI/E_b/P_r 맥락변수 도입 시에만.",
+  "design_note": "OA hydrate 검증결과 반영: openalex_search는 정확한 제목을 query로 넣으면 OA 원시 결과 top-1로 그 논문을 돌려주나, DOI 문자열은 식별자로 해석하지 못함(풀텍스트 토큰 매칭). ⚠️ 원시 top-1이 chunks[0]이라는 보장은 없다 — extract_domain_from_paper()가 도메인을 못 뽑는 work(미등록 DOI prefix)는 chunks에서 드롭되어 chunks[0]이 다른 논문으로 바뀔 수 있다(2026-10-17 실측: 한 쿼리 10건 중 4건 드롭, 드롭분 전부 DOI 보유). 따라서 FETCH KEY는 'title'(정확 제목). doi/arxiv/pii는 fetch 후 '올바른 논문을 잡았는지' 대조하는 VERIFY 라벨로 사용. seed chunk는 _backend='openalex'로 태깅해 axis3 학술 분자에 포함(catch 66 분모함정 회피). 'core'=무조건 인용+검색앵커(항상 주입). 'context'=SEED_INCLUDE_CONTEXT=1일 때만 주입하는 보조 문헌(모형 확장·통제변수용). 'hold'=주입 제외(기록 보존용).",
   "resolver_priority": [
     "title",
     "doi_verify",
