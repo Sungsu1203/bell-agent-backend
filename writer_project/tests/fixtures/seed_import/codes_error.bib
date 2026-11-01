@@ -1,0 +1,23 @@
+% ERROR 등급 3코드 픽스처 (PARSE_ERROR 는 f2_unterminated_quote.bib 담당).
+%   no_title_2020     → NO_TITLE
+%   email_title_2020  → EMAIL_LIKE_TITLE
+%   bare_2020         → NOT_A_PAPER (저자·연도 둘 다 결측)
+@article{no_title_2020,
+	journal = {Journal of Nothing},
+	author = {Anon, A.},
+	year = {2020},
+	keywords = {sec:tb, prio:core},
+}
+
+@article{email_title_2020,
+	title = {Reprints: contact sumin.park@example.ac.kr for access},
+	author = {Park, Sumin},
+	year = {2020},
+	keywords = {sec:tb, prio:core},
+}
+
+@article{bare_2020,
+	title = {A Title With No Author And No Year},
+	journal = {Journal of Fragments},
+	keywords = {sec:tb, prio:core},
+}

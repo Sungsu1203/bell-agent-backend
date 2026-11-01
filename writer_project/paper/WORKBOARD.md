@@ -2,7 +2,7 @@
 
 > 활성 트랙·후보·결정 기록만. **종결된 catch는 여기 아님 → `README-dev-§14.md`(아카이브)로.**
 > 운영 상수·규칙(토픽/venv/커밋/vertex)은 `CLAUDE.md`.
-> 최종 업데이트: 2026-09-29
+> 최종 업데이트: 2026-11-01
 
 ---
 
@@ -49,12 +49,45 @@ catch 86(writer temp=0.3 비결정론 → 렌더 byte 회귀검증 대신 입력
      신규 4건 = Zaichkowsky1994 채택(doi-match) / 육소영2015 **채택**(title-jaccard 1.00 — 한글도 OA 회수됨) /
      Batykov 러시아어 skip(OA 0건) / Batykov 영문 skip.
    - 🔴 **Batykov 영문 skip 원인 = seed 아니라 회수 경로.** OA 원시 rank#1 이 정확히 그 논문인데
-     (doi `10.24158/spp.2020.10.3`) `openalex.py:189` `extract_domain_from_paper()` 가 DOI prefix 를
-     도메인으로 못 바꿔 드롭 → `chunks[0]` 이 다른 논문이 되어 verify 실패. 같은 쿼리 10건 중 **4건 드롭,
-     전부 DOI 보유분**. 생존 6건은 전부 DOI 없는 리포지터리 사본. → **0번(retrieval 품질)과 같은 뿌리, 별도 차수.**
+     (doi `10.24158/spp.2020.10.3`) `_scholarly_domain.py:146` `extract_domain_from_paper()` 가
+     도메인을 못 뽑아 `None` 을 돌리고, 호출처 `openalex.py:193-194` `if not d: continue` 가 **드롭**한다
+     → `chunks[0]` 이 다른 논문이 되어 verify 실패. → **0번(retrieval 품질)과 같은 뿌리, 별도 차수.**
+     ⚠️ 행번호 정정(2026-10-30): 10-17 기재 `openalex.py:189` 는 틀렸다(`:189` 는 `domains` 선언).
+     드롭은 `extract_domain_from_paper` 가 아니라 **호출처**가 한다.
    - CC 수정 4건: 비라틴 제목 오중복 · 미종결 따옴표 무한루프 · LaTeX 이스케이프 잔존 · `@` 위양성.
-   - ⚠️ ③ KCI 백엔드의 확인 기준은 **OA 에 없는 국내 논문**으로 재설정 (V1 정찰에서 후보 선정,
-     육소영(2015)은 OA 가 이미 회수하므로 기준 부적합)
+   - ⚠️ ③ KCI 백엔드의 확인 기준은 **OA 에 없는 국내 논문**으로 재설정 (육소영(2015)은 OA 가 이미
+     회수하므로 기준 부적합). V1 에서 후보 선정 실패 → **이월**, 상세는 0-c 말미.
+
+0-c. **논문 검증 파이프라인 V1** — 2026-10-29~11-01 (`CC_PROMPT_20261024` B1~B4 · `CC_PROMPT_20261101` 마감)
+   - **B1 정찰(비용 $0.004)**: 5단계 지도 작성. ③ 동일성 검증은 **seed 경로에만** 있고 일반 fan-out
+     회수분에는 없다(`web_search.py:2024-2033` 은 쿼리 관련성만 신뢰). ④ 중복 제거는 doi 기준뿐이라
+     **doi 없는 chunk 는 중복 검사 자체를 안 받는다**(`web_search.py:2048-2064`).
+   - 🔴 **드롭은 설계 의도다** — `scripts/output/§academic-4/step_b_design.md:98`·`:155` 에
+     `if not d: continue` 가 명세돼 있다. 그러나 1단계의 `doi.org` 제외(`_scholarly_domain.py:157`)는
+     **설계에 없고 구현에서 추가**됐고, 그것이 드롭의 직접 원인이다(catch CS ① — 선언 ≠ 실물).
+   - 🔴 **전수 판정(녹화 픽스처 10건)**: 드롭 5건은 **전부** 1단계 skip(landing=doi.org) → 3단계 표 미등록
+     → 4단계 venue 미등록 으로 동일 경로 실패. 생존 5건은 **전부 1단계로만** 살았다.
+     **catch 59 DOI prefix 표(40개)·venue 표(10개) 기여 = 0.** 드롭 5건 전원 DOI 보유, 생존 중 DOI 보유는 1건.
+   - **영향 범위**: `web_search_agent` 학술 fan-out 은 `MODE=academic` 게이트(`web_search.py:877-879`) 라
+     **ad 트랙·§research-1 은 무영향**(두 토픽 프리셋 모두 MODE 미설정). 영향 = paper 트랙 +
+     §academic-1/-4 측정 드라이버. 같은 드롭이 `semantic_scholar.py:208-209` 에도 있다.
+   - **B2 테스트 기반**: `tests/fixtures/seed_import/` **9 파일**(F1~F4 재현 4 · 정상 대조군 1 ·
+     사유 코드 2 · 사용자 실데이터 정리본 1 · OA 녹화 응답 1) + `tests/test_seed_import.py` 19건.
+     네트워크 차단(sitecustomize) 상태에서 `pytest tests/` **22 passed / 1 xfailed**.
+     ⚠️ 기존 `tests/` 는 모듈 레벨 `sys.exit` 때문에 pytest 수집이 INTERNALERROR 로 죽었다 →
+     `tests/conftest.py` `collect_ignore` 3건으로 복구(스크립트 파일은 무수정).
+   - **B3 검토 목록**: `<out>.review.json` + 사유 코드 11종(ERROR 4 / WARN 6 / INFO 1).
+     정상 입력 산출 **22건 회귀 0** 확인.
+   - **B4 = 보류 (2026-11-01 결정).** 「AI 연구 시스템 개발」 **정찰 2 의 첫 후보로 이관.**
+     권장안 ⒝ = `_scholarly_domain.py` 4단 폴백 **뒤에 5단계 추가**(전부 실패 + DOI 있으면 `doi.org`).
+     적용 시 **hydrate 회귀 재측정(≈$0.02, OA 20회) 필수** — 드롭됐던 work 가 되살아나면 `chunks[0]` 이
+     바뀌어 기존 seed 의 verify 가 실패할 수 있다(③ 단계가 top-1 하나에만 의존하는 구조의 노출).
+     기각 근거 보존: 1단계 조건 삭제안(⒜)은 `10.1016/` DOI 의 publisher 도메인을 `doi.org` 로
+     덮어써 회귀한다(합성 대조로 실증). 증거 3종 = 녹화 응답 픽스처 · xfail(strict) · 시뮬레이션.
+   - **V1 마감 2026-11-01**: 묶음 (1) B2+B3 커밋. 파이프라인 코드 무수정 유지.
+   - ⚠️ **③ KCI 백엔드 = 이월.** 필요성 자체를 정찰 2 에서 재평가한다
+     (OA 한국어 색인 3,281,838건 · ko+trademark **405~417건** 확인됨 → KCI 없이도 상당 부분 덮일 가능성).
+     V1 에서 기준 논문을 고르지 못한 사유 = 레포가 아는 국내 논문 2편이 **둘 다 OA 에 있어** 대조군이 없었다.
 
 1. **venue 부정합/predatory 판별** — 품질 축. 예: SS Anita(2024) 제목↔저널 불일치
    (상표법 논문인데 venue=`African J of Biological Sci`). 리뷰어가 즉시 잡는 신뢰도 사고 = doi보다 高임팩트.

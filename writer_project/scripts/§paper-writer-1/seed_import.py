@@ -14,10 +14,30 @@
 
 출력
   기존 seed JSON(--base) + 새 항목을 합친 새 파일(--out). 원본 seed 는 건드리지 않는다.
+  `<--out>.review.json` — 검토 목록(아래). 사람이 읽고 원본 .bib 을 고치는 용도.
   사용: SEED_REFERENCES_PATH=<--out 경로> 로 measure_paper 실행.
 
 중복 처리
   DOI(소문자) 또는 정규화 제목이 base/앞선 항목과 같으면 추가하지 않고 보고만 한다.
+
+검토 목록 (quarantine) — 원칙: 조용히 버리지 않는다
+  ERROR = 주입하지 않되 사유와 함께 보존 / WARN = 주입하면서 표시 / INFO = 기록만
+
+  | 코드 | 등급 | 뜻 |
+  |---|---|---|
+  | NO_TITLE         | ERROR | title 필드가 비었다 |
+  | PARSE_ERROR      | ERROR | 따옴표·중괄호 짝이 맞지 않아 값 복구가 필요했다 |
+  | EMAIL_LIKE_TITLE | ERROR | 제목이 메일주소 꼴 — 논문이 아닌 레코드 |
+  | NOT_A_PAPER      | ERROR | 제목·저자·연도 중 2개 이상 결측 |
+  | NO_SEC_TAG       | WARN  | sec: 태그 없음 → --section 기본값 적용 |
+  | PRIO_CONFLICT    | WARN  | prio: 태그가 서로 다르게 여러 개 |
+  | NON_LATIN_TITLE  | WARN  | 비라틴 제목 — OA 제목 검색 실패 위험 |
+  | NO_DOI           | WARN  | doi 없음 — 동일성 검증이 제목 유사도에 의존 |
+  | NEAR_DUPLICATE   | WARN  | 정규화 제목 유사도 ≥ 0.9 이나 동일하지는 않음 |
+  | WEBPAGE_TYPE     | WARN  | Zotero 가 웹페이지(@misc/ELEC)로 저장 |
+  | EXACT_DUPLICATE  | INFO  | DOI/정규화 제목 동일 → 추가하지 않음 |
+
+  ⚠️ 등급은 **주입 여부만** 가른다. 품질 판정이 아니다 — WARN 항목도 전부 주입된다.
 
 한계 (알고 남기는 것)
   - hydrate 는 OpenAlex 제목 검색이라 OA 에 없는 문헌(국내 KCI 논문 등)은 주입 단계에서
@@ -38,6 +58,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import difflib
 import re
 import sys
 import unicodedata
@@ -60,14 +81,16 @@ PRIOS = {"core", "context", "hold"}
 _LATEX_ACCENTS = {"`": "\u0300", "'": "\u0301", "^": "\u0302", '"': "\u0308",
                   "~": "\u0303", "=": "\u0304", ".": "\u0307"}
 _ACC_RE = re.compile(r"\\([`'^~=.\"])\s*\{?([A-Za-z])\}?")   # \"u → ü
-_CEDILLA_RE = re.compile(r"\\c\s*\{([A-Za-z])\}")            # \c{c} → ç (중괄호 필수: \cite 오매치 방지)
+# \c{c} 와 {\c c} 두 표기 모두 허용. 중괄호 없으면 공백을 요구해 \cite 오매치를 막는다.
+_CEDILLA_RE = re.compile(r"\\c(?:\s*\{([A-Za-z])\}|\s+([A-Za-z]))")
 _ESCPUNCT_RE = re.compile(r"\\([&%$#_{}])")                   # \& → &
 
 
 def _unlatex(s: str) -> str:
     """LaTeX 이스케이프를 평문 유니코드로 되돌린다 (합성 후 NFC 정규화)."""
     s = _ACC_RE.sub(lambda m: unicodedata.normalize("NFC", m.group(2) + _LATEX_ACCENTS[m.group(1)]), s)
-    s = _CEDILLA_RE.sub(lambda m: unicodedata.normalize("NFC", m.group(1) + "\u0327"), s)
+    s = _CEDILLA_RE.sub(
+        lambda m: unicodedata.normalize("NFC", (m.group(1) or m.group(2)) + "\u0327"), s)
     return _ESCPUNCT_RE.sub(r"\1", s)
 
 
@@ -99,6 +122,7 @@ def parse_bibtex(text: str) -> list[dict]:
         i = j
         key, _, rest = body.partition(",")
         fields: dict[str, str] = {}
+        parse_warn: list[str] = []
         k = 0
         while k < len(rest):
             fm = re.compile(r"\s*([A-Za-z_\-]+)\s*=\s*", re.S).match(rest, k)
@@ -120,8 +144,12 @@ def parse_bibtex(text: str) -> list[dict]:
             elif k < len(rest) and rest[k] == '"':
                 e = rest.find('"', k + 1)
                 # 닫는 따옴표가 없으면 find 가 -1 → k 가 0 으로 되돌아가 무한루프.
-                # 남은 전체를 값으로 보고 항목을 끝낸다.
-                val, k = (rest[k + 1:], len(rest)) if e < 0 else (rest[k + 1:e], e + 1)
+                # 남은 전체를 값으로 보고 항목을 끝낸다 + PARSE_ERROR 로 보고한다.
+                if e < 0:
+                    val, k = rest[k + 1:], len(rest)
+                    parse_warn.append(f"{name}: 닫는 큰따옴표 없음 — 남은 전체를 값으로 복구")
+                else:
+                    val, k = rest[k + 1:e], e + 1
             else:
                 vm = re.compile(r"[^,]+").match(rest, k)
                 val, k = (vm.group(0), vm.end()) if vm else ("", k + 1)
@@ -134,6 +162,8 @@ def parse_bibtex(text: str) -> list[dict]:
             "doi": fields.get("doi", ""),
             "tags": [t.strip() for t in re.split(r"[,;]", fields.get("keywords", "")) if t.strip()],
             "_key": key.strip(),
+            "_type": m.group(1).lower(),
+            "_parse_warn": parse_warn,
         })
     return entries
 
@@ -146,7 +176,8 @@ def parse_ris(text: str) -> list[dict]:
             continue
         tag, val = m.group(1), m.group(2).strip()
         if tag == "TY":
-            cur = {"title": "", "authors": [], "year": "", "venue": "", "doi": "", "tags": []}
+            cur = {"title": "", "authors": [], "year": "", "venue": "", "doi": "", "tags": [],
+                   "_key": "", "_type": val.strip().lower(), "_parse_warn": []}
         elif cur is None:
             continue
         elif tag in ("TI", "T1") and not cur["title"]:
@@ -228,6 +259,81 @@ def to_seed(e: dict, default_sec: str, warns: list | None = None) -> dict:
     return seed
 
 
+# ── 검토 목록(quarantine) 판정 ───────────────────────────────────────
+# 원칙: 조용히 버리지 않는다. ERROR 는 주입하지 않되 사유와 함께 보존하고,
+#       WARN 은 주입하면서 검토 목록에 남긴다. 표는 docstring 「검토 목록」 절과 동일.
+REVIEW_CODES: dict[str, tuple[str, str]] = {
+    "NO_TITLE":         ("ERROR", "원본에서 title 필드를 채우고 다시 변환"),
+    "PARSE_ERROR":      ("ERROR", "해당 항목의 따옴표·중괄호 짝을 고치고 다시 변환"),
+    "EMAIL_LIKE_TITLE": ("ERROR", "논문이 아닌 레코드(연락처 등) — 원본에서 삭제"),
+    "NOT_A_PAPER":      ("ERROR", "제목·저자·연도 중 2개 이상 결측 — 서지를 보강"),
+    "NO_SEC_TAG":       ("WARN",  "keywords 에 sec:<intro|tb|pf|rd|ec> 추가 (지금은 --section 기본값)"),
+    "PRIO_CONFLICT":    ("WARN",  "prio: 태그를 하나만 남길 것"),
+    "NON_LATIN_TITLE":  ("WARN",  "OA 제목 검색 실패 위험 — 영문 제목 병기 또는 KCI 트랙 대기"),
+    "NO_DOI":           ("WARN",  "doi 를 채우면 동일성 검증이 title 유사도 대신 doi-match 로 올라감"),
+    "NEAR_DUPLICATE":   ("WARN",  "기존 항목과 제목이 거의 같음 — 같은 논문인지 확인"),
+    "WEBPAGE_TYPE":     ("WARN",  "Zotero 가 웹페이지로 저장함 — 저널 서지로 교체 권장"),
+    "EXACT_DUPLICATE":  ("INFO",  "DOI 또는 정규화 제목이 기존 항목과 같아 추가하지 않음"),
+}
+_NON_LATIN_RE = re.compile(r"[^\x00-ɏ\s\W\d]")
+_EMAIL_RE = re.compile(r"\S+@\S+\.\S+")
+_WEBPAGE_TYPES = {"misc", "webpage", "elec", "web", "online"}
+
+
+def _near_dup_ratio(t: str, pool: "set[str]") -> tuple[float, str]:
+    """정규화 제목 t 와 pool 중 가장 비슷한 것의 유사도·상대. 완전 일치는 제외."""
+    best, who = 0.0, ""
+    for p in pool:
+        if not p or p == t:
+            continue
+        r = difflib.SequenceMatcher(None, t, p).ratio()
+        if r > best:
+            best, who = r, p
+    return best, who
+
+
+def classify(e: dict, norm_pool: "set[str]") -> list[str]:
+    """항목 하나의 사유 코드 목록. 등급은 REVIEW_CODES 에서 끌어온다."""
+    codes: list[str] = []
+    title = e.get("title") or ""
+    if e.get("_parse_warn"):
+        codes.append("PARSE_ERROR")
+    if not title:
+        codes.append("NO_TITLE")
+    elif _EMAIL_RE.search(title) or "e-mail" in title.lower():
+        codes.append("EMAIL_LIKE_TITLE")
+    missing = sum(1 for v in (title, e.get("authors") or [], str(e.get("year") or "")) if not v)
+    if missing >= 2:
+        codes.append("NOT_A_PAPER")
+
+    tags = [t.lower() for t in (e.get("tags") or [])]
+    if not any(t.startswith("sec:") and t[4:] in SEC_MAP for t in tags):
+        codes.append("NO_SEC_TAG")
+    prios = {t[5:] for t in tags if t.startswith("prio:") and t[5:] in PRIOS}
+    if len(prios) > 1:
+        codes.append("PRIO_CONFLICT")
+    if title and _NON_LATIN_RE.search(title):
+        codes.append("NON_LATIN_TITLE")
+    if not (e.get("doi") or "").strip():
+        codes.append("NO_DOI")
+    if (e.get("_type") or "") in _WEBPAGE_TYPES:
+        codes.append("WEBPAGE_TYPE")
+    if title:
+        ratio, _ = _near_dup_ratio(norm_title(title), norm_pool)
+        if ratio >= 0.9:
+            codes.append("NEAR_DUPLICATE")
+    return codes
+
+
+def grade_of(codes: "list[str]") -> str:
+    """코드 목록 → 최악 등급 (ERROR > WARN > INFO > OK)."""
+    grades = {REVIEW_CODES[c][0] for c in codes if c in REVIEW_CODES}
+    for g in ("ERROR", "WARN", "INFO"):
+        if g in grades:
+            return g
+    return "OK"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("src", help=".bib 또는 .ris 파일")
@@ -250,20 +356,35 @@ def main() -> int:
 
     added, dup, bad = [], [], []
     warn_map: dict[str, list] = {}
+    review: list[dict] = []          # 검토 목록 — ERROR/WARN/INFO 전건 보존
     for e in entries:
-        if not e["title"]:
-            bad.append(e.get("_key", "?"))
-            continue
-        # 스칼라가 논문이 아닌 페이지(저자 연락처 등)를 잘못 읽은 레코드 걸러내기.
-        # '@' 단독은 정상 제목(Trademark@Internet 등)을 떨어뜨리므로 메일주소 꼴만 본다.
-        if re.search(r"\S+@\S+\.\S+", e["title"]) or "e-mail" in e["title"].lower():
-            bad.append(f"{e.get('_key', '?')} (논문 아님 의심: {e['title'][:40]})")
+        codes = classify(e, seen_title)
+        grade = grade_of(codes)
+        rec = {
+            "key": e.get("_key") or "?",
+            "type": e.get("_type") or "",
+            "title": (e.get("title") or "")[:120],
+            "grade": grade,
+            "codes": codes,
+            "actions": [REVIEW_CODES[c][1] for c in codes if c in REVIEW_CODES],
+            "parse_detail": e.get("_parse_warn") or [],
+            "injected": False,
+            "id": None,
+        }
+        if grade == "ERROR":
+            # 주입하지 않되 사유와 함께 검토 목록에 보존한다 (조용히 버리지 않는다).
+            bad.append(f"{rec['key']} [{','.join(codes)}] {rec['title'][:40]}")
+            review.append(rec)
             continue
         w: list = []
         s = to_seed(e, a.section, w)
         d, t = norm_doi(e["doi"]), norm_title(e["title"])
         if (d and d in seen_doi) or (t and t in seen_title):
             dup.append(e["title"])
+            rec["grade"] = "INFO"
+            rec["codes"] = codes + ["EXACT_DUPLICATE"]
+            rec["actions"] = [REVIEW_CODES[c][1] for c in rec["codes"] if c in REVIEW_CODES]
+            review.append(rec)
             continue
         # 같은 id 가 이미 있으면 번호를 붙여 구분
         ids = {r.get("id") for r in refs}
@@ -277,6 +398,10 @@ def main() -> int:
         added.append(s)
         if w:
             warn_map[s["id"]] = w
+        rec["injected"] = True
+        rec["id"] = s["id"]
+        if codes:
+            review.append(rec)
 
     print(f"[seed_import] 읽음 {len(entries)} / 추가 {len(added)} / 중복 {len(dup)} / 건너뜀 {len(bad)}")
     for s in added:
@@ -288,10 +413,20 @@ def main() -> int:
     for t in dup:
         print(f"  = 중복(추가 안 함) {t[:70]}")
     for k in bad:
-        print(f"  ! 건너뜀 (제목 없음 또는 논문 아님): {k}")
+        print(f"  ! 건너뜀 (ERROR): {k}")
+
+    # ── 검토 목록 등급별 요약 ──
+    counts = {g: sum(1 for r in review if r["grade"] == g) for g in ("ERROR", "WARN", "INFO")}
+    code_tally: dict[str, int] = {}
+    for r in review:
+        for c in r["codes"]:
+            code_tally[c] = code_tally.get(c, 0) + 1
+    print(f"[검토목록] ERROR {counts['ERROR']} / WARN {counts['WARN']} / INFO {counts['INFO']}"
+          + (f"  · 사유: {', '.join(f'{c}×{n}' for c, n in sorted(code_tally.items()))}"
+             if code_tally else ""))
 
     if a.dry or not a.out:
-        print("[seed_import] --dry 또는 --out 없음 → 저장 안 함")
+        print("[seed_import] --dry 또는 --out 없음 → 저장 안 함 (검토 목록도 저장 안 함)")
         return 0
     out = Path(a.out)
     if a.base and out.resolve() == Path(a.base).resolve():
@@ -301,6 +436,16 @@ def main() -> int:
     base["manual_import"] = {"source": src.name, "date": str(date.today()), "added": len(added)}
     out.write_text(json.dumps(base, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"[seed_import] 저장: {out}  (총 {len(refs)}건) → SEED_REFERENCES_PATH 로 지정해 사용")
+    rv = out.with_name(out.name + ".review.json")
+    rv.write_text(json.dumps({
+        "source": src.name, "date": str(date.today()),
+        "read": len(entries), "added": len(added),
+        "duplicate": len(dup), "rejected": len(bad),
+        "counts": counts, "code_tally": code_tally,
+        "legend": {c: {"grade": g, "action": act} for c, (g, act) in REVIEW_CODES.items()},
+        "items": review,
+    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"[seed_import] 검토 목록: {rv}  ({len(review)}건)")
     return 0
 
 

@@ -1,0 +1,50 @@
+% WARN 등급 5코드 픽스처. 전건 주입되면서 검토 목록에만 표시돼야 한다.
+%   no_sec_2021    → NO_SEC_TAG (+ NO_DOI)
+%   prio_clash     → PRIO_CONFLICT
+%   webpage_2015   → WEBPAGE_TYPE (@misc)
+%   near_dup_2021  → NEAR_DUPLICATE (앞 항목 제목과 유사도 ≥0.9, 동일하지는 않음)
+@article{no_sec_2021,
+	title = {Trademark Dilution Without A Section Tag},
+	journal = {Journal of Tags},
+	author = {Yoon, Sera},
+	year = {2021},
+	keywords = {prio:core},
+}
+
+@article{prio_clash,
+	title = {Conflicting Priority Tags On One Entry},
+	journal = {Journal of Tags},
+	author = {Han, Doyun},
+	year = {2021},
+	doi = {10.1234/clash.2021},
+	keywords = {sec:pf, prio:core, prio:hold},
+}
+
+@misc{webpage_2015,
+	type = {Text},
+	title = {A Repository Snapshot Saved As Webpage},
+	publisher = {Some Institute},
+	author = {Oh, Jiwon},
+	year = {2015},
+	doi = {10.1234/webpage.2015},
+	keywords = {sec:tb, prio:context},
+}
+
+@article{near_dup_base,
+	title = {Perceived Trademark Similarity And Likelihood Of Confusion},
+	journal = {Journal of Tags},
+	author = {Seo, Nari},
+	year = {2020},
+	doi = {10.1234/neardup.base},
+	keywords = {sec:pf, prio:core},
+}
+
+% 앞 항목과 글자 하나 차이 → 정규화 제목 유사도 ≥0.9 이나 동일하지는 않다.
+@article{near_dup_2021,
+	title = {Perceived Trademark Similarity And Likelihood Of Confusions},
+	journal = {Journal of Tags},
+	author = {Han, Doyun},
+	year = {2022},
+	doi = {10.1234/neardup.2021},
+	keywords = {sec:pf, prio:core},
+}
