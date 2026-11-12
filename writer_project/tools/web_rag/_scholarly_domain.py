@@ -6,6 +6,7 @@
   (2) openAccessPdf.url (Semantic Scholar OA 한정)
   (3) DOI prefix → publisher 매핑 (catch 59 정적 table 40 entries · Phase 2 commit 3 +3)
   (4) venue / source.display_name 매칭 (ACADEMIC_DOMAINS 40 set 정합 · Phase 2 commit 3 +4)
+  (5) 위 4단 전부 불발 + DOI 보유 → "doi.org" (§paper-writer-2 B4, 드롭 방지)
 
 신규 prefix 발견 시 logging fallback — Step C 측정에서 unknown prefix 수집 cycle.
 host normalize (www./m. 제거) — catch 60-b dedup 정합.
@@ -189,9 +190,13 @@ def extract_domain_from_paper(paper: Dict[str, Any], backend: str) -> Optional[s
             return d
 
     # logging fallback — Step C 측정에서 unknown prefix 수집 cycle 대상
+    # (5) §paper-writer-2 B4 — 4단 전부 불발 + DOI 보유 → "doi.org" 로 통과 (호출처 드롭 방지)
+    #     (1) 의 doi.org skip 은 유지 — 지우면 10.1016/ 등 publisher 도메인이 doi.org 로 덮인다(기각안 ⒜).
+    #     DOI 없는 paper 는 종전대로 None.
     if doi:
         logger.warning(
-            "[catch59] unknown DOI prefix (no domain extracted): %s (backend=%s, venue=%r)",
+            "[catch59] unknown DOI prefix (fallback domain=doi.org): %s (backend=%s, venue=%r)",
             doi[:60], backend, (venue[:60] if venue else ""),
         )
+        return "doi.org"
     return None

@@ -217,16 +217,12 @@ def test_seed_import_imports_no_network():
         assert f"import {mod}" not in src, f"{mod} 를 import 한다"
 
 
-# ── 녹화 OpenAlex 응답: DOI 보유 work 가 드롭되는 결함 (B4 승인 전 xfail) ──
-@pytest.mark.xfail(
-    reason="B4 미승인 — openalex.py:193-194 가 도메인 미상 work 를 드롭한다. "
-           "수정 승인 후 pass 로 전환 (CC_PROMPT_20261024 B2/B4).",
-    strict=True,
-)
+# ── 녹화 OpenAlex 응답: DOI 보유 work 가 드롭되던 결함 (B4 적용 → xfail 해제) ──
 def test_recorded_oa_response_keeps_doi_bearing_works():
     """녹화 응답 10건 중 DOI 를 가진 work 는 하나도 사라지지 않아야 한다.
 
-    현재는 실패가 정상이다 — 4단 폴백이 전부 불발한 work 가 호출처에서 드롭된다.
+    B4 전에는 실패했다(strict xfail) — 4단 폴백이 전부 불발한 work 가 호출처에서 드롭됐다.
+    B4 = _scholarly_domain.py (5) 단계: DOI 보유 시 "doi.org" 로 통과.
     """
     sys.path.insert(0, str(ROOT))
     from tools.web_rag._scholarly_domain import extract_domain_from_paper
@@ -246,23 +242,41 @@ def test_recorded_oa_response_documents_current_drop():
 
     xfail 테스트가 '고쳐야 할 것' 을 말한다면, 이 테스트는 '지금 어떤지' 를 말한다.
     B4 수정 시 이 테스트의 기대값을 함께 갱신해야 한다 — 그게 변경의 증거가 된다.
+    B4 전 기준선 = 생존 5 / 드롭 5 (드롭 5건 전부 DOI 보유, rank#1 드롭).
     """
     sys.path.insert(0, str(ROOT))
     from tools.web_rag._scholarly_domain import extract_domain_from_paper
 
     body = json.loads((FIX / "oa_batykov_raw.json").read_text(encoding="utf-8"))
     works = body["results"]
-    kept = [w for w in works if extract_domain_from_paper(w, backend="openalex")]
-    dropped = [w for w in works if not extract_domain_from_paper(w, backend="openalex")]
-    assert len(kept) == 5 and len(dropped) == 5
-    # 드롭 5건은 **전부** DOI 보유. 생존 5건 중 DOI 보유는 1건뿐(theses.hal.science).
-    # = 드롭 기준은 'DOI 가 있음' 이 아니라 '호스트를 못 찾음' 이고, DOI 만 있는 work 가
-    #   정확히 그 경우에 해당한다. 쏠림이 우연이 아님을 수치로 고정한다.
-    assert all((w.get("doi") or "") for w in dropped)
-    assert sum(1 for w in kept if (w.get("doi") or "")) == 1
-    # 생존은 전부 1단계(landing_page_url) 로만 살았다 — DOI prefix 표·venue 표 기여 0
+    doms = [extract_domain_from_paper(w, backend="openalex") for w in works]
+    assert all(doms), f"드롭 발생: {doms}"
+    # B4 전 드롭 5건(전부 DOI 보유)은 (5) 단계 "doi.org" 로 통과한다. 그 외 5건은 종전 도메인 그대로.
+    via_fallback = [w for w, d in zip(works, doms) if d == "doi.org"]
+    assert len(via_fallback) == 5
+    assert all((w.get("doi") or "") for w in via_fallback)
+    # 종전 생존 5건은 전부 1단계(landing_page_url) 로 산다 — DOI prefix 표·venue 표 기여 0
     from tools.web_rag._scholarly_domain import doi_prefix_to_domain
     assert all(not doi_prefix_to_domain(w.get("doi") or "") for w in works)
-    # rank#1(정확히 찾던 논문)이 드롭된다는 사실 자체를 박제
+    # rank#1(정확히 찾던 논문)이 이제 살아남는다
     assert works[0]["doi"] == "https://doi.org/10.24158/spp.2020.10.3"
-    assert extract_domain_from_paper(works[0], backend="openalex") is None
+    assert extract_domain_from_paper(works[0], backend="openalex") == "doi.org"
+
+
+def test_scholarly_domain_fallback_keeps_publisher_and_no_doi_rules():
+    """B4 (5) 단계가 다른 규칙을 건드리지 않는다 (기각안 ⒜ 회귀 + DOI 없는 경우).
+
+    - landing=doi.org 이고 DOI prefix 가 표에 있으면 publisher 도메인 (3단계) — doi.org 로 덮이면 안 됨
+    - DOI 도 호스트도 없으면 종전대로 None (호출처 드롭 유지)
+    - Semantic Scholar 형태(externalIds.DOI) 도 같은 폴백을 받는다
+    """
+    sys.path.insert(0, str(ROOT))
+    from tools.web_rag._scholarly_domain import extract_domain_from_paper
+
+    elsevier = {"doi": "https://doi.org/10.1016/j.jbusres.2020.01.001",
+                "primary_location": {"landing_page_url": "https://doi.org/10.1016/j.jbusres.2020.01.001"}}
+    assert extract_domain_from_paper(elsevier, backend="openalex") == "sciencedirect.com"
+    assert extract_domain_from_paper({"primary_location": {}}, backend="openalex") is None
+    assert extract_domain_from_paper({"venue": "Unknown"}, backend="semantic_scholar") is None
+    ss_doi_only = {"externalIds": {"DOI": "10.24158/spp.2020.10.3"}, "venue": "Unknown"}
+    assert extract_domain_from_paper(ss_doi_only, backend="semantic_scholar") == "doi.org"

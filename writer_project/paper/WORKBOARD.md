@@ -78,7 +78,13 @@ catch 86(writer temp=0.3 비결정론 → 렌더 byte 회귀검증 대신 입력
      `tests/conftest.py` `collect_ignore` 3건으로 복구(스크립트 파일은 무수정).
    - **B3 검토 목록**: `<out>.review.json` + 사유 코드 11종(ERROR 4 / WARN 6 / INFO 1).
      정상 입력 산출 **22건 회귀 0** 확인.
-   - **B4 = 보류 (2026-11-01 결정).** 「AI 연구 시스템 개발」 **정찰 2 의 첫 후보로 이관.**
+   - **B4 = 적용 (2026-11-12, 권장안 ⒝).** 두 레포 `_scholarly_domain.py` 에 byte 동일 패치
+     (research-pipeline 은 별도 커밋, 오프라인 검증만). 녹화 픽스처 드롭 5/10 → 0/10, `pytest tests/`
+     **24 passed**(xfail 해제 + ⒜ 회귀 가드 1건). hydrate 회귀 실측(OA 18회, $0.018, LLM 0):
+     드롭 62 → 0 / 172, seed 채택 **12 → 14, 손실 0**(+labse-2022 · +multilingual-distillation-2020),
+     sbert-2019 는 arXiv 사본 → ACL 정식본(`10.18653/v1/d19-1410`)으로 교체.
+     ⚠️ 미대응: `doi.org` 가 `ACADEMIC_DOMAINS` 에 없어 §academic-1 `academic_source_ratio` 분모 +1.
+   - (이력) **B4 = 보류 (2026-11-01 결정).** 「AI 연구 시스템 개발」 **정찰 2 의 첫 후보로 이관.**
      권장안 ⒝ = `_scholarly_domain.py` 4단 폴백 **뒤에 5단계 추가**(전부 실패 + DOI 있으면 `doi.org`).
      적용 시 **hydrate 회귀 재측정(≈$0.02, OA 20회) 필수** — 드롭됐던 work 가 되살아나면 `chunks[0]` 이
      바뀌어 기존 seed 의 verify 가 실패할 수 있다(③ 단계가 top-1 하나에만 의존하는 구조의 노출).
