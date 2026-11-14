@@ -265,3 +265,20 @@ Step A § 6-f (`step_a_backend_provider_matrix.md` 작성 시점) 의 단언:
 
 § 1-a 가 열거한 5키는 2026-06-01 시점 값이다.
 2026-08-05 회전·삭제 결과는 `scripts/output/§research-1/R1b_HYGIENE_CLOSE.md` § 회전 로그 참조.
+
+### 7-e. 7-b 에서 빠졌던 노출 (2026-11-14 추가)
+
+7-b 는 **정식형식(prefix) 키만** 셌다. 같은 blob 의 prefix 없는 값과, `.env` 가 아닌 파일 속 키가 빠졌다.
+2026-11-14 이력 전수 재점검(파일명 축 + 형식 정규식 + blob 직독, 값은 끝 4자리만 기록)에서 추가로 확인된 것:
+
+| 노출 | 이력 위치 (도입 커밋) | 당시 상태 | 처리 (2026-11-14 회전 로그) |
+|---|---|---|---|
+| Naver Client ID `…fGT6` / Secret `…SacS` | `env_text.txt` (`0c59bff1`, `105eca9b` 에서 값 제거, `606c813c` 삭제) | `…SacS` 는 11-13 시점 backend `.env` 값과 동일 | Secret 재발급. 옛 `…SacS` → HTTP 401 확인 |
+| GCP 서비스계정 `ss-oh-957@gemini-rag-project-new` key_id `6b79182a…` (개인키 전체) | `chap14-6`·`chap14-7`·`chap14_8`·`chap15`·`chap16`·`writer_project` 의 `service_account_key.json` (`7ea222d6` 외 5커밋) | 콘솔상 **살아 있었음** | 키 삭제 |
+| GCP 서비스계정 `langchain-agent@langchain-vertex-test` key_id `843ac1c1…` (개인키 전체) | `chap14-3/sec04/langchain-vertex-test-843ac1c1e53f.json` (`ffcdfa30`) | — | 프로젝트 종료(종료됨 2026-11-14) |
+| HuggingFace 토큰 `…KRDC` | `chap05/sec03/` `whisper_stt.py`·`whisper_stt_gm.py`·`whisper_stt_rf.py`·`speaker_diarization.ipynb` (`f3a15e57`) | — | 계정 토큰 0개 → 무효 |
+
+- 위 § 3-b 의 NAVER 2행 *"history 0 hit"* 은 당시 **현행 prefix 검색 범위 안에서만** 참이다(7-a 와 같은 한계).
+- 서비스계정 파일은 7-c 의 파일명 축(`'.env*' 'env*' '*.bak'`)에도 걸리지 않는다. 형식 정규식
+  `"private_key": *"-----BEGIN` 으로 잡았다. → GCP 기본 다운로드명(`<project>-<12hex>.json`)은
+  2026-11-14 `.gitignore` 에 차단 패턴 추가.

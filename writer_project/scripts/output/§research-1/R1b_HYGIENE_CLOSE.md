@@ -247,15 +247,25 @@ writer_project에서 실행해 레포 루트의 `env_text.txt`가 범위 밖으�
 
 | 일자 | 대상 | 종류 | 조치 | 식별·근거 | 사유 | 상태 |
 |---|---|---|---|---|---|---|
-| 2026-08-05 | `vertex-rag-sa` (`gemini-rag-search-final`) | 서비스계정 개인키 | **회전** (신규 발급 + 구키 삭제) | 구키 생성 2026-02-23, key_id `3f523bee…` / 신키 key_id 상이 확인 | 🔴 **`service_account_key.json`이 두 번 커밋됐고, 두 번째가 현행 키를 노출.**<br>`3fce3e61`(2026-01-31) 최초 커밋 = 키 생성 **이전** → 이전 세대 키<br>2026-02-23 `vertex-rag-sa` 키 생성 (`3f523bee…`)<br>**`105eca9b`(2026-03-02) 재커밋 = 키 생성 이후 → 현행 키 노출 확정** [^rot1] | ✅ 완료 |
+| 2026-08-05 | `vertex-rag-sa` (`gemini-rag-search-final`) | 서비스계정 개인키 | **회전** (신규 발급 + 구키 삭제) | 구키 생성 2026-02-23, key_id `3f523bee…` / 신키 key_id 상이 확인 | 🟡 **이력 노출 없음 — 예방 회전** (2026-11-14 정정).<br>이력의 `writer_project/service_account_key.json` 은 `3fce3e61`(2026-01-31) **추가** → `105eca9b`(2026-03-02) **삭제**이며, 내용은 `ss-oh-957@gemini-rag-project-new` key_id `6b79182a…` 였다.<br>`3f523bee…` 는 backend 이력 + research-pipeline **재작성 전 백업** 이력의 어떤 키 파일에도 없다 [^rot1] [^rot2] | ✅ 완료 |
 | 2026-08-05 | `RAG-SEARCH_KEY` | GCP API 키 | **삭제** | 생성 2026-02-22 / 뒤4자리 사용자 메모 보관 | `.env` 미참조 실측 + **제한 없음(unrestricted)** + 평문 노출 이력. 콘솔 API 키 목록 유일 항목 | ✅ 완료 |
 | 2026-08-05 | `writer_project/service_account.json`<br>`writer_project/service_account_vertex.json` | 개인키 파일 | **리포 밖 이동** (`~/.config/gcloud/_retired/`) | 전자 = `ai-agent-user@gemini-rag-project-new`<br>후자 = `vertex-rag-sa@…` key_id `3f523bee…` | 리포 내 자격증명 상주가 `fd340652` 사고의 직접 원인. git 추적은 안 되고 있었으나 **무시 규칙도 없어 `add -A` 시 유입 가능 상태였음** | ✅ 완료 |
 | 2026-08-05 | Tavily | API 키 | 정상 확인 | `api.tavily.com/search` → **200** | `.env` 상주. 동작 확인 완료 | ✅ 완료 |
 | 2026-08-05 | OpenAI `writer_agent` (2026-05-07) | API 키 | **회전 불요** | last used 2026-08-04 (본인 활동과 일치) | 생성일이 모든 오염 커밋 **이후**(최신 오염 = `fd340652` 2026-05-01). 이상 사용 흔적 없음 | 🟢 유지 |
 | 2026-08-05 | OpenAI `langchain_ai` (2026-07-18) | API 키 | **회전 불요** | last used 2026-07-25 | 상동. 도서 학습용. 미사용 지속 시 정리 후보 | 🟢 유지 |
-| 2026-08-05 | Naver Client Secret | 시크릿 | **보류** | `openapi.naver.com` → **200** (기존 키 유효) | ⚠️ 2026-07-31 개발자센터 **신규 신청 차단일 경과**. 재발급 가능 여부 불확실 → **재발급 시도 시 현행 키만 죽을 위험.** NAVER API HUB 이관과 함께 처리 (지원 종료 2027-06-30) | 🟡 보류 |
-| 2026-08-05 | SerpAPI | API 키 | 미확인 | `.env` 미참조 | 우선도 하. 계정 잔존 시 키 삭제 권고 | ⬜ 미착수 |
-| — | `gemini-rag-project-new` 프로젝트 | GCP 프로젝트 | 미확인 | `service_account.json`의 소속 프로젝트 | 현행 `GCP_PROJECT_ID`와 불일치 = 미사용 추정. 계정째 정리 여부 미정 | ⬜ 미착수 |
+| 2026-08-05 | Naver Client Secret | 시크릿 | **보류** | `openapi.naver.com` → **200** (기존 키 유효) | ⚠️ 2026-07-31 개발자센터 **신규 신청 차단일 경과**. 재발급 가능 여부 불확실 → **재발급 시도 시 현행 키만 죽을 위험.** NAVER API HUB 이관과 함께 처리 (지원 종료 2027-06-30) | 🟡 보류 → ✅ 2026-11-14 (아래) |
+| 2026-08-05 | SerpAPI | API 키 | 미확인 | `.env` 미참조 | 우선도 하. 계정 잔존 시 키 삭제 권고 | ⬜ 미착수 → ✅ 2026-11-14 (아래) |
+| — | `gemini-rag-project-new` 프로젝트 | GCP 프로젝트 | 미확인 | `service_account.json`의 소속 프로젝트 | 현행 `GCP_PROJECT_ID`와 불일치 = 미사용 추정. 계정째 정리 여부 미정 | ⬜ 미착수 → 🟢 SA 키 2개 삭제 2026-11-14 (아래), 프로젝트는 유지 |
+| 2026-11-13 | OpenAI 2025년 이전 키 (`…P0MA` 포함) | API 키 | **revoke** | 사용자 콘솔 확인 | 이력 `.env.bak`(`ffcdfa30`) · `chap14-6-legacy/env_backup/.env.origin`(`7ea222d6`) · `chap05/sec04/summarize_and_correct.ipynb`(`ea9fd685`) | ✅ 완료 |
+| 2026-11-14 | `ss-oh-957@gemini-rag-project-new` key_id `6b79182a…` | 서비스계정 개인키 | **삭제** | 사용자 콘솔 실측 — **삭제 시점까지 살아 있었다** | 이력 `service_account_key.json` 6경로(`chap14-6`·`chap14-7`·`chap14_8`·`chap15`·`chap16`·`writer_project`). ⚠️ research-pipeline 문서가 2026-09 에 "삭제됨"으로 적었으나 사실이 아니었다(해당 문서에 정정 병기) | ✅ 완료 |
+| 2026-11-14 | `ai-agent-user@gemini-rag-project-new` key_id `1218069d…` | 서비스계정 개인키 | **삭제** | 사용자 콘솔 | 이력 노출 없음. 로컬 `_retired/service_account.json` 의 키 | ✅ 완료 |
+| 2026-11-14 | `langchain-vertex-test` 프로젝트 | GCP 프로젝트 | **종료** | SA `langchain-agent` key_id `843ac1c1…` + API 키 4개(`…2Id8` 포함) 함께 폐기 | 이력 `chap14-3/sec04/langchain-vertex-test-843ac1c1e53f.json`(`ffcdfa30`, 개인키 전체). `…2Id8`(`GOOGLE_CSE_API_KEY`) = `env_text.txt` · `.env.bak` · `.env.origin` · `chap14-6/logs/run_full.log` | ✅ 완료 |
+| 2026-11-14 | `gemini-rag-search-final` 프로젝트 | GCP 프로젝트 | 확인 | `vertex-rag-sa` key_id `3de8b015…` **1개만** 남음 | 현행 `GOOGLE_APPLICATION_CREDENTIALS` 대상. 이력 노출 없음 | 🟢 유지 |
+| 2026-11-14 | `~/.config/gcloud/_retired/` JSON 2개 | 개인키 파일 | **로컬 삭제** | `ai-agent-user` `1218069d…` · `vertex-rag-sa` `3f523bee…`(08-05 회전 구키) | 두 키 모두 콘솔에서 이미 삭제 | ✅ 완료 |
+| 2026-11-14 | SerpAPI | API 키 | 현행 확인 + **다른 이메일 계정 키 regenerate** | 현행 `…f81c`(research-pipeline `.env`) | 이력 `…1715`(`.env.bak`) · `…85c6`(`.env.origin`·`env_text.txt`) 는 현행과 불일치 | ✅ 완료 |
+| 2026-11-14 | HuggingFace | 토큰 | 확인 | 계정 토큰 **0개** → `…KRDC` 무효 | 이력 `chap05/sec03/` 4파일(`f3a15e57`, 두 레포 공통 커밋) | ✅ 완료 |
+| 2026-11-14 | Tavily | API 키 | 확인 | `…h8BI` **1개만** 남음 | 이력 `…sIUR`(`env_text.txt`) 는 계정에 없음 | ✅ 완료 |
+| 2026-11-14 | Naver Client Secret | 시크릿 | **재발급** | 두 레포 `.env` 교체. 새 Secret → HTTP **200** / 옛 `…SacS` → HTTP **401**(errorCode 024). Client ID `…fGT6` 불변 | 이력 `env_text.txt`(`0c59bff1`)에 ID·Secret 이 있었고, `…SacS` 는 11-13 시점 backend `.env` 값과 같았다. 08-05 로그·`credential_exposure_audit.md` 둘 다 누락 | ✅ 완료 |
 
 [^rot1]: **정정 이력 (2026-08-05, R2-a).** 이 행의 사유는 최초 기재 시 오염 커밋을
 `fd340652`(2026-05-01)로 적었으나, 실측 결과 `fd340652`는
@@ -266,13 +276,31 @@ writer_project에서 실행해 레포 루트의 `env_text.txt`가 범위 밖으�
 1차 보고에서는 **원표 미변경 + 주석 병기**로 처리했으나, 틀린 근거가 표 본문에 남으면
 후속 판정이 그것을 인용하므로(CLAUDE.md §9) **표 본문을 교체하고 이 각주로 이력을 남긴다.**
 
+[^rot2]: **정정 이력 (2026-11-14, 비밀값 정리).** 이 행의 사유 칸을 교체했다. **교체 전 원문**(2026-08-05 R2-a 판):
+> 🔴 **`service_account_key.json`이 두 번 커밋됐고, 두 번째가 현행 키를 노출.**<br>`3fce3e61`(2026-01-31) 최초 커밋 = 키 생성 **이전** → 이전 세대 키<br>2026-02-23 `vertex-rag-sa` 키 생성 (`3f523bee…`)<br>**`105eca9b`(2026-03-02) 재커밋 = 키 생성 이후 → 현행 키 노출 확정**
+
+이 원문은 틀렸다. `105eca9b` 는 그 파일을 **삭제**한 커밋이고(`git log --name-status` = `D`), 이력의
+`service_account_key.json` blob 6경로는 전부 `ss-oh-957@gemini-rag-project-new` key_id `6b79182a…` 였다.
+`vertex-rag-sa` `3f523bee…` 의 이력 부재는 두 이력으로 판정했다:
+- **backend** (재작성 이력 없음) — `git log --all -S'3f523bee'` = 문서 커밋 2건(`04ad6a62`·`07b7ec0c`)뿐.
+- **research-pipeline** — 현재 이력은 S89 에서 비밀 경로 13종을 `filter-repo` 로 지워 판정 근거가 못 된다.
+  대신 **재작성 직전 미러** `bell-agent/research-pipeline-BACKUP-S89.git`(커밋 584 · HEAD `3f03b160`,
+  `S8_0_JUDGMENTS.md §6` 기록과 일치)을 읽기 전용으로 검사했다. 양성 대조 = 지운 13경로 **13/13** 이력 존재 ·
+  `6b79182a` 11커밋. 결과 = `3f523bee`·`vertex-rag-sa@` 는 문서 커밋에만 있고, `"private_key"` 를 담은 blob 의
+  `client_email` 전수는 `ss-oh-957@…`(`6b79182a`) 12건 · `langchain-agent@…`(`843ac1c1`) 2건뿐이다.
+- ⚠️ 판정 범위 = 위 두 이력. S89 이전에 research-pipeline 원본이 다른 방식으로 재작성됐는지는 이 검사가 말하지 않는다.
+
+→ 08-05 회전은 노출 대응이 아니라 **예방 조치**였다(결과는 유효). 실제 노출 키 `6b79182a…` 는 이 로그에 없었고
+2026-11-14 에 삭제됐다(위 행). research-pipeline `S85_PRECHECK_RESULT.md` 가 재작성 전 이력에서
+`6b79182a` 가 이 로그에 없다는 점을 먼저 지적했다(파일명 축 검사).
+
 ### 별건 이월 — `ad/WORKBOARD.md` 등재 후보
 
 | 항목 | 기한 | 비고 |
 |---|---|---|
 | **NAVER Search API → API HUB 이관** | 2027-06-30 (지원 종료) | NCP 계정 신규 가입 필요. 인증 체계 변경(개발자센터 Client ID/Key → API HUB Key). 프로모션 2026-09-30 |
-| SerpAPI 계정 정리 | — | 우선도 하 |
-| `gemini-rag-project-new` 프로젝트 정리 | — | 우선도 하 |
+| ~~SerpAPI 계정 정리~~ | — | ✅ **2026-11-14 완료** (§E) |
+| `gemini-rag-project-new` 프로젝트 정리 | — | 우선도 하. SA 키 2개는 2026-11-14 삭제(§E), 프로젝트 자체는 유지 |
 | ~~`secrets.txt`·`*.pem`·`*.key` 차단 패턴 확장~~ | — | ✅ **2026-08-05 완료** (§B) |
 | `blockagi-run` push (평문 키 제거 커밋, `ahead 1`) | blockagi 재사용 시 | 하. **지금은 하지 않음 판정** (§A) |
 

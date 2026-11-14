@@ -29,6 +29,9 @@ writer_project/service_account*.json
 *credentials*.json
 *client_secret*.json
 *-sa.json
+# 2026-11-14 비밀값 정리: GCP 콘솔 기본 다운로드명 `<project-id>-<key_id 앞 12hex>.json` 을 위 패턴이 놓친다.
+# 실사고 = chap14-3/sec04/langchain-vertex-test-843ac1c1e53f.json (개인키 전체 커밋). 추가 전 tracked·untracked 대조 충돌 0건 실측.
+*-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f].json
 # §research-1 R2-a: 키 자재·평문 시크릿 파일. ⚠️ `*.key` 는 설정 확장자로 쓰이는 사례가 있어
 # 추가 전 tracked 전량 대조로 충돌 0건을 실측 확인함 (WOULD-BREAK 검사).
 secrets.txt
