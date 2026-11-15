@@ -266,6 +266,7 @@ writer_project에서 실행해 레포 루트의 `env_text.txt`가 범위 밖으�
 | 2026-11-14 | HuggingFace | 토큰 | 확인 | 계정 토큰 **0개** → `…KRDC` 무효 | 이력 `chap05/sec03/` 4파일(`f3a15e57`, 두 레포 공통 커밋) | ✅ 완료 |
 | 2026-11-14 | Tavily | API 키 | 확인 | `…h8BI` **1개만** 남음 | 이력 `…sIUR`(`env_text.txt`) 는 계정에 없음 | ✅ 완료 |
 | 2026-11-14 | Naver Client Secret | 시크릿 | **재발급** | 두 레포 `.env` 교체. 새 Secret → HTTP **200** / 옛 `…SacS` → HTTP **401**(errorCode 024). Client ID `…fGT6` 불변 | 이력 `env_text.txt`(`0c59bff1`)에 ID·Secret 이 있었고, `…SacS` 는 11-13 시점 backend `.env` 값과 같았다. 08-05 로그·`credential_exposure_audit.md` 둘 다 누락 | ✅ 완료 |
+| 2026-11-15 | research-pipeline **재작성 전 이력** | 이력 감사 (읽기 전용) | 현행 키 대조 | 백업 = `bell-agent/research-pipeline-BACKUP-S89.git` (S89 직전 로컬 미러 · 커밋 584 · HEAD `3f03b160` · 원격 없음). 현행 키 11개 각각 `git log --all -S` → **Naver Client ID `…fGT6` 만** `0c59bff1`·`105eca9b` 에 있음(ID 는 불변, Secret 은 11-14 재발급). 나머지 10개 0건. 로컬 백업 `.env.bak_*` 의 옛 값 `…SacS`(Naver Secret)·`…sIUR`(Tavily) 도 같은 2커밋에 있으나 둘 다 무효. 양성 대조 `6b79182a` = 11커밋 | 재작성 전 이력의 **research-pipeline 원격 push 이력 없음**: S89 착수 시점 "원격 0"(`S89_SCRUB_AND_PUSH.md` · `S8_0_JUDGMENTS.md §6`), 백업의 원격 추적 ref 0건, GitHub 저장소는 S89B 에서 정리본(`rp-s89.git`)으로 처음 생성. ⚠️ 단 같은 해시의 커밋 `0c59bff1`·`105eca9b` 는 **backend 원격**(`Sungsu1203/bell-agent-backend`, 비공개)에 있다 — 두 레포의 공통 조상. 백업은 2026-11-15 사용자가 휴지통으로 이동 | 🟢 기록 |
 
 [^rot1]: **정정 이력 (2026-08-05, R2-a).** 이 행의 사유는 최초 기재 시 오염 커밋을
 `fd340652`(2026-05-01)로 적었으나, 실측 결과 `fd340652`는
